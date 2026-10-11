@@ -5,7 +5,7 @@ import { orgMemberships, profileObjectPermissions, profiles, users } from "../db
 import { LOCAL_ACTOR, actorFor } from "./actor";
 import { createAccount, deleteAccount, getAccount, listAccounts, updateAccount } from "./accounts";
 import { countContacts, createContact, deleteContact, getContact, updateContact } from "./contacts";
-import { LIST_VIEW_OBJECT_TYPES, LOCAL_ORG_ID, RILEY_USER_ID } from "./constants";
+import { PROFILE_OBJECT_TYPES, LOCAL_ORG_ID, RILEY_USER_ID } from "./constants";
 import { DomainError } from "./errors";
 import { convertLead, createLead, deleteLead, getLead, updateLead } from "./leads";
 import { createListView, queryAccounts, queryContacts, queryTasks } from "./listViews";
@@ -645,7 +645,7 @@ describe("profiles and field security", () => {
       )
       .get();
     expect(profile).toBeTruthy();
-    for (const objectType of LIST_VIEW_OBJECT_TYPES) {
+    for (const objectType of PROFILE_OBJECT_TYPES) {
       const row = db
         .select()
         .from(profileObjectPermissions)

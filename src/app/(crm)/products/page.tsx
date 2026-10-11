@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireActor } from "@/lib/crm/currentUser";
 import { formatUsd } from "@/lib/crm/money";
-import { canPerform } from "@/lib/crm/permissions";
+import { canPerform, canReadField } from "@/lib/crm/permissions";
 import { countProducts, listProducts } from "@/lib/crm/products";
 import { getDb } from "@/lib/db/client";
 
@@ -10,6 +10,7 @@ export default async function ProductsPage() {
   const db = getDb();
   const canRead = canPerform(db, actor, "product", "read");
   const canCreate = canPerform(db, actor, "product", "create");
+  const see = (field: string) => canReadField(db, actor, "product", field);
   const products = canRead ? listProducts(db, actor) : [];
   const total = canRead ? countProducts(db, actor) : 0;
 
@@ -62,13 +63,23 @@ export default async function ProductsPage() {
                         href={`/products/${product.id}`}
                         className="font-medium text-[#c45c26] hover:underline"
                       >
-                        {product.name}
+                        {see("name") ? product.name : "—"}
                       </Link>
                     </td>
-                    <td className="px-4 py-2">{product.productCode ?? "—"}</td>
-                    <td className="px-4 py-2">{product.family ?? "—"}</td>
-                    <td className="px-4 py-2">{product.isActive ? "Yes" : "No"}</td>
-                    <td className="px-4 py-2">{formatUsd(product.standardPriceCents)}</td>
+                    <td className="px-4 py-2">
+                      {see("productCode") ? (product.productCode ?? "—") : "—"}
+                    </td>
+                    <td className="px-4 py-2">
+                      {see("family") ? (product.family ?? "—") : "—"}
+                    </td>
+                    <td className="px-4 py-2">
+                      {see("isActive") ? (product.isActive ? "Yes" : "No") : "—"}
+                    </td>
+                    <td className="px-4 py-2">
+                      {see("standardPriceCents")
+                        ? formatUsd(product.standardPriceCents)
+                        : "—"}
+                    </td>
                   </tr>
                 ))
               )}

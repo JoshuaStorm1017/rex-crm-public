@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-11, product catalog mutation tests.
+Last updated: 2026-10-11, product field permissions.
 The organization-wide sharing slice was abandoned after three review
 rounds and is not in this tree.
 
@@ -64,11 +64,32 @@ Things actually run, with evidence.
   1000-cent price in place. Each of those five checks was confirmed
   by applying the reviewer's mutation, seeing the new assertion
   fail, and restoring the original code.
-- **`npm run verify` (2026-10-11, 13:44 EDT):** exit 0. 34 test files,
-  402 tests. TypeScript, ESLint, and the Next.js 16.3.5 production
+- Field permissions apply to products. A profile that cannot read
+  `description`, `productCode`, or `family` gets null for those
+  fields from get, list, and the update return. A hidden
+  `standardPriceCents` is null on get and list. Create and update
+  returns go through the same redaction. The operator still sees
+  the stored values. `canEdit: false` on
+  `standardPriceCents` blocks create and update before the write,
+  and the same deny covers the form names `standardPrice` and
+  `unitPriceCents`. The price-book column stays `unit_price_cents`.
+  The detail omits a product field the actor cannot read. The list
+  shows an em dash in that cell.
+  Read Only cannot update or delete a product it owns, and the
+  price stays. Riley can delete a product Riley owns. A fractional
+  cent (`10.5`) is rejected and leaves both tables unchanged. An
+  omitted Active checkbox stores inactive on create and on update.
+- **`npm run verify` (2026-10-11, 14:37 EDT):** exit 0. 34 test files,
+  406 tests. TypeScript, ESLint, and the Next.js 16.3.5 production
   build passed. The build lists `/products`, `/products/new`,
-  `/products/[id]`, and `/products/[id]/edit`. The 13:04 run was
-  398 tests, before these assertions.
+  `/products/[id]`, and `/products/[id]/edit`. The 13:44 run was
+  402 tests, before field permissions. The 13:04 run was 398.
+- Each reviewer mutation was applied, the focused test failed, and
+  the original line was restored: delete with a fake owner id,
+  `isActive !== "false"`, dropping `.int()` on the cent schema,
+  forcing Read Only product update and delete, skipping
+  `presentRecord` on get, list, create, and update, and skipping
+  `assertEditableFields` on create and on update.
 - **Browser-style pass, throwaway database only.**
   `DATABASE_PATH=/tmp/rex-crm-products-20261011.sqlite`,
   `next dev -p 3017`. Signed in by posting the login form.
@@ -90,9 +111,27 @@ Things actually run, with evidence.
   - Price `1.005` stayed on the new-product form with "Standard price
     must be a dollar amount with at most two decimal places" and did
     not insert a row. Riley's home had no Setup link.
-- Not checked: a real browser viewport. Chrome DevTools was not
-  connected. No custom price book, opportunity line, product search,
-  report, or recycle restore.
+- **Form pass, throwaway database only (2026-10-11, 14:40 EDT).**
+  `DATABASE_PATH=/tmp/rex-crm-product-fields-20261011.sqlite`,
+  `next dev -p 3018`. Signed in by posting the login form.
+  Password `local-dev`. The server was stopped afterward.
+  Chrome DevTools was not connected, so there was no viewport pass.
+  - Operator created Anvil, code `ANV-1`, family Hardware,
+    description Painted iron, price `19.99`, Active checked.
+    Detail showed `$19.99`, Standard Price Book, Edit, and Delete.
+  - Saving the edit form without the Active field returned to the
+    detail as Inactive. SQLite kept `unit_price_cents` 1999 and
+    `is_active` 0. Creating Dormant Anvil at `10.00` with the
+    checkbox omitted stored inactive and 1000 cents.
+  - Riley was moved to a profile that can read products and cannot
+    read code, family, description, or standard price. Riley's
+    detail showed the name and Standard Price Book, and did not
+    show `ANV-1`, Hardware, Painted iron, `$19.99`, or a Standard
+    Price field. Edit and Delete were absent. The edit URL said
+    "You do not have permission to edit this product." The operator
+    detail still showed the code, family, description, and `$19.99`.
+- Not checked: a real browser viewport. No custom price book,
+  opportunity line, product search, report, or recycle restore.
 
 ### Setup administration and Read Only profile (`5126f24`)
 
@@ -706,7 +745,9 @@ on the existing file (1 list view, 0 of everything else).
   four parent-table left joins, gated by `related_object_type`.
 - **Products** (2026-10-11) — one standard price book per org and a
   price book entry in integer cents. Active flag, code, family, and
-  description. Org isolation and the profile/owner checks. No custom
+  description. Org isolation, profile and owner checks, and field
+  permissions on the product fields. The permission name for the
+  price is `standardPriceCents`. No custom
   price books, no opportunity line items, no product search, reports,
   list views, custom fields, validation rules, or recycle-bin restore.
   A member can still read another member's product. The price book
@@ -856,6 +897,21 @@ fresh verification evidence for each slice.
 ---
 
 ## Session log
+
+### Session 2026-10-11 — product field permissions (Rex / Grok)
+
+- Did not start opportunity line items. The review found product
+  field permissions were stored and ignored, and four security or
+  money mutants still survived.
+- Reads and writes now use `standardPriceCents`. Hidden fields are
+  removed from the record and from the list and detail. A locked
+  field blocks the write. Read Only cannot update or delete its own
+  product. Omitted Active stores inactive. Fractional cents are
+  rejected.
+- `npm run verify` exit 0 at 14:37 EDT: 34 files, 406 tests,
+  production build. Form pass on port 3018 with a throwaway
+  database. The server was stopped. No viewport pass.
+- Did not push, open a PR, or deploy. No real-business data.
 
 ### Session 2026-10-11 — product catalog (Rex / Grok)
 

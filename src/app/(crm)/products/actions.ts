@@ -25,7 +25,7 @@ function productFields(formData: FormData) {
     family: clearable(formData, "family"),
     description: clearable(formData, "description"),
     isActive: formData.get("isActive") === "true",
-    unitPriceCents: parseStandardPrice(price),
+    standardPriceCents: parseStandardPrice(price),
   };
 }
 

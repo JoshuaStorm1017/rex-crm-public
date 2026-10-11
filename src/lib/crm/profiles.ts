@@ -58,11 +58,14 @@ const SYSTEM_FIELDS = new Set([
 ]);
 
 /**
- * Edit forms post annual revenue under a different name than the column.
- * Field security is stored on the domain key.
+ * Edit forms post these under a different name than the field-permission
+ * key. A product price deny is stored as standardPriceCents, whether the
+ * form posted standardPrice or the older unitPriceCents key.
  */
 const FORM_FIELD_KEYS: Record<string, string> = {
   annualRevenue: "annualRevenueCents",
+  standardPrice: "standardPriceCents",
+  unitPriceCents: "standardPriceCents",
 };
 
 export type FieldAccess = {

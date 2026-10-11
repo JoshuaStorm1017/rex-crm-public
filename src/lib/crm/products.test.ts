@@ -1,18 +1,21 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { eq } from "drizzle-orm";
+import { count, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openDb, openMemoryDb } from "../db/client";
-import { priceBooks, profiles } from "../db/schema";
+import { priceBookEntries, priceBooks, products, profiles } from "../db/schema";
 import { LOCAL_ACTOR, actorFor } from "./actor";
 import { LOCAL_ORG_ID, RILEY_USER_ID } from "./constants";
 import { DomainError } from "./errors";
 import { createOrganization } from "./orgs";
+import { formFieldAllowed } from "./permissions";
 import {
   READ_ONLY_PROFILE_NAME,
   assignProfile,
   createProfile,
+  setFieldPermission,
+  setObjectPermission,
 } from "./profiles";
 import {
   STANDARD_PRICE_BOOK_NAME,
@@ -61,7 +64,7 @@ describe("products", () => {
       productCode: "ANV-1",
       family: "Hardware",
       description: "Painted iron",
-      unitPriceCents: parseStandardPrice("19.99"),
+      standardPriceCents: parseStandardPrice("19.99"),
     });
     expect(created.id.startsWith("01t")).toBe(true);
     expect(created.priceBookId.startsWith("01s")).toBe(true);
@@ -89,10 +92,10 @@ describe("products", () => {
   it("rejects a blank name and a negative price", () => {
     const db = memory();
     expect(() =>
-      createProduct(db, LOCAL_ACTOR, { name: "   ", unitPriceCents: 100 }),
+      createProduct(db, LOCAL_ACTOR, { name: "   ", standardPriceCents: 100 }),
     ).toThrow(/Product name/);
     expect(() =>
-      createProduct(db, LOCAL_ACTOR, { name: "Anvil", unitPriceCents: -1 }),
+      createProduct(db, LOCAL_ACTOR, { name: "Anvil", standardPriceCents: -1 }),
     ).toThrow(/negative/);
     expect(listProducts(db, LOCAL_ACTOR)).toEqual([]);
   });
@@ -102,14 +105,14 @@ describe("products", () => {
     createProduct(db, LOCAL_ACTOR, {
       name: "Anvil",
       productCode: "ANV-1",
-      unitPriceCents: 1000,
+      standardPriceCents: 1000,
     });
     expectCode(
       () =>
         createProduct(db, LOCAL_ACTOR, {
           name: "Anvil Copy",
           productCode: "ANV-1",
-          unitPriceCents: 2000,
+          standardPriceCents: 2000,
         }),
       "DUPLICATE",
     );
@@ -120,7 +123,7 @@ describe("products", () => {
     const foreign = createProduct(db, otherActor, {
       name: "Anvil",
       productCode: "ANV-1",
-      unitPriceCents: 3000,
+      standardPriceCents: 3000,
     });
     expect(foreign.standardPriceCents).toBe(3000);
     expect(getProduct(db, LOCAL_ACTOR, foreign.id)).toBeUndefined();
@@ -141,12 +144,12 @@ describe("products", () => {
       name: "Anvil",
       productCode: "ANV-1",
       description: "Painted",
-      unitPriceCents: 1000,
+      standardPriceCents: 1000,
     });
     const second = createProduct(db, LOCAL_ACTOR, {
       name: "Birdseed",
       productCode: "SEED",
-      unitPriceCents: 500,
+      standardPriceCents: 500,
     });
     const updated = updateProduct(db, LOCAL_ACTOR, first.id, {
       name: "Anvil",
@@ -154,7 +157,7 @@ describe("products", () => {
       description: null,
       family: null,
       isActive: false,
-      unitPriceCents: 0,
+      standardPriceCents: 0,
     });
     expect(updated.productCode).toBeNull();
     expect(updated.description).toBeNull();
@@ -171,7 +174,7 @@ describe("products", () => {
         updateProduct(db, LOCAL_ACTOR, first.id, {
           name: "Anvil",
           productCode: "SEED",
-          unitPriceCents: 0,
+          standardPriceCents: 0,
         }),
       "DUPLICATE",
     );
@@ -185,11 +188,11 @@ describe("products", () => {
       name: "Anvil",
       productCode: "ANV-1",
       family: "Hardware",
-      unitPriceCents: 1000,
+      standardPriceCents: 1000,
     });
     const updated = updateProduct(db, LOCAL_ACTOR, created.id, {
       name: "Anvil XL",
-      unitPriceCents: 1200,
+      standardPriceCents: 1200,
     });
     expect(updated.name).toBe("Anvil XL");
     expect(updated.productCode).toBe("ANV-1");
@@ -202,7 +205,7 @@ describe("products", () => {
     const created = createProduct(db, LOCAL_ACTOR, {
       name: "Anvil",
       productCode: "ANV-1",
-      unitPriceCents: 1000,
+      standardPriceCents: 1000,
     });
     deleteProduct(db, LOCAL_ACTOR, created.id);
     expect(getProduct(db, LOCAL_ACTOR, created.id)).toBeUndefined();
@@ -211,7 +214,7 @@ describe("products", () => {
     const reused = createProduct(db, LOCAL_ACTOR, {
       name: "Anvil Again",
       productCode: "ANV-1",
-      unitPriceCents: 1100,
+      standardPriceCents: 1100,
     });
     expect(reused.id).not.toBe(created.id);
     expect(getProduct(db, LOCAL_ACTOR, reused.id)?.standardPriceCents).toBe(1100);
@@ -222,7 +225,7 @@ describe("products", () => {
     const created = createProduct(db, LOCAL_ACTOR, {
       name: "Operator Anvil",
       productCode: "OP-1",
-      unitPriceCents: 1000,
+      standardPriceCents: 1000,
     });
     const riley = actorFor(RILEY_USER_ID);
     expect(getProduct(db, riley, created.id)?.name).toBe("Operator Anvil");
@@ -230,7 +233,7 @@ describe("products", () => {
       () =>
         updateProduct(db, riley, created.id, {
           name: "Riley Anvil",
-          unitPriceCents: 1,
+          standardPriceCents: 1,
         }),
       "FORBIDDEN",
     );
@@ -242,11 +245,11 @@ describe("products", () => {
 
     const owned = createProduct(db, riley, {
       name: "Riley Birdseed",
-      unitPriceCents: 250,
+      standardPriceCents: 250,
     });
     const edited = updateProduct(db, LOCAL_ACTOR, owned.id, {
       name: "Riley Birdseed",
-      unitPriceCents: 275,
+      standardPriceCents: 275,
     });
     expect(edited.standardPriceCents).toBe(275);
     expect(edited.ownerId).toBe(RILEY_USER_ID);
@@ -257,7 +260,7 @@ describe("products", () => {
     const db = memory();
     const created = createProduct(db, LOCAL_ACTOR, {
       name: "Visible Anvil",
-      unitPriceCents: 1000,
+      standardPriceCents: 1000,
     });
     const readOnly = db
       .select()
@@ -271,7 +274,7 @@ describe("products", () => {
     expect(getProduct(db, riley, created.id)?.name).toBe("Visible Anvil");
     expectCode(
       () =>
-        createProduct(db, riley, { name: "Nope", unitPriceCents: 1 }),
+        createProduct(db, riley, { name: "Nope", standardPriceCents: 1 }),
       "FORBIDDEN",
     );
     expect(countProducts(db, LOCAL_ACTOR)).toBe(1);
@@ -282,10 +285,235 @@ describe("products", () => {
     expect(listProducts(db, riley)).toEqual([]);
     expect(countProducts(db, riley)).toBe(0);
     expectCode(
-      () => createProduct(db, riley, { name: "Still Nope", unitPriceCents: 1 }),
+      () => createProduct(db, riley, { name: "Still Nope", standardPriceCents: 1 }),
       "FORBIDDEN",
     );
     expect(getProduct(db, LOCAL_ACTOR, created.id)?.name).toBe("Visible Anvil");
+  });
+
+  it("lets the owner delete their product and refuses update and delete after Read Only", () => {
+    const db = memory();
+    const riley = actorFor(RILEY_USER_ID);
+    const owned = createProduct(db, riley, {
+      name: "Riley Anvil",
+      standardPriceCents: 1000,
+    });
+    deleteProduct(db, riley, owned.id);
+    expect(listProducts(db, riley)).toEqual([]);
+    expect(getProduct(db, riley, owned.id)).toBeUndefined();
+    expect(
+      db
+        .select({ deletedAt: products.deletedAt })
+        .from(products)
+        .where(eq(products.id, owned.id))
+        .get()?.deletedAt,
+    ).toEqual(expect.any(Number));
+
+    const kept = createProduct(db, riley, {
+      name: "Riley Kept",
+      standardPriceCents: 2200,
+    });
+    const readOnly = db
+      .select()
+      .from(profiles)
+      .where(eq(profiles.name, READ_ONLY_PROFILE_NAME))
+      .all()
+      .find((row) => row.orgId === LOCAL_ORG_ID);
+    expect(readOnly).toBeTruthy();
+    assignProfile(db, LOCAL_ACTOR, RILEY_USER_ID, readOnly!.id);
+
+    expectCode(
+      () =>
+        updateProduct(db, riley, kept.id, {
+          name: "Hijacked",
+          standardPriceCents: 1,
+        }),
+      "FORBIDDEN",
+    );
+    expectCode(() => deleteProduct(db, riley, kept.id), "FORBIDDEN");
+    expect(getProduct(db, LOCAL_ACTOR, kept.id)).toMatchObject({
+      name: "Riley Kept",
+      standardPriceCents: 2200,
+    });
+    expect(
+      db
+        .select({ deletedAt: products.deletedAt })
+        .from(products)
+        .where(eq(products.id, kept.id))
+        .get()?.deletedAt,
+    ).toBeNull();
+    expect(
+      db
+        .select({ cents: priceBookEntries.unitPriceCents })
+        .from(priceBookEntries)
+        .where(eq(priceBookEntries.productId, kept.id))
+        .get()?.cents,
+    ).toBe(2200);
+  });
+
+  it("redacts hidden product fields and refuses a write to a locked price", () => {
+    const db = memory();
+    const riley = actorFor(RILEY_USER_ID);
+    const created = createProduct(db, riley, {
+      name: "Visible Anvil",
+      productCode: "ANV-1",
+      family: "Hardware",
+      description: "Painted iron",
+      standardPriceCents: 1000,
+    });
+    const profileId = createProfile(db, LOCAL_ACTOR, "Catalog Limited");
+    setObjectPermission(db, LOCAL_ACTOR, profileId, "product", {
+      canCreate: true,
+      canRead: true,
+      canUpdate: true,
+      canDelete: false,
+    });
+    for (const fieldName of ["description", "productCode", "family"]) {
+      setFieldPermission(db, LOCAL_ACTOR, profileId, "product", fieldName, {
+        canRead: false,
+        canEdit: false,
+      });
+    }
+    assignProfile(db, LOCAL_ACTOR, RILEY_USER_ID, profileId);
+
+    const seen = getProduct(db, riley, created.id);
+    expect(seen).toMatchObject({
+      name: "Visible Anvil",
+      productCode: null,
+      family: null,
+      description: null,
+      standardPriceCents: 1000,
+    });
+    expect(listProducts(db, riley)[0]).toMatchObject({
+      productCode: null,
+      family: null,
+      description: null,
+      standardPriceCents: 1000,
+    });
+    expect(getProduct(db, LOCAL_ACTOR, created.id)).toMatchObject({
+      productCode: "ANV-1",
+      family: "Hardware",
+      description: "Painted iron",
+      standardPriceCents: 1000,
+    });
+
+    const updated = updateProduct(db, riley, created.id, {
+      name: "Renamed Anvil",
+      standardPriceCents: 1100,
+    });
+    expect(updated).toMatchObject({
+      name: "Renamed Anvil",
+      productCode: null,
+      family: null,
+      description: null,
+      standardPriceCents: 1100,
+    });
+    expect(getProduct(db, LOCAL_ACTOR, created.id)).toMatchObject({
+      name: "Renamed Anvil",
+      productCode: "ANV-1",
+      family: "Hardware",
+      description: "Painted iron",
+      standardPriceCents: 1100,
+    });
+
+    expectCode(
+      () =>
+        createProduct(db, riley, {
+          name: "Secret",
+          description: "hidden",
+          standardPriceCents: 100,
+        }),
+      "FORBIDDEN",
+    );
+    expect(db.select({ n: count() }).from(products).get()?.n).toBe(1);
+    expect(db.select({ n: count() }).from(priceBookEntries).get()?.n).toBe(1);
+
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "product", "priceBookName", {
+      canRead: false,
+      canEdit: false,
+    });
+    const made = createProduct(db, riley, {
+      name: "Plain",
+      standardPriceCents: 50,
+    });
+    expect(made.priceBookName).toBeNull();
+    expect(made.name).toBe("Plain");
+    expect(made.standardPriceCents).toBe(50);
+    expect(getProduct(db, LOCAL_ACTOR, made.id)?.priceBookName).toBe(
+      STANDARD_PRICE_BOOK_NAME,
+    );
+
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "product", "standardPriceCents", {
+      canRead: true,
+      canEdit: false,
+    });
+    expect(formFieldAllowed(db, riley, "product", "standardPriceCents")).toBe(false);
+    expect(formFieldAllowed(db, riley, "product", "unitPriceCents")).toBe(false);
+    expect(formFieldAllowed(db, riley, "product", "standardPrice")).toBe(false);
+    expect(getProduct(db, riley, created.id)?.standardPriceCents).toBe(1100);
+    expectCode(
+      () =>
+        updateProduct(db, riley, created.id, {
+          name: "Renamed Anvil",
+          standardPriceCents: 5,
+        }),
+      "FORBIDDEN",
+    );
+    expectCode(
+      () =>
+        createProduct(db, riley, {
+          name: "Locked Price",
+          standardPriceCents: 5,
+        }),
+      "FORBIDDEN",
+    );
+    expect(db.select({ n: count() }).from(products).get()?.n).toBe(2);
+    expect(db.select({ n: count() }).from(priceBookEntries).get()?.n).toBe(2);
+    expect(getProduct(db, LOCAL_ACTOR, created.id)).toMatchObject({
+      standardPriceCents: 1100,
+      description: "Painted iron",
+    });
+
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "product", "standardPriceCents", {
+      canRead: false,
+      canEdit: false,
+    });
+    expect(getProduct(db, riley, created.id)?.standardPriceCents).toBeNull();
+    const listed = listProducts(db, riley).find((row) => row.id === created.id);
+    expect(listed?.standardPriceCents).toBeNull();
+    expect(getProduct(db, LOCAL_ACTOR, created.id)?.standardPriceCents).toBe(1100);
+  });
+
+  it("rejects a fractional cent price and leaves products and prices unchanged", () => {
+    const db = memory();
+    expect(() =>
+      createProduct(db, LOCAL_ACTOR, { name: "Anvil", standardPriceCents: 10.5 }),
+    ).toThrow(/whole cents/);
+    expect(db.select({ n: count() }).from(products).get()?.n).toBe(0);
+    expect(db.select({ n: count() }).from(priceBookEntries).get()?.n).toBe(0);
+
+    const created = createProduct(db, LOCAL_ACTOR, {
+      name: "Anvil",
+      standardPriceCents: 1000,
+    });
+    expect(() =>
+      updateProduct(db, LOCAL_ACTOR, created.id, {
+        name: "Anvil",
+        standardPriceCents: 10.5,
+      }),
+    ).toThrow(/whole cents/);
+    expect(getProduct(db, LOCAL_ACTOR, created.id)).toMatchObject({
+      name: "Anvil",
+      standardPriceCents: 1000,
+    });
+    expect(db.select({ n: count() }).from(products).get()?.n).toBe(1);
+    expect(
+      db
+        .select({ cents: priceBookEntries.unitPriceCents })
+        .from(priceBookEntries)
+        .where(eq(priceBookEntries.productId, created.id))
+        .get()?.cents,
+    ).toBe(1000);
   });
 
   it("survives closing and reopening the sqlite file", () => {
@@ -297,7 +525,7 @@ describe("products", () => {
     const created = createProduct(first.db, LOCAL_ACTOR, {
       name: "Rocket Skates",
       productCode: "RS-1",
-      unitPriceCents: 4999,
+      standardPriceCents: 4999,
     });
     first.close();
     const second = openDb(file);

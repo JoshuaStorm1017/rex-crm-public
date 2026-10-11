@@ -15,7 +15,10 @@ import { ID_PREFIX, newId } from "./ids";
 import {
   assertCanAccessRecord,
   assertCanPerform,
+  assertEditableFields,
   canPerform,
+  presentRecord,
+  touchedFields,
 } from "./permissions";
 
 export const STANDARD_PRICE_BOOK_NAME = "Standard Price Book";
@@ -54,7 +57,8 @@ const productShape = {
   productCode: optionalText(80, "Product code"),
   family: optionalText(80, "Product family"),
   description: optionalText(5000, "Description"),
-  unitPriceCents: priceCents,
+  // Field security uses this name. The price-book column is unit_price_cents.
+  standardPriceCents: priceCents,
 };
 
 export const productCreateSchema = z.object({
@@ -253,7 +257,8 @@ export function getProduct(
   assertActor(db, actor);
   if (!canPerform(db, actor, "product", "read")) return undefined;
   const book = requireBook(db, actor);
-  return loadProduct(db, actor, id, book.id);
+  const row = loadProduct(db, actor, id, book.id);
+  return row ? presentRecord(db, actor, "product", row) : undefined;
 }
 
 export function listProducts(db: Db, actor: Actor): ProductView[] {
@@ -290,7 +295,8 @@ export function listProducts(db: Db, actor: Actor): ProductView[] {
     .innerJoin(priceBooks, eq(priceBooks.id, priceBookEntries.priceBookId))
     .where(and(eq(products.orgId, actor.orgId), isNull(products.deletedAt)))
     .orderBy(asc(products.name))
-    .all();
+    .all()
+    .map((row) => presentRecord(db, actor, "product", row));
 }
 
 export function countProducts(db: Db, actor: Actor): number {
@@ -312,6 +318,7 @@ export function createProduct(
   assertActor(db, actor);
   assertCanPerform(db, actor, "product", "create");
   const parsed = productCreateSchema.parse(input);
+  assertEditableFields(db, actor, "product", touchedFields(parsed));
   const book = requireBook(db, actor);
   const productCode = normalizeText(parsed.productCode) ?? null;
   const family = normalizeText(parsed.family) ?? null;
@@ -342,7 +349,7 @@ export function createProduct(
         orgId: actor.orgId,
         priceBookId: book.id,
         productId: id,
-        unitPriceCents: parsed.unitPriceCents,
+        unitPriceCents: parsed.standardPriceCents,
         isActive: true,
         createdAt: ts,
         updatedAt: ts,
@@ -353,7 +360,7 @@ export function createProduct(
   if (!created) {
     throw new DomainError("WRITE_FAILED", "Product was not persisted");
   }
-  return created;
+  return presentRecord(db, actor, "product", created);
 }
 
 export function updateProduct(
@@ -370,6 +377,7 @@ export function updateProduct(
   }
   assertCanAccessRecord(db, actor, "product", "edit", existing);
   const parsed = productUpdateSchema.parse(input);
+  assertEditableFields(db, actor, "product", touchedFields(parsed));
   const productCode = normalizeText(parsed.productCode);
   const family = normalizeText(parsed.family);
   const description = normalizeText(parsed.description);
@@ -390,7 +398,7 @@ export function updateProduct(
       .where(and(eq(products.id, id), eq(products.orgId, actor.orgId)))
       .run();
     tx.update(priceBookEntries)
-      .set({ unitPriceCents: parsed.unitPriceCents, updatedAt: ts })
+      .set({ unitPriceCents: parsed.standardPriceCents, updatedAt: ts })
       .where(
         and(
           eq(priceBookEntries.productId, id),
@@ -404,7 +412,7 @@ export function updateProduct(
   if (!updated) {
     throw new DomainError("WRITE_FAILED", "Product update did not persist");
   }
-  return updated;
+  return presentRecord(db, actor, "product", updated);
 }
 
 export function deleteProduct(db: Db, actor: Actor, id: string): void {

@@ -4,7 +4,7 @@ import { DeleteButton } from "@/components/DeleteButton";
 import { deleteProductAction } from "../actions";
 import { requireActor } from "@/lib/crm/currentUser";
 import { formatUsd } from "@/lib/crm/money";
-import { canAccessRecord } from "@/lib/crm/permissions";
+import { canAccessRecord, canReadField } from "@/lib/crm/permissions";
 import { getProduct } from "@/lib/crm/products";
 import { ownerLabel } from "@/lib/crm/users";
 import { getDb } from "@/lib/db/client";
@@ -37,6 +37,7 @@ export default async function ProductDetailPage({
   const db = getDb();
   const product = getProduct(db, actor, id);
   if (!product) notFound();
+  const see = (field: string) => canReadField(db, actor, "product", field);
   const canEdit = canAccessRecord(db, actor, "product", "edit", product);
   const canDelete = canAccessRecord(db, actor, "product", "delete", product);
 
@@ -51,10 +52,16 @@ export default async function ProductDetailPage({
             <p className="text-xs uppercase tracking-wide text-[#8a8376]">
               Product · {product.id}
             </p>
-            <h1 className="text-2xl font-semibold">{product.name}</h1>
+            <h1 className="text-2xl font-semibold">
+              {see("name") ? product.name : "—"}
+            </h1>
             <p className="text-sm text-[#5c564c]">
-              {product.isActive ? "Active" : "Inactive"} · Owner{" "}
-              {ownerLabel(db, product.ownerId)}
+              {see("isActive")
+                ? product.isActive
+                  ? "Active"
+                  : "Inactive"
+                : "—"}{" "}
+              · Owner {ownerLabel(db, product.ownerId)}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -70,7 +77,7 @@ export default async function ProductDetailPage({
               <DeleteButton
                 action={deleteProductAction.bind(null, product.id)}
                 label="Delete"
-                confirmMessage={`Delete product ${product.name}?`}
+                confirmMessage={`Delete product ${see("name") ? product.name : "this product"}?`}
               />
             ) : null}
           </div>
@@ -82,11 +89,21 @@ export default async function ProductDetailPage({
         </p>
       ) : null}
       <dl className="grid gap-4 rounded-lg border border-[#d9d0c0] bg-white p-4 sm:grid-cols-2">
-        <Field label="Product Code" value={product.productCode} />
-        <Field label="Product Family" value={product.family} />
-        <Field label="Price Book" value={product.priceBookName} />
-        <Field label="Standard Price" value={formatUsd(product.standardPriceCents)} />
-        <Field label="Description" value={product.description} />
+        {see("productCode") ? (
+          <Field label="Product Code" value={product.productCode} />
+        ) : null}
+        {see("family") ? (
+          <Field label="Product Family" value={product.family} />
+        ) : null}
+        {see("priceBookName") ? (
+          <Field label="Price Book" value={product.priceBookName} />
+        ) : null}
+        {see("standardPriceCents") ? (
+          <Field label="Standard Price" value={formatUsd(product.standardPriceCents)} />
+        ) : null}
+        {see("description") ? (
+          <Field label="Description" value={product.description} />
+        ) : null}
       </dl>
     </div>
   );

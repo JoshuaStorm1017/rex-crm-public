@@ -213,4 +213,42 @@ describe("product actions", () => {
       .get();
     expect(stored?.deletedAt).toBeNull();
   });
+
+  it("stores an omitted active checkbox as inactive on create and update", async () => {
+    const opened = openMemoryDb();
+    const db = opened.db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const user = getUser(db, LOCAL_ACTOR.userId);
+    vi.mocked(requireActor).mockResolvedValue({ ...LOCAL_ACTOR, user: user! });
+
+    const createForm = new FormData();
+    createForm.set("name", "Dormant Anvil");
+    createForm.set("standardPrice", "10.00");
+    await expect(createProductAction(null, createForm)).rejects.toThrow("REDIRECT");
+    const createdId = String(vi.mocked(redirect).mock.calls[0]?.[0] ?? "").replace(
+      "/products/",
+      "",
+    );
+    expect(createdId.startsWith("01t")).toBe(true);
+    expect(getProduct(db, LOCAL_ACTOR, createdId)?.isActive).toBe(false);
+
+    vi.mocked(redirect).mockClear();
+    const activate = new FormData();
+    activate.set("name", "Dormant Anvil");
+    activate.set("standardPrice", "10.00");
+    activate.set("isActive", "true");
+    await expect(updateProductAction(createdId, null, activate)).rejects.toThrow(
+      "REDIRECT",
+    );
+    expect(getProduct(db, LOCAL_ACTOR, createdId)?.isActive).toBe(true);
+
+    vi.mocked(redirect).mockClear();
+    const clear = new FormData();
+    clear.set("name", "Dormant Anvil");
+    clear.set("standardPrice", "10.00");
+    await expect(updateProductAction(createdId, null, clear)).rejects.toThrow(
+      "REDIRECT",
+    );
+    expect(getProduct(db, LOCAL_ACTOR, createdId)?.isActive).toBe(false);
+  });
 });
