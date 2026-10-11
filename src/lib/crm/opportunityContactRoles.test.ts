@@ -5,7 +5,7 @@ import { accounts, users } from "../db/schema";
 import { LOCAL_ACTOR, actorFor } from "./actor";
 import { createAccount } from "./accounts";
 import { LOCAL_ORG_ID, RILEY_USER_ID } from "./constants";
-import { createContact, deleteContact, updateContact } from "./contacts";
+import { createContact, deleteContact, getContact, updateContact } from "./contacts";
 import { DomainError } from "./errors";
 import { convertLead, createLead, getLead } from "./leads";
 import { addMember } from "./orgs";
@@ -341,7 +341,7 @@ describe("opportunity contact roles", () => {
     expect(listOpportunityContactRoles(db, LOCAL_ACTOR, operatorOpp.id)).toEqual([]);
   });
 
-  it("uses opportunity edit, not delete, and still cascades when delete is the only write", () => {
+  it("uses opportunity edit, not delete, and still cascades on opportunity or contact delete", () => {
     const db = openMemoryDb().db;
     const deleter = createUser(db, {
       name: "Deleter",
@@ -385,9 +385,41 @@ describe("opportunity contact roles", () => {
       role: "Decision Maker",
       isPrimary: true,
     });
+    expectCode(
+      () =>
+        updateOpportunityContactRole(db, deleteActor, cascaded.id, {
+          role: "Influencer",
+          isPrimary: false,
+        }),
+      "FORBIDDEN",
+    );
+    expect(getOpportunityContactRole(db, LOCAL_ACTOR, cascaded.id)?.role).toBe(
+      "Decision Maker",
+    );
+    expect(getOpportunityContactRole(db, LOCAL_ACTOR, cascaded.id)?.isPrimary).toBe(true);
     deleteOpportunity(db, deleteActor, opportunity.id);
     expect(getOpportunity(db, LOCAL_ACTOR, opportunity.id)).toBeUndefined();
     expect(getOpportunityContactRole(db, LOCAL_ACTOR, cascaded.id)).toBeUndefined();
+
+    const cascadeContact = createContact(db, deleteActor, {
+      accountId: account.id,
+      lastName: "Cascade",
+    });
+    const cascadeDeal = createOpportunity(db, deleteActor, {
+      accountId: account.id,
+      name: "Cascade Deal",
+      stage: "Prospecting",
+      closeDate: "2026-11-05",
+    });
+    const cascadeRole = createOpportunityContactRole(db, LOCAL_ACTOR, {
+      opportunityId: cascadeDeal.id,
+      contactId: cascadeContact.id,
+      role: "Other",
+    });
+    deleteContact(db, deleteActor, cascadeContact.id);
+    expect(getContact(db, LOCAL_ACTOR, cascadeContact.id)).toBeUndefined();
+    expect(getOpportunityContactRole(db, LOCAL_ACTOR, cascadeRole.id)).toBeUndefined();
+    expect(getOpportunity(db, deleteActor, cascadeDeal.id)?.name).toBe("Cascade Deal");
 
     const editor = createUser(db, {
       name: "Role Editor",
@@ -421,6 +453,14 @@ describe("opportunity contact roles", () => {
       contactId: person.id,
       role: "Influencer",
     });
+    const updated = updateOpportunityContactRole(db, editActor, role.id, {
+      role: "Decision Maker",
+      isPrimary: true,
+    });
+    expect(updated.role).toBe("Decision Maker");
+    expect(updated.isPrimary).toBe(true);
+    expect(getOpportunityContactRole(db, LOCAL_ACTOR, role.id)?.role).toBe("Decision Maker");
+    expect(getOpportunityContactRole(db, LOCAL_ACTOR, role.id)?.isPrimary).toBe(true);
     deleteOpportunityContactRole(db, editActor, role.id);
     expect(getOpportunityContactRole(db, LOCAL_ACTOR, role.id)).toBeUndefined();
     expectCode(() => deleteOpportunity(db, editActor, deal.id), "FORBIDDEN");

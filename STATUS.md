@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-11, undelete and opportunity contact-role authorization.
+Last updated: 2026-10-11, tests for the undelete and contact-role review gaps.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -66,7 +66,10 @@ still shown. This did not add Change Owner.
   Switching undelete or the list from delete permission to edit failed.
   Switching the role gate from edit to delete failed. Making the
   opportunity-delete cascade require edit failed. Full verify above
-  ran after the source was restored.
+  ran after the source was restored. A later review showed that
+  switching delete to edit was only killed for accounts, and that role
+  update, the contact-delete cascade, and the opportunity page were
+  not covered. The next section is the re-check.
 - **HTML pass, throwaway database only.** `next dev -p 3019` with
   `DATABASE_PATH=/tmp/rex-crm-auth-browser-20261011.sqlite`. Sessions
   minted for operator and Riley. No repository database was written.
@@ -82,6 +85,39 @@ still shown. This did not add Change Owner.
   connected, so this was not a viewport or click pass. A hand-built
   multipart post of the Undelete action returned "Connection closed"
   for both users and did not restore the row.
+
+### Same rules, tests that kill the review survivors (2026-10-11)
+
+No enforcement change. The four survivors were missing tests. An owner
+whose profile can edit but not delete is now refused on account,
+contact, lead, opportunity, and task: the recycle list hides each row,
+`undeleteRecord` throws `FORBIDDEN`, and the row stays deleted. In the
+edit-versus-delete role test, the editor's
+`updateOpportunityContactRole` changes the role to Decision Maker and
+sets primary, and the deleter's update throws `FORBIDDEN` and leaves
+Decision Maker / primary in place. That deleter's `deleteContact`
+removes the contact and its role row, and leaves the opportunity. The
+opportunity page is rendered: the owner sees Make primary, Remove, and
+Add role; Riley, who can read the operator's opportunity but cannot
+edit it, sees the denial sentence and none of those controls. Road
+Runner appears only in the owner's add-role select.
+
+- **`npm run verify` (2026-10-11 16:07 EDT):** exit 0. 35 files, 392
+  tests (was 34 files, 391). TypeScript, ESLint, and Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation re-check, each change restored before that verify.**
+  Recycle list using edit for non-accounts: the contact row was listed
+  (`expected true to be false`). Recycle restore using edit for
+  non-accounts: `undeleteRecord` did not throw `FORBIDDEN`. Role update
+  requiring opportunity delete: the deleter's update did not throw
+  `FORBIDDEN`. Contact cascade requiring opportunity edit:
+  `deleteContact` threw "You do not have permission to edit this
+  opportunity" from `deleteOpportunityContactRolesForContact`.
+  Opportunity page checking read: Riley's markup contained Make
+  primary, Remove, and Add role, and did not contain the denial
+  sentence. Source matched the pre-mutation files afterward.
+- **No browser pass.** The page check is `renderToStaticMarkup` on a
+  memory database. Chrome DevTools was not connected.
 
 ### Setup administration and Read Only profile (`5126f24`)
 

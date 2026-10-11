@@ -144,7 +144,7 @@ describe("recycle bin", () => {
     expect(listDeletedRecords(db, LOCAL_ACTOR).some((row) => row.id === other.id)).toBe(false);
   });
 
-  it("refuses an owner whose profile can edit but cannot delete", () => {
+  it("refuses an owner whose profile can edit but cannot delete, on every object", () => {
     const db = openMemoryDb().db;
     const user = createUser(db, {
       name: "Editor",
@@ -153,21 +153,75 @@ describe("recycle bin", () => {
       password: "long-enough",
     });
     const profileId = createProfile(db, LOCAL_ACTOR, "Edit Not Delete");
-    setObjectPermission(db, LOCAL_ACTOR, profileId, "account", {
+    const editNotDelete = {
       canCreate: true,
       canRead: true,
       canUpdate: true,
       canDelete: false,
-    });
+    };
+    for (const objectType of ["account", "contact", "lead", "opportunity", "task"] as const) {
+      setObjectPermission(db, LOCAL_ACTOR, profileId, objectType, editNotDelete);
+    }
     addMember(db, LOCAL_ORG_ID, user.id, "member", profileId);
     const actor = actorFor(user.id);
     const account = createAccount(db, actor, { name: "Editable Only" });
+    const contact = createContact(db, actor, {
+      accountId: account.id,
+      lastName: "Editable",
+    });
+    const lead = createLead(db, actor, { lastName: "Editable", company: "Editable Leads" });
+    const opportunity = createOpportunity(db, actor, {
+      accountId: account.id,
+      name: "Editable Deal",
+      stage: "Prospecting",
+      closeDate: "2026-11-04",
+    });
+    const task = createTask(db, actor, {
+      name: "Editable task",
+      relatedObjectType: "account",
+      relatedRecordId: account.id,
+    });
+    deleteTask(db, LOCAL_ACTOR, task.id);
+    deleteOpportunity(db, LOCAL_ACTOR, opportunity.id);
+    deleteContact(db, LOCAL_ACTOR, contact.id);
+    deleteLead(db, LOCAL_ACTOR, lead.id);
     deleteAccount(db, LOCAL_ACTOR, account.id);
 
-    expect(listDeletedRecords(db, actor).some((row) => row.id === account.id)).toBe(false);
-    expectCode(() => undeleteRecord(db, actor, "account", account.id), "FORBIDDEN");
-    expect(getAccount(db, LOCAL_ACTOR, account.id)).toBeUndefined();
-    expect(listDeletedRecords(db, LOCAL_ACTOR).some((row) => row.id === account.id)).toBe(true);
+    const rows = [
+      {
+        objectType: "account" as const,
+        id: account.id,
+        live: () => getAccount(db, LOCAL_ACTOR, account.id),
+      },
+      {
+        objectType: "contact" as const,
+        id: contact.id,
+        live: () => getContact(db, LOCAL_ACTOR, contact.id),
+      },
+      {
+        objectType: "lead" as const,
+        id: lead.id,
+        live: () => getLead(db, LOCAL_ACTOR, lead.id),
+      },
+      {
+        objectType: "opportunity" as const,
+        id: opportunity.id,
+        live: () => getOpportunity(db, LOCAL_ACTOR, opportunity.id),
+      },
+      {
+        objectType: "task" as const,
+        id: task.id,
+        live: () => getTask(db, LOCAL_ACTOR, task.id),
+      },
+    ];
+    for (const row of rows) {
+      expect(listDeletedRecords(db, actor).some((item) => item.id === row.id)).toBe(false);
+      expectCode(() => undeleteRecord(db, actor, row.objectType, row.id), "FORBIDDEN");
+      expect(row.live()).toBeUndefined();
+      expect(listDeletedRecords(db, LOCAL_ACTOR).some((item) => item.id === row.id)).toBe(
+        true,
+      );
+    }
   });
 
   it("does not treat global-admin members or user-role org admins as modify-all", () => {
