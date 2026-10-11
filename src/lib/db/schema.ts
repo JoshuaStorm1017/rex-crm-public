@@ -45,12 +45,14 @@ export const orgMemberships = sqliteTable(
       .references(() => users.id),
     role: text("role").notNull(),
     profileId: text("profile_id"),
+    roleId: text("role_id"),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [
     uniqueIndex("org_memberships_org_user_uidx").on(table.orgId, table.userId),
     index("org_memberships_user_idx").on(table.userId),
     index("org_memberships_profile_idx").on(table.profileId),
+    index("org_memberships_role_idx").on(table.roleId),
   ],
 );
 
@@ -543,4 +545,66 @@ export const customFieldValues = sqliteTable(
     ),
     index("custom_field_values_org_idx").on(table.orgId),
   ],
+);
+
+export const orgWideDefaults = sqliteTable(
+  "org_wide_defaults",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id),
+    objectType: text("object_type").notNull(),
+    access: text("access").notNull(),
+    grantHierarchy: integer("grant_hierarchy", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("org_wide_defaults_org_object_uidx").on(table.orgId, table.objectType),
+  ],
+);
+
+export const roles = sqliteTable(
+  "roles",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id),
+    name: text("name").notNull(),
+    parentRoleId: text("parent_role_id"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    deletedAt: integer("deleted_at"),
+  },
+  (table) => [index("roles_org_idx").on(table.orgId)],
+);
+
+export const sharingRules = sqliteTable(
+  "sharing_rules",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id),
+    name: text("name").notNull(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id),
+    objectType: text("object_type").notNull(),
+    access: text("access").notNull(),
+    shareWithRoleId: text("share_with_role_id").notNull(),
+    includeSubordinates: integer("include_subordinates", { mode: "boolean" }).notNull(),
+    active: integer("active", { mode: "boolean" }).notNull(),
+    criteria: text("criteria").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    updatedBy: text("updated_by")
+      .notNull()
+      .references(() => users.id),
+    deletedAt: integer("deleted_at"),
+  },
+  (table) => [index("sharing_rules_org_idx").on(table.orgId)],
 );
