@@ -33,7 +33,7 @@ import { LOCAL_ORG_ID, LOCAL_USER_ID } from "@/lib/crm/constants";
 import { convertLead, createLead } from "@/lib/crm/leads";
 import { createOpportunity } from "@/lib/crm/opportunities";
 import { addMember } from "@/lib/crm/orgs";
-import { createProfile, setObjectPermission } from "@/lib/crm/profiles";
+import { createProfile, setFieldPermission, setObjectPermission } from "@/lib/crm/profiles";
 import { createTask } from "@/lib/crm/tasks";
 import { createUser, getUser, type PublicUser } from "@/lib/crm/users";
 import { getDb, openMemoryDb, type Db } from "@/lib/db/client";
@@ -86,10 +86,11 @@ async function markup(
     searchParams: Promise<{ notice?: string }>;
   }) => Promise<ReactNode>,
   id: string,
+  notice?: string,
 ): Promise<string> {
   const tree = await page({
     params: Promise.resolve({ id }),
-    searchParams: Promise.resolve({}),
+    searchParams: Promise.resolve(notice ? { notice } : {}),
   });
   return renderToStaticMarkup(tree);
 }
@@ -196,5 +197,75 @@ describe("change owner pages", () => {
     expect(leadForm).toContain("Converted leads cannot be transferred.");
     expect(leadForm).not.toContain("name=\"newOwnerId\"");
     expect(leadForm).not.toContain("You do not have permission to change the owner");
+  });
+
+  it("redacts a hidden name and does not say Converted when status is hidden", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const user = createUser(db, {
+      name: "Field Reader",
+      email: "field.reader@example.com",
+      username: "fieldreader",
+      password: "long-enough",
+    });
+    const profileId = createProfile(db, LOCAL_ACTOR, "Hidden Name And Status");
+    for (const objectType of ["account", "contact", "lead", "opportunity", "task"] as const) {
+      setObjectPermission(db, LOCAL_ACTOR, profileId, objectType, FULL);
+    }
+    addMember(db, LOCAL_ORG_ID, user.id, "member", profileId);
+    const actor = actorFor(user.id);
+    const account = createAccount(db, actor, { name: "Quiet Anvil" });
+    const lead = createLead(db, actor, {
+      lastName: "Quiet Coyote",
+      company: "Quiet Labs",
+    });
+    convertLead(db, actor, lead.id, {});
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "account", "name", {
+      canRead: false,
+      canEdit: false,
+    });
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "lead", "name", {
+      canRead: false,
+      canEdit: false,
+    });
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "lead", "status", {
+      canRead: false,
+      canEdit: false,
+    });
+    vi.mocked(requireActor).mockResolvedValue({
+      userId: user.id,
+      orgId: LOCAL_ORG_ID,
+      user,
+    });
+
+    const accountForm = await markup(AccountOwnerPage, account.id);
+    expect(accountForm).toContain(`← ${account.id}`);
+    expect(accountForm).not.toContain("Quiet Anvil");
+    expect(accountForm).toContain("name=\"newOwnerId\"");
+
+    const leadForm = await markup(
+      LeadOwnerPage,
+      lead.id,
+      "Converted leads cannot be transferred",
+    );
+    expect(leadForm).toContain(`← ${lead.id}`);
+    expect(leadForm).toContain("This lead cannot be transferred.");
+    expect(leadForm).not.toContain("Quiet Coyote");
+    expect(leadForm).not.toContain("Converted");
+    expect(leadForm).not.toContain("name=\"newOwnerId\"");
+
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "lead", "status", {
+      canRead: true,
+      canEdit: false,
+    });
+    const revealed = await markup(
+      LeadOwnerPage,
+      lead.id,
+      "Converted leads cannot be transferred",
+    );
+    expect(revealed).toContain("Converted leads cannot be transferred.");
+    expect(revealed).toContain(`← ${lead.id}`);
+    expect(revealed).not.toContain("Quiet Coyote");
+    expect(revealed).not.toContain("name=\"newOwnerId\"");
   });
 });

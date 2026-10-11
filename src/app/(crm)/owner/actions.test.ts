@@ -29,6 +29,7 @@ import { createAccount, getAccount } from "@/lib/crm/accounts";
 import { LOCAL_ORG_ID, LOCAL_USER_ID, RILEY_USER_ID } from "@/lib/crm/constants";
 import { createContact, getContact } from "@/lib/crm/contacts";
 import { createOpportunity, getOpportunity } from "@/lib/crm/opportunities";
+import { createTask, getTask } from "@/lib/crm/tasks";
 import { getUser } from "@/lib/crm/users";
 import { getDb, openMemoryDb } from "@/lib/db/client";
 import { changeOwnerAction } from "./actions";
@@ -121,5 +122,63 @@ describe("changeOwnerAction", () => {
     expect(redirect).toHaveBeenCalledWith(
       `/opportunities/${opportunity.id}/owner?notice=${encodeURIComponent("Contacts and opportunities can only be transferred with an account")}`,
     );
+  });
+
+  it("leaves related rows put when the transfer checkboxes are omitted", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const operator = getUser(db, LOCAL_USER_ID);
+    if (!operator) throw new Error("seeded user was missing");
+    vi.mocked(requireActor).mockResolvedValue({
+      userId: LOCAL_USER_ID,
+      orgId: LOCAL_ORG_ID,
+      user: operator,
+    });
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Checkbox Account" });
+    const contact = createContact(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      lastName: "Stays",
+    });
+    const openOpportunity = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Open Stay",
+      stage: "Prospecting",
+      closeDate: "2026-12-01",
+    });
+    const wonOpportunity = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Won Stay",
+      stage: "Closed Won",
+      closeDate: "2026-12-02",
+      amountCents: 25000,
+    });
+    const lostOpportunity = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Lost Stay",
+      stage: "Closed Lost",
+      closeDate: "2026-12-03",
+    });
+    const task = createTask(db, LOCAL_ACTOR, {
+      name: "Open stay",
+      relatedObjectType: "account",
+      relatedRecordId: account.id,
+    });
+    const formData = new FormData();
+    formData.set("newOwnerId", RILEY_USER_ID);
+
+    await expect(changeOwnerAction("account", account.id, formData)).rejects.toThrow(
+      "REDIRECT",
+    );
+
+    expect(getAccount(db, LOCAL_ACTOR, account.id)?.ownerId).toBe(RILEY_USER_ID);
+    expect(getContact(db, LOCAL_ACTOR, contact.id)?.ownerId).toBe(LOCAL_USER_ID);
+    expect(getOpportunity(db, LOCAL_ACTOR, openOpportunity.id)?.ownerId).toBe(LOCAL_USER_ID);
+    expect(getOpportunity(db, LOCAL_ACTOR, wonOpportunity.id)?.ownerId).toBe(LOCAL_USER_ID);
+    expect(getOpportunity(db, LOCAL_ACTOR, lostOpportunity.id)?.ownerId).toBe(LOCAL_USER_ID);
+    expect(getTask(db, LOCAL_ACTOR, task.id)?.ownerId).toBe(LOCAL_USER_ID);
+    expect(redirect).toHaveBeenCalledWith(`/accounts/${account.id}`);
+    expect(revalidatePath).not.toHaveBeenCalledWith(`/contacts/${contact.id}`);
+    expect(revalidatePath).not.toHaveBeenCalledWith(`/opportunities/${openOpportunity.id}`);
+    expect(revalidatePath).not.toHaveBeenCalledWith(`/tasks/${task.id}`);
   });
 });

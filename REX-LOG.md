@@ -1,5 +1,31 @@
 # Rex log
 
+## 2026-10-11 18:22 EDT
+
+Closed the change-owner review. The owner page was showing a name that
+field security hides, and it said "Converted" when lead status was
+hidden. The display name now goes through `presentRecord` and falls
+back to the record id. The freeze still uses the stored status. The
+word Converted is shown only when that field is readable, and a notice
+that contains it is dropped otherwise.
+
+The two mutation survivors were missing tests. Another user's open
+task on the account, and on a contact or opportunity that moves, stays
+with that user and is absent from `transferred.tasks`. An account save
+that posts only the new owner leaves contacts, open opportunities,
+closed opportunities, and open tasks where they are.
+
+`npm run verify` exited 0 at 18:22 EDT: 38 files, 419 tests, Next.js
+16.3.5 build. The five mutants (owner predicate removed, `checked()`
+forced true, raw name returned, Converted sentence forced, notice left
+raw) each failed a new test and were restored before that run. No
+browser pass. Chrome DevTools was not connected.
+
+Next: hide Edit and Delete wherever the domain will refuse the save,
+including the edit page. Cascade task deletes still skip the task
+owner. Do not retry the whole sharing model or the product catalog in
+one change.
+
 ## 2026-10-11 17:25 EDT
 
 Change Owner is live for accounts, contacts, leads, opportunities, and

@@ -18,6 +18,7 @@ import {
   assertCanPerform,
   canAccessRecord,
   canPerform,
+  presentRecord,
   type CrmObject,
 } from "./permissions";
 import { prepareWrite, withoutId } from "./prepareWrite";
@@ -52,8 +53,10 @@ export type ChangeOwnerResult = {
 export type OwnerTarget = {
   objectType: CrmObject;
   id: string;
-  name: string;
+  /** Display only. Null when field security hides `name`. */
+  name: string | null;
   ownerId: string;
+  /** Raw status. The freeze check reads this even when `status` is hidden. */
   status: string | null;
 };
 
@@ -81,10 +84,11 @@ export function getOwnerTarget(
   if (!canPerform(db, actor, objectType, "read")) return undefined;
   const row = loadLive(db, actor.orgId, objectType, id);
   if (!row) return undefined;
+  const named: { name: string | null } = { name: row.name };
   return {
     objectType,
     id: row.id,
-    name: row.name,
+    name: presentRecord(db, actor, objectType, named).name,
     ownerId: row.ownerId,
     status: row.status,
   };

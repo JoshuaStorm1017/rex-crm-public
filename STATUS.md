@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-11, Change Owner on the five CRM objects.
+Last updated: 2026-10-11, Change Owner respects field security.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -33,6 +33,43 @@ Last updated: 2026-10-11, Change Owner on the five CRM objects.
 ## WORKS
 
 Things actually run, with evidence.
+
+### Change Owner field security (2026-10-11)
+
+The change-owner page no longer shows a name the profile cannot read.
+`getOwnerTarget` passes the display name through `presentRecord`. When
+that name is null, the back link is the record id. The converted-lead
+freeze still reads the stored status, so a hidden status still blocks
+the form and `canChangeOwner` stays false. The page says "Converted
+leads cannot be transferred." only when the actor can read lead
+`status`. Otherwise it says "This lead cannot be transferred." A
+notice that contains "converted" is dropped in that case. The save
+path is unchanged: edit on the live record, same-org membership, and
+object read on the new owner. The domain error string still says
+"Converted"; the page does not show that notice when status is hidden.
+
+Open tasks still move only when the previous owner owns them. A task
+another user owns stays put when it sits on the account, and when it
+sits on a contact or an opportunity that the same call transfers. An
+account save that posts only the new owner moves the account and
+leaves contacts, open opportunities, closed opportunities, and open
+tasks with the previous owner.
+
+- **`npm run verify` (2026-10-11 18:22 EDT):** exit 0. 38 files, 419
+  tests (was 38 files, 415). TypeScript, ESLint, and Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation evidence, focused tests, each change restored before that
+  verify.** Dropping `eq(tasks.ownerId, primary.ownerId)` transferred
+  four tasks; the test expected the previous owner's task only. Forcing
+  `checked()` to return true moved the contact to Riley; the test
+  expected the operator. Returning the raw name made the account target
+  "Quiet Anvil" and the page link "← Quiet Anvil". Always printing
+  "Converted leads cannot be transferred." failed the hidden-status
+  page, which expected "This lead cannot be transferred." Rendering the
+  notice unchanged left "Converted leads cannot be transferred" in the
+  hidden-status markup.
+- **No browser pass.** The page check is `renderToStaticMarkup` on a
+  memory database. Chrome DevTools was not connected.
 
 ### Change Owner (2026-10-11)
 

@@ -9,7 +9,7 @@ import {
   getOwnerTarget,
   listEligibleOwners,
 } from "@/lib/crm/ownership";
-import type { CrmObject } from "@/lib/crm/permissions";
+import { canReadField, type CrmObject } from "@/lib/crm/permissions";
 import { ownerLabel } from "@/lib/crm/users";
 import { getDb } from "@/lib/db/client";
 
@@ -29,14 +29,22 @@ export async function ChangeOwnerScreen({
 
   const href = recordHref(objectType, target.id);
   const label = recordLabel(objectType);
+  const displayName = target.name ?? target.id;
   const frozen = objectType === "lead" && target.status === "Converted";
   const allowed = canChangeOwner(db, actor, objectType, target);
+  const hideConvertedWord =
+    objectType === "lead" && !canReadField(db, actor, "lead", "status");
+  const revealConverted = frozen && !hideConvertedWord;
+  const safeNotice =
+    notice && hideConvertedWord && notice.toLowerCase().includes("converted")
+      ? undefined
+      : notice;
 
   return (
     <div className="space-y-4">
       <div>
         <Link href={href} className="text-sm text-[#c45c26] hover:underline">
-          ← {target.name}
+          ← {displayName}
         </Link>
         <p className="mt-2 text-xs uppercase tracking-wide text-[#8a8376]">
           {label} · {target.id}
@@ -46,15 +54,17 @@ export async function ChangeOwnerScreen({
           Current owner {ownerLabel(db, target.ownerId)}
         </p>
       </div>
-      {notice ? (
+      {safeNotice ? (
         <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
-          {notice}
+          {safeNotice}
         </p>
       ) : null}
       <div className="rounded-lg border border-[#d9d0c0] bg-white p-6">
         {frozen ? (
           <p className="text-sm text-[#5c564c]">
-            Converted leads cannot be transferred.
+            {revealConverted
+              ? "Converted leads cannot be transferred."
+              : "This lead cannot be transferred."}
           </p>
         ) : allowed ? (
           <ChangeOwnerForm

@@ -15,6 +15,7 @@ import { createDuplicateRule } from "./duplicateRules";
 import { DomainError } from "./errors";
 import { convertLead, createLead, deleteLead, getLead } from "./leads";
 import {
+  canChangeOwner,
   changeOwner,
   getOwnerTarget,
   listEligibleOwners,
@@ -26,6 +27,7 @@ import { addMember, createOrganization } from "./orgs";
 import type { CrmObject } from "./permissions";
 import {
   createProfile,
+  setFieldPermission,
   setObjectPermission,
   type ObjectPermissionFlags,
 } from "./profiles";
@@ -67,7 +69,7 @@ function createMember(
     globalRole?: "admin" | "user";
     flags?: Partial<Record<CrmObject, Partial<ObjectPermissionFlags>>>;
   },
-): { user: PublicUser; actor: Actor } {
+): { user: PublicUser; actor: Actor; profileId: string } {
   const user = createUser(db, {
     name: spec.name,
     email: spec.email,
@@ -85,7 +87,7 @@ function createMember(
     db.update(users).set({ role: spec.globalRole }).where(eq(users.id, user.id)).run();
   }
   addMember(db, LOCAL_ORG_ID, user.id, spec.membershipRole ?? "member", profileId);
-  return { user, actor: actorFor(user.id) };
+  return { user, actor: actorFor(user.id), profileId };
 }
 
 function transfer(
@@ -639,6 +641,101 @@ describe("changeOwner", () => {
     expect(getTask(db, LOCAL_ACTOR, secondTask.id)?.ownerId).toBe(LOCAL_USER_ID);
     expect(getTask(db, LOCAL_ACTOR, secondDone.id)?.ownerId).toBe(RILEY_USER_ID);
     expect(getTask(db, LOCAL_ACTOR, secondQuinnTask.id)?.ownerId).toBe(quinn.user.id);
+  });
+
+  it("leaves another user's open tasks on the account and on rows that move", () => {
+    const db = memory();
+    const riley = actorFor(RILEY_USER_ID);
+    const quinn = createMember(db, {
+      name: "Quinn Foreign",
+      email: "quinn.foreign@example.com",
+      username: "quinnforeign",
+      profileName: "Quinn Foreign",
+    });
+    const account = createAccount(db, riley, { name: "Shared Book" });
+    const contact = createContact(db, riley, {
+      accountId: account.id,
+      lastName: "Moves",
+    });
+    const opportunity = createOpportunity(db, riley, {
+      accountId: account.id,
+      name: "Moves Too",
+      stage: "Prospecting",
+      closeDate: "2026-12-01",
+    });
+    const accountTask = createTask(db, quinn.actor, {
+      name: "Quinn on account",
+      relatedObjectType: "account",
+      relatedRecordId: account.id,
+    });
+    const contactTask = createTask(db, quinn.actor, {
+      name: "Quinn on moving contact",
+      relatedObjectType: "contact",
+      relatedRecordId: contact.id,
+    });
+    const opportunityTask = createTask(db, quinn.actor, {
+      name: "Quinn on moving opportunity",
+      relatedObjectType: "opportunity",
+      relatedRecordId: opportunity.id,
+    });
+    const movingTask = createTask(db, riley, {
+      name: "Riley on account",
+      relatedObjectType: "account",
+      relatedRecordId: account.id,
+    });
+
+    const result = transfer(db, LOCAL_ACTOR, "account", account.id, {
+      newOwnerId: LOCAL_USER_ID,
+      transferContacts: true,
+      transferOpenOpportunities: true,
+      transferOpenTasks: true,
+    });
+
+    expect(result.transferred.contacts).toEqual([contact.id]);
+    expect(result.transferred.opportunities).toEqual([opportunity.id]);
+    expect(result.transferred.tasks).toEqual([movingTask.id]);
+    expect(getTask(db, LOCAL_ACTOR, accountTask.id)?.ownerId).toBe(quinn.user.id);
+    expect(getTask(db, LOCAL_ACTOR, contactTask.id)?.ownerId).toBe(quinn.user.id);
+    expect(getTask(db, LOCAL_ACTOR, opportunityTask.id)?.ownerId).toBe(quinn.user.id);
+    expect(getTask(db, LOCAL_ACTOR, movingTask.id)?.ownerId).toBe(LOCAL_USER_ID);
+  });
+
+  it("redacts a hidden name and still freezes a converted lead when status is hidden", () => {
+    const db = memory();
+    const reader = createMember(db, {
+      name: "Field Reader",
+      email: "field.reader@example.com",
+      username: "fieldreader",
+      profileName: "Hidden Name And Status",
+    });
+    const account = createAccount(db, reader.actor, { name: "Quiet Anvil" });
+    const lead = createLead(db, reader.actor, {
+      lastName: "Quiet Coyote",
+      company: "Quiet Labs",
+    });
+    convertLead(db, reader.actor, lead.id, {});
+    setFieldPermission(db, LOCAL_ACTOR, reader.profileId, "account", "name", {
+      canRead: false,
+      canEdit: false,
+    });
+    setFieldPermission(db, LOCAL_ACTOR, reader.profileId, "lead", "name", {
+      canRead: false,
+      canEdit: false,
+    });
+    setFieldPermission(db, LOCAL_ACTOR, reader.profileId, "lead", "status", {
+      canRead: false,
+      canEdit: false,
+    });
+
+    const accountTarget = getOwnerTarget(db, reader.actor, "account", account.id);
+    expect(accountTarget?.name).toBeNull();
+    expect(accountTarget?.id).toBe(account.id);
+
+    const leadTarget = getOwnerTarget(db, reader.actor, "lead", lead.id);
+    expect(leadTarget?.name).toBeNull();
+    expect(leadTarget?.status).toBe("Converted");
+    expect(canChangeOwner(db, reader.actor, "lead", leadTarget!)).toBe(false);
+    expect(getLead(db, LOCAL_ACTOR, lead.id)?.ownerId).toBe(reader.user.id);
   });
 
   it("refuses a related transfer the profile cannot edit, and allows edit without delete", () => {
