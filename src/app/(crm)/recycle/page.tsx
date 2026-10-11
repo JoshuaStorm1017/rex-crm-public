@@ -18,15 +18,15 @@ export default async function RecyclePage({
       <div>
         <h1 className="text-2xl font-semibold">Recycle Bin</h1>
         <p className="mt-1 max-w-2xl text-sm text-[#5c564c]">
-          Undelete restores that record only. Tasks deleted with a parent stay
-          deleted. There is no empty-bin action.
+          Undelete restores a record you are allowed to delete. Tasks deleted
+          with a parent stay deleted. There is no empty-bin action.
         </p>
         {notice ? (
           <p className="mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">{notice}</p>
         ) : null}
       </div>
       {rows.length === 0 ? (
-        <p className="text-sm text-[#5c564c]">The recycle bin is empty.</p>
+        <p className="text-sm text-[#5c564c]">No records you can restore.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-[#d9d0c0] bg-white">
           <table className="w-full text-left text-sm">
