@@ -270,11 +270,11 @@ tracks the gap. It does not block other rows.
 - **Source:** Organization-wide defaults, role hierarchy, owner/criteria/manual sharing, teams, queues, enterprise territory management.
 - **Expected:** Private OWD hides records the user does not own and does not receive via hierarchy or a rule. Queues own work items. Territory rules assign accounts.
 - **Dependencies:** IAM-SHARE-001.
-- **Status:** NOT STARTED. `owner_id` is stored and displayed. It does not filter reads.
-- **Implementation:** `owner_id` columns.
+- **Status:** NOT STARTED. `owner_id` is stored and displayed. It does not filter reads. Change owner can reassign a record (2026-10-11); that is not organization-wide defaults, a hierarchy, or a sharing rule.
+- **Implementation:** `owner_id` columns. `changeOwner` in `src/lib/crm/ownership.ts` reassigns the five CRM objects.
 - **Acceptance:** Private account OWD: user B does not list user A's account, cannot open it by id, and a report run as B omits it. A criteria rule for Billing State = AZ grants it, and removing the rule revokes it.
-- **Latest:** not run.
-- **Gaps:** —
+- **Latest:** not run. The OWD acceptance above was not exercised. Change owner was.
+- **Gaps:** No email on transfer. No teams, queues, or territories. Child accounts stay with their owner. Reads, lists, search, and reports are still not filtered by owner.
 
 ### IAM-SHARE-003 External and guest access
 

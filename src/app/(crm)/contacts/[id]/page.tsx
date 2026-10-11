@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { deleteContactAction } from "../actions";
+import { ChangeOwnerLink } from "@/components/ChangeOwnerLink";
 import { DeleteButton } from "@/components/DeleteButton";
 import { TasksRelatedList } from "@/components/TasksRelatedList";
 import { getAccount } from "@/lib/crm/accounts";
@@ -9,6 +10,7 @@ import { getContact, listDirectReports } from "@/lib/crm/contacts";
 import { getCustomValues } from "@/lib/crm/customFields";
 import { listOpportunityContactRolesForContact } from "@/lib/crm/opportunityContactRoles";
 import { recordView } from "@/lib/crm/recentlyViewed";
+import { canChangeOwner } from "@/lib/crm/ownership";
 import { canReadField } from "@/lib/crm/permissions";
 import { listTasksForRecord } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
@@ -80,6 +82,9 @@ export default async function ContactDetailPage({
             </p>
           </div>
           <div className="flex gap-2">
+            {canChangeOwner(db, actor, "contact", contact) ? (
+              <ChangeOwnerLink objectType="contact" recordId={contact.id} />
+            ) : null}
             <Link
               href={`/contacts/${contact.id}/edit`}
               className="rounded border border-[#cfc6b6] bg-white px-3 py-1.5 text-sm hover:bg-[#faf7f1]"

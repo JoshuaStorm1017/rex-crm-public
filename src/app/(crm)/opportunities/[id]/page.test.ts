@@ -131,6 +131,8 @@ describe("opportunity detail contact roles", () => {
     expect(asOwner).toContain("Make primary");
     expect(asOwner).toContain("Remove");
     expect(asOwner).toContain("Add role");
+    expect(asOwner).toContain("Change owner");
+    expect(asOwner).toContain(`/opportunities/${opportunity.id}/owner`);
     expect(asOwner).toContain("Road Runner");
     expect(asOwner).not.toContain(DENIED);
 
@@ -145,6 +147,7 @@ describe("opportunity detail contact roles", () => {
     expect(asReader).not.toContain("Make primary");
     expect(asReader).not.toContain("Remove");
     expect(asReader).not.toContain("Add role");
+    expect(asReader).not.toContain("Change owner");
     expect(asReader).not.toContain("Road Runner");
   });
 
@@ -201,6 +204,7 @@ describe("opportunity detail contact roles", () => {
     expect(asDeleter).not.toContain("Make primary");
     expect(asDeleter).not.toContain("Remove");
     expect(asDeleter).not.toContain("Add role");
+    expect(asDeleter).not.toContain("Change owner");
     expect(asDeleter).not.toContain("Tweety Bird");
 
     const editor = ownerWithOpportunityFlags(db, {
@@ -248,6 +252,8 @@ describe("opportunity detail contact roles", () => {
     expect(asEditor).toContain("Make primary");
     expect(asEditor).toContain("Remove");
     expect(asEditor).toContain("Add role");
+    expect(asEditor).toContain("Change owner");
+    expect(asEditor).toContain(`/opportunities/${editDeal.id}/owner`);
     expect(asEditor).toContain("Speedy Gonzales");
     expect(asEditor).not.toContain(DENIED);
   });

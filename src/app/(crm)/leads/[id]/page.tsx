@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { convertLeadAction, deleteLeadAction } from "../actions";
 import { ConvertLeadForm } from "@/components/ConvertLeadForm";
 import { CustomFieldsSection } from "@/components/CustomFieldsSection";
+import { ChangeOwnerLink } from "@/components/ChangeOwnerLink";
 import { DeleteButton } from "@/components/DeleteButton";
 import { TasksRelatedList } from "@/components/TasksRelatedList";
 import { getAccount } from "@/lib/crm/accounts";
@@ -11,6 +12,7 @@ import { getCustomValues } from "@/lib/crm/customFields";
 import { getLead } from "@/lib/crm/leads";
 import { getOpportunity } from "@/lib/crm/opportunities";
 import { recordView } from "@/lib/crm/recentlyViewed";
+import { canChangeOwner } from "@/lib/crm/ownership";
 import { canReadField } from "@/lib/crm/permissions";
 import { listTasksForRecord } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
@@ -86,6 +88,9 @@ export default async function LeadDetailPage({
           </div>
           {converted ? null : (
             <div className="flex gap-2">
+              {canChangeOwner(db, actor, "lead", lead) ? (
+                <ChangeOwnerLink objectType="lead" recordId={lead.id} />
+              ) : null}
               <Link
                 href={`/leads/${lead.id}/edit`}
                 className="rounded border border-[#cfc6b6] bg-white px-3 py-1.5 text-sm hover:bg-[#faf7f1]"

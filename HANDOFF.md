@@ -100,6 +100,18 @@ Closed in the 2026-10-11 slice. Evidence is the STATUS entry.
    Make primary, and Remove when that check is false. Cascades from
    deleting the opportunity or the contact do not use that check.
 
+Closed in the 2026-10-11 Change Owner slice. Evidence is the STATUS entry.
+
+6. **Change Owner reassigns `ownerId`.** `changeOwner` in
+   `src/lib/crm/ownership.ts` requires edit on the live record. The new
+   owner must be a live member of that org who can read the object.
+   Optional related transfer moves only the previous owner's contacts,
+   open opportunities, closed opportunities, and open tasks, and the
+   actor must be able to edit each row. Child accounts stay. Converted
+   leads are frozen. The five detail pages link to `/owner` only when
+   `canChangeOwner` is true, and the server action authorizes again.
+   No email, no teams, and reads are still not filtered by owner.
+
 Still open:
 
 4. **Keep the actor required.** Domain paths take an `Actor`.
@@ -107,14 +119,15 @@ Still open:
    function defaults the user to `LOCAL_USER_ID`. Do not put that
    default back. The session-18 note about 32 functions defaulting
    `actorId` is closed by `5c70f14`.
-6. **No Change Owner.** Nothing reassigns `ownerId`.
 7. **The UI still offers some saves the domain refuses.** Account
    detail hides Edit and Delete when `canAccessRecord` is false. The
    edit URL still renders the form; the save returns the permission
    error (seen for Riley on Acme). Contact detail still shows Edit and
    Delete for a non-owner (seen for Riley on Wile); that save also
    returns the permission error. Lead, opportunity, and task detail
-   pages were not given the account-style button gate. Contact and lead
+   pages were not given the account-style button gate. Change owner is
+   separate and is hidden on all five detail pages when the actor cannot
+   edit. Contact and lead
    detail omit only phone when it is unreadable; other hidden values
    become an em dash because `presentRecord` nulls them.
 8. **Cascade deletes bypass child task permissions.** Deleting a
@@ -126,12 +139,12 @@ Still open:
 Suggested order when work resumes:
 
 0. CI. A GitHub Actions workflow running `npm ci && npm run verify`.
-1. Close the rest of section 3. Change Owner. Hide Edit and Delete
+1. Close the rest of section 3. Hide Edit and Delete
    wherever `canAccessRecord` is false, including the edit page.
    Cascade task deletes still skip the task owner. Mutation-test it.
    Browser-test it on a throwaway `DATABASE_PATH`. Setup admin, Riley's
-   membership, the seeded Read Only profile, undelete, and opportunity
-   contact-role writes are done. Do not retry organization-wide
+   membership, the seeded Read Only profile, undelete, opportunity
+   contact-role writes, and Change Owner are done. Do not retry organization-wide
    defaults or a product catalog in one change.
 2. A field registry, proven on Opportunity, then the other objects.
    Add further field permissions on that registry rather than beside it.

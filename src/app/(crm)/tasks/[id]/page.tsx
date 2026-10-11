@@ -6,11 +6,13 @@ import {
   reopenTaskAction,
 } from "../actions";
 import { CustomFieldsSection } from "@/components/CustomFieldsSection";
+import { ChangeOwnerLink } from "@/components/ChangeOwnerLink";
 import { DeleteButton } from "@/components/DeleteButton";
 import type { TaskRelatedObjectType } from "@/lib/crm/constants";
 import { recordLabel } from "@/lib/crm/objects";
 import { getCustomValues } from "@/lib/crm/customFields";
 import { getTask, liveRelatedRecord } from "@/lib/crm/tasks";
+import { canChangeOwner } from "@/lib/crm/ownership";
 import { recordView } from "@/lib/crm/recentlyViewed";
 import { requireActor } from "@/lib/crm/currentUser";
 import { ownerLabel } from "@/lib/crm/users";
@@ -102,6 +104,9 @@ export default async function TaskDetailPage({
                 </button>
               </form>
             )}
+            {canChangeOwner(db, actor, "task", task) ? (
+              <ChangeOwnerLink objectType="task" recordId={task.id} />
+            ) : null}
             <Link
               href={`/tasks/${task.id}/edit`}
               className="rounded border border-[#cfc6b6] bg-white px-3 py-1.5 text-sm hover:bg-[#faf7f1]"

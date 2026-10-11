@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-11, tests that lock object delete and the opportunity role gate.
+Last updated: 2026-10-11, Change Owner on the five CRM objects.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -33,6 +33,67 @@ Last updated: 2026-10-11, tests that lock object delete and the opportunity role
 ## WORKS
 
 Things actually run, with evidence.
+
+### Change Owner (2026-10-11)
+
+An actor who can edit a live account, contact, lead, opportunity, or
+task can give it a new owner. Delete permission is not enough. The new
+owner must be a live member of the record's organization who can read
+that object. The same owner is rejected and nothing is written.
+Converted leads stay frozen, before the new owner is checked. A deleted
+or other-org record is not found.
+
+Related rows move only when the caller asks, and only when the previous
+owner still owns them. Contacts, open opportunities, and closed
+opportunities move only with an account. Open tasks can move with an
+account, contact, lead, or opportunity, including tasks on contacts and
+opportunities that the same call actually transfers. Completed tasks,
+someone else's rows, deleted rows, and child accounts stay. The actor
+must be able to edit each related object and each row. Validation,
+automation, and duplicate rules run on every write, and a failure rolls
+the whole transfer back. There is no email.
+
+The five detail pages show Change owner only when that edit check
+passes. The account form offers the four related options. Contact,
+lead, and opportunity offer open tasks only. A task offers none. A
+converted lead explains that it cannot be transferred. A readable
+record the actor cannot edit shows the denial and no select. The save
+authorizes again in the server action. Edit and Delete are still shown
+where they already were.
+
+- **`npm run verify` (2026-10-11 17:22 EDT):** exit 0. 38 files, 415
+  tests (was 35 files, 394). TypeScript, ESLint, and Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation evidence, focused suite, each change restored before that
+  verify.** Parent check switched from edit to delete: the edit-only
+  owner failed with "You do not have permission to delete this
+  account". Contact query dropping the previous-owner filter:
+  transferred two contacts, and the test expected one. `prepareWrite`
+  skipped: the validation case received no `VALIDATION_RULE`. The
+  transaction removed: the contact owner became the operator while the
+  account stayed with Riley. `canChangeOwner` switched to delete: the
+  edit-only account form showed the denial instead of the select, and
+  the delete-only opportunity page showed Change owner. Related
+  contact check switched to delete: the edit-without-delete transfer
+  threw "You do not have permission to delete this contact".
+- **HTML pass, throwaway database only.** `next dev -p 3021` with
+  `DATABASE_PATH=/tmp/rex-crm-owner-20261011.sqlite`. Sessions minted
+  for operator and Riley. No repository database was written. The
+  operator's Acme page showed Change owner. Riley's Acme page did not.
+  The operator's account form had the owner select and all four
+  transfer checkboxes. Contact, lead, and opportunity forms had the
+  select and open tasks only. The task form had the select and no
+  transfer checkbox. Riley's direct Acme owner URL showed the denial
+  sentence and no select. Riley's forged POST returned 303 to the
+  owner URL with notice "You do not have permission to edit this
+  account", and the following operator success redirect was the
+  account itself, so Riley's post did not change the owner. The
+  operator post also sent the four transfer flags. Acme's owner became
+  Riley, `updated_by` stayed the operator, the page showed Owner Riley
+  Demo, and Acme's two contacts and its Prospecting opportunity moved.
+  The other six accounts and five contacts stayed with the operator.
+  The server was stopped. No viewport pass. Chrome DevTools was not
+  connected.
 
 ### Undelete and opportunity contact roles (2026-10-11)
 
@@ -897,11 +958,11 @@ These stay in scope. See `SALESFORCE-PARITY.md`. They are not done:
 
 The recurring build automation is paused. When the owner resumes the build,
 read `HANDOFF.md` and `ARCHITECTURE.md` before choosing the next slice.
-The long-term scope includes Salesforce-level feature breadth. Undelete
-and opportunity contact-role writes are gated. The next correctness gaps
-are Change Owner, permission-aware Edit/Delete controls (the edit URL
-still renders the form; contact, lead, opportunity, and task detail
-still show Edit and Delete before the domain refuses), and cascade task
+The long-term scope includes Salesforce-level feature breadth. Change
+Owner, undelete, and opportunity contact-role writes are gated. The next
+correctness gaps are permission-aware Edit and Delete controls (the edit
+URL still renders the form; contact, lead, opportunity, and task detail
+still show Edit and Delete before the domain refuses) and cascade task
 deletes. Existing Riley admin memberships remain admin until an explicit
 migration or reassignment. Do not reintroduce a default `LOCAL_USER_ID`
 actor on domain writes. Do not retry organization-wide defaults or a
@@ -911,6 +972,21 @@ rounds. Record fresh verification evidence for each slice.
 ---
 
 ## Session log
+
+### 2026-10-11 — Change Owner (Rex)
+
+- Reassigning an account, contact, lead, opportunity, or task requires
+  edit on that live record. Related contacts, open opportunities,
+  closed opportunities, and open tasks move only when asked, only from
+  the previous owner, and only when the actor can edit them. Validation
+  rolls the transfer back. Converted leads stay frozen.
+- `npm run verify` exit 0 at 17:22 EDT: 38 files, 415 tests, Next.js
+  16.3.5 build. Six focused mutations failed, then the source was
+  restored. HTML and two POSTs on a throwaway database at port 3021
+  matched the form and the permission denial. The server was stopped.
+  No viewport pass.
+- Did not hide Edit and Delete, and did not fix cascade task deletes.
+  Did not build sharing or products. Did not push.
 
 ### 2026-10-11 — undelete and opportunity contact roles (Rex)
 

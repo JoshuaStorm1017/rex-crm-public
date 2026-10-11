@@ -1,5 +1,39 @@
 # Rex log
 
+## 2026-10-11 17:25 EDT
+
+Change Owner is live for accounts, contacts, leads, opportunities, and
+tasks. The record edit check decides who may transfer. Delete is not
+enough, and modify-all is still a global admin who is also an org
+admin. The new owner has to be a live member who can read the object.
+Related contacts, open opportunities, closed opportunities, and open
+tasks move only with an explicit choice, only while the previous owner
+still owns them, and only when the actor can edit each one. Child
+accounts stay. Converted leads are frozen before the new owner is
+checked. Validation, automation, and duplicate rules run inside one
+transaction.
+
+The detail pages link to Change owner only when that edit check passes.
+Account offers all four related options. Contact, lead, and opportunity
+offer open tasks. A task offers none. The server action authorizes
+again and redirects failures back to the form with the domain message.
+
+`npm run verify` exited 0 at 17:22 EDT: 38 files, 415 tests, Next.js
+16.3.5 build. Six mutations (parent edit swapped for delete, previous
+owner filter removed, `prepareWrite` skipped, transaction removed,
+link gate swapped to delete, related contact check swapped to delete)
+each failed the new test and were restored before that run. On a
+throwaway database at port 3021, Riley did not see Change owner on
+Acme and a forged POST was refused. The operator's post moved Acme,
+its two contacts, and its open opportunity to Riley. Other accounts
+and contacts stayed. The dev server was stopped. Chrome DevTools was
+not connected, so there was no viewport pass.
+
+Next: hide Edit and Delete wherever the domain will refuse the save,
+including the edit page. Cascade task deletes still skip the task
+owner. Do not retry the whole sharing model or the product catalog in
+one change.
+
 ## 2026-10-11 16:36 EDT
 
 Locked the three authorization mutations that survived the last pass.
