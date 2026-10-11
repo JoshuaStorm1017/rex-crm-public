@@ -10,8 +10,9 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-10, Setup administration and Read Only profile
-(`5126f24`, based on profile reconciliation `d932885`).
+Last updated: 2026-10-11, product catalog and standard price book.
+The organization-wide sharing slice was abandoned after three review
+rounds and is not in this tree.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -34,6 +35,49 @@ Last updated: 2026-10-10, Setup administration and Read Only profile
 ## WORKS
 
 Things actually run, with evidence.
+
+### Product catalog and standard price book (2026-10-11)
+
+- An organization has one standard price book, created on startup.
+  A product stores its standard price as an integer number of cents on
+  a price book entry. `19.99` is 1999 cents. More than two decimal
+  places is rejected. Product code is unique among live products in
+  the org, and a soft-deleted code can be used again. Another org can
+  use the same code and cannot read this org's product.
+- Create, update, and delete use the same profile and owner checks as
+  the other objects. A missing product permission denies. Read Only
+  can read and cannot create. Riley can read the operator's product
+  and cannot edit or delete it. The operator, with modify-all, can
+  change Riley's price. Edit and Delete are hidden when the check
+  fails, and the edit URL shows the denial instead of the form.
+- **`npm run verify` (2026-10-11, 13:04 EDT):** exit 0. 34 test files,
+  398 tests. TypeScript, ESLint, and the Next.js 16.3.5 production
+  build passed. The build lists `/products`, `/products/new`,
+  `/products/[id]`, and `/products/[id]/edit`.
+- **Browser-style pass, throwaway database only.**
+  `DATABASE_PATH=/tmp/rex-crm-products-20261011.sqlite`,
+  `next dev -p 3017`. Signed in by posting the login form.
+  Password `local-dev`. The server was stopped afterward.
+  - Operator home showed Rex Local, a Products link, a product count
+    of 1, and the Setup link.
+  - Creating Anvil, code `ANV-1`, family Hardware, price `19.99`
+    returned 303 to
+    `/products/01t01M4NYW0BGYD0KJE4S75E6WRJW`. The list showed Anvil,
+    `ANV-1`, and `$19.99`. The detail showed Standard Price Book and
+    `$19.99`. The edit form showed `19.99`.
+  - SQLite had one live product, `unit_price_cents` 1999, and one
+    standard price book.
+  - Riley's detail showed the name and price and did not show Edit or
+    Delete. Riley's edit URL said "You do not have permission to edit
+    this product." Posting the operator edit action as Riley returned
+    that same sentence and did not redirect. The row stayed Anvil at
+    1999 cents.
+  - Price `1.005` stayed on the new-product form with "Standard price
+    must be a dollar amount with at most two decimal places" and did
+    not insert a row. Riley's home had no Setup link.
+- Not checked: a real browser viewport. Chrome DevTools was not
+  connected. No custom price book, opportunity line, product search,
+  report, or recycle restore.
 
 ### Setup administration and Read Only profile (`5126f24`)
 
@@ -645,6 +689,13 @@ on the existing file (1 list view, 0 of everything else).
   separate form. Contact and Opportunity Account Name is a join
   column/filter, not a stored field. Task Related To is a coalesce of
   four parent-table left joins, gated by `related_object_type`.
+- **Products** (2026-10-11) — one standard price book per org and a
+  price book entry in integer cents. Active flag, code, family, and
+  description. Org isolation and the profile/owner checks. No custom
+  price books, no opportunity line items, no product search, reports,
+  list views, custom fields, validation rules, or recycle-bin restore.
+  A member can still read another member's product. The price book
+  entry active flag is stored true and is not edited on its own.
 - **Custom fields** — definitions and values are real on all five
   objects, including list-view columns, filters, and sort via SQL
   against `custom_field_values`. No formula, lookup, or
@@ -697,7 +748,8 @@ This list is supposed to stay long. It is the research measurement.
 
 ### Pipeline / sales cloud beyond four objects
 
-- Products, price books, line items, quotes, contracts, orders
+- Opportunity line items, custom price books, quotes, contracts, orders.
+  Products and the standard price book landed on 2026-10-11.
 - Forecasts, sales path / kanban, territories, quotas
 
 ### Lead / marketing-adjacent
@@ -773,19 +825,33 @@ These stay in scope. See `SALESFORCE-PARITY.md`. They are not done:
 
 ## NEXT
 
-The recurring build automation is paused. When the owner resumes the build,
-read `HANDOFF.md` and `ARCHITECTURE.md` before choosing the next slice.
-The long-term scope includes Salesforce-level feature breadth. The next
-correctness gaps are owner-or-admin checks on undelete, opportunity
-contact-role writes, Change Owner, permission-aware Edit/Delete controls,
-and cascade task deletes. Existing Riley admin memberships remain admin
-until an explicit migration or reassignment. Do not reintroduce a
-default `LOCAL_USER_ID` actor on domain writes. Record fresh verification
-evidence for each slice.
+The full sharing slice (organization-wide defaults, role hierarchy, and
+criteria rules) was abandoned after three review rounds. Do not retry
+that whole slice in one change. The still-open correctness holes are
+owner-or-admin checks on undelete, opportunity contact-role writes,
+Change Owner, Edit/Delete visibility on contact, lead, opportunity, and
+task detail, and cascade task deletes. Existing Riley admin memberships
+remain admin until an explicit migration or reassignment. Do not
+reintroduce a default `LOCAL_USER_ID` actor on domain writes.
+
+The catalog's next piece is opportunity line items on top of the
+standard price, then custom price books. Quotes need those. Record
+fresh verification evidence for each slice.
 
 ---
 
 ## Session log
+
+### Session 2026-10-11 — product catalog (Rex / Grok)
+
+- Did not retry the abandoned sharing slice.
+- Products, one standard price book per org, and standard prices in
+  cents. Migration `0014_products`. Profile rows include `product`.
+  `npm run verify` exit 0: 34 files, 398 tests, production build.
+- Form pass on `next dev -p 3017` with a throwaway database. Operator
+  created Anvil at `$19.99`. Riley could read it and could not edit it.
+  The server was stopped. No viewport pass.
+- Did not push, open a PR, or deploy. No real-business data.
 
 ### Reconciliation (2026-10-10) — profiles from `cc5f786`
 

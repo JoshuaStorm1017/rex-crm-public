@@ -21,5 +21,8 @@ describe("newId", () => {
     expect(newId(ID_PREFIX.assignmentRule).startsWith("01Q")).toBe(true);
     expect(newId(ID_PREFIX.automationRule).startsWith("01W")).toBe(true);
     expect(newId(ID_PREFIX.duplicateRule).startsWith("0Bm")).toBe(true);
+    expect(newId(ID_PREFIX.product).startsWith("01t")).toBe(true);
+    expect(newId(ID_PREFIX.priceBook).startsWith("01s")).toBe(true);
+    expect(newId(ID_PREFIX.priceBookEntry).startsWith("01u")).toBe(true);
   });
 });

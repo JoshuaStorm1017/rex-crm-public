@@ -9,13 +9,16 @@ import {
 } from "../db/schema";
 import type { Actor } from "./actor";
 import { assertCurrentOrgAdmin } from "./actor";
-import { LIST_VIEW_OBJECT_TYPES, type ListViewObjectType } from "./constants";
+import {
+  PROFILE_OBJECT_TYPES,
+  type ProfileObjectType,
+} from "./constants";
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
 
 export const SYSTEM_ADMIN_PROFILE_NAME = "System Administrator";
 
-/** Seeded profile. Read on the five CRM objects, no create, update, or delete. */
+/** Seeded profile. Read on the CRM objects and products, no create, update, or delete. */
 export const READ_ONLY_PROFILE_NAME = "Read Only";
 
 export type ObjectPermissionFlags = {
@@ -104,7 +107,7 @@ function profileInOrg(db: Db, actor: Actor, profileId: string) {
 export function readObjectFlags(
   db: Db,
   actor: Actor,
-  objectType: ListViewObjectType,
+  objectType: ProfileObjectType,
 ): ObjectPermissionFlags | undefined {
   const member = membership(db, actor);
   if (!member?.profileId) return undefined;
@@ -135,7 +138,7 @@ export function readObjectFlags(
 export function readFieldAccess(
   db: Db,
   actor: Actor,
-  objectType: ListViewObjectType,
+  objectType: ProfileObjectType,
 ): FieldAccess {
   const member = membership(db, actor);
   const rows = member?.profileId
@@ -213,7 +216,7 @@ export function setObjectPermission(
   db: Db,
   actor: Actor,
   profileId: string,
-  objectType: ListViewObjectType,
+  objectType: ProfileObjectType,
   flags: ObjectPermissionFlags,
 ): void {
   assertCurrentOrgAdmin(db, actor);
@@ -249,7 +252,7 @@ export function setFieldPermission(
   db: Db,
   actor: Actor,
   profileId: string,
-  objectType: ListViewObjectType,
+  objectType: ProfileObjectType,
   fieldName: string,
   flags: { canRead: boolean; canEdit: boolean },
 ): void {
@@ -316,7 +319,7 @@ function ensureNamedProfile(
       })
       .run();
   }
-  for (const objectType of LIST_VIEW_OBJECT_TYPES) {
+  for (const objectType of PROFILE_OBJECT_TYPES) {
     const perm = db
       .select({ id: profileObjectPermissions.id })
       .from(profileObjectPermissions)
@@ -390,7 +393,7 @@ export function assignProfile(
 /**
  * Every org gets a System Administrator profile with full object CRUD and
  * a Read Only profile with read and no create, update, or delete on the
- * five CRM objects. Memberships that have no profile yet point at System
+ * five CRM objects and products. Memberships that have no profile yet point at System
  * Administrator. An existing object-permission row is left alone, so a
  * later edit is not reset on startup. Missing object permission means
  * deny, so the System Administrator backfill is what keeps existing users

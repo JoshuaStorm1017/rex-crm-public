@@ -325,7 +325,7 @@ Rows that already have code are partial. The rest are the Sales Cloud / Agentfor
 | SALES-ACT-001 | Events, calendar, log a call, email | NOT STARTED | — |
 | SALES-TEAM-001 | Account, opportunity, and case teams | NOT STARTED | — |
 | SALES-PERSON-001 | Person accounts: one record that is both account and contact | NOT STARTED | — |
-| SALES-PROD-001 | Products, price books, standard price, opportunity line items | NOT STARTED | Required before quotes. |
+| SALES-PROD-001 | Products, price books, standard price, opportunity line items | PARTIAL | Standard price book and entries, integer cents, org isolation, profile and owner checks (2026-10-11). No custom price books. No opportunity line items. Not in search, reports, or the recycle bin. |
 | SALES-FCST-001 | Forecast categories, quotas, manager roll-up | NOT STARTED | — |
 | SALES-TERR-001 | Territory model, assignment, forecast by territory | NOT STARTED | Depends on IAM-SHARE-002. |
 | SALES-ENG-001 | Cadences, work queues, email engagement tracked locally (no send) | NOT STARTED | Winter '27 notes push notifications; Rex will record a sink, not deliver. |

@@ -3,9 +3,16 @@
 > **Publication note.** Commit hashes and branch names below refer to the earlier
 > private repository this one began as a snapshot of. They do not resolve here.
 
-Updated 2026-10-10 after Setup administration and Read Only profile.
-`STATUS.md` is the evidence ledger. This file is the baton for the next
-slice. Do not delete it until that slice has absorbed it.
+Updated 2026-10-11 after the product catalog. `STATUS.md` is the
+evidence ledger. This file is the baton for the next slice. Do not
+delete it until that slice has absorbed it.
+
+The 2026-10-11 slice did not retry organization-wide sharing. That
+slice was abandoned after three review rounds. Products, one standard
+price book per organization, and standard prices in integer cents are
+in `src/lib/crm/products.ts` and migration `0014_products`. Opportunity
+line items and custom price books are not built. The permission gaps
+in section 3 are still open.
 
 The long-term experiment is a unified CRM with Salesforce-level feature
 breadth and strong correctness. The recurring build automation is paused

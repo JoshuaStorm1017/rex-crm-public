@@ -21,7 +21,14 @@ import { createOpportunity, updateOpportunity, deleteOpportunity, getOpportunity
 import { createTask, updateTask, deleteTask, completeTask, getTask } from "./tasks";
 import { addMember, createOrganization } from "./orgs";
 
-const OBJECTS: CrmObject[] = ["account", "contact", "lead", "opportunity", "task"];
+const OBJECTS: CrmObject[] = [
+  "account",
+  "contact",
+  "lead",
+  "opportunity",
+  "task",
+  "product",
+];
 const ACTIONS: ObjectAction[] = ["read", "create", "edit", "delete"];
 
 describe("permissions engine", () => {
