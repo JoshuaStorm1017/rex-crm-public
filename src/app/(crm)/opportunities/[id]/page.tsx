@@ -16,6 +16,7 @@ import { getCustomValues } from "@/lib/crm/customFields";
 import { formatUsd } from "@/lib/crm/money";
 import { getOpportunity } from "@/lib/crm/opportunities";
 import { listOpportunityContactRoles } from "@/lib/crm/opportunityContactRoles";
+import { canAccessRecord } from "@/lib/crm/permissions";
 import { recordView } from "@/lib/crm/recentlyViewed";
 import { listTasksForRecord } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
@@ -59,6 +60,7 @@ export default async function OpportunityDetailPage({
   recordView(db, actor, "opportunity", opportunity.id);
   const account = getAccount(db, actor, opportunity.accountId);
   const roles = listOpportunityContactRoles(db, actor, opportunity.id);
+  const canEditRoles = canAccessRecord(db, actor, "opportunity", "edit", opportunity);
   const taken = new Set(roles.map((role) => role.contactId));
   const accountContacts = listContactsForAccount(db, actor, opportunity.accountId);
   const eligibleContacts = accountContacts.filter(
@@ -170,7 +172,7 @@ export default async function OpportunityDetailPage({
                 <th className="px-4 py-2 font-medium">Contact</th>
                 <th className="px-4 py-2 font-medium">Role</th>
                 <th className="px-4 py-2 font-medium">Primary</th>
-                <th className="px-4 py-2 font-medium"></th>
+                {canEditRoles ? <th className="px-4 py-2 font-medium"></th> : null}
               </tr>
             </thead>
             <tbody>
@@ -191,7 +193,7 @@ export default async function OpportunityDetailPage({
                   <td className="px-4 py-2">
                     {role.isPrimary ? (
                       "Primary"
-                    ) : (
+                    ) : canEditRoles ? (
                       <form
                         action={setPrimaryOpportunityContactRoleAction.bind(
                           null,
@@ -206,26 +208,34 @@ export default async function OpportunityDetailPage({
                           Make primary
                         </button>
                       </form>
+                    ) : (
+                      "—"
                     )}
                   </td>
-                  <td className="px-4 py-2 text-right">
-                    <DeleteButton
-                      label="Remove"
-                      confirmMessage={`Remove ${role.contactName} from this opportunity?`}
-                      action={deleteOpportunityContactRoleAction.bind(
-                        null,
-                        role.id,
-                        opportunity.id,
-                      )}
-                    />
-                  </td>
+                  {canEditRoles ? (
+                    <td className="px-4 py-2 text-right">
+                      <DeleteButton
+                        label="Remove"
+                        confirmMessage={`Remove ${role.contactName} from this opportunity?`}
+                        action={deleteOpportunityContactRoleAction.bind(
+                          null,
+                          role.id,
+                          opportunity.id,
+                        )}
+                      />
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
           </table>
         )}
         <div className="border-t border-[#d9d0c0] px-4 py-4">
-          {eligibleContacts.length === 0 ? (
+          {!canEditRoles ? (
+            <p className="text-sm text-[#5c564c]">
+              You do not have permission to change contact roles on this opportunity.
+            </p>
+          ) : eligibleContacts.length === 0 ? (
             <p className="text-sm text-[#5c564c]">
               {account && accountContacts.length === 0 ? (
                 <>

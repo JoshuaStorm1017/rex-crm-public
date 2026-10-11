@@ -9,6 +9,7 @@ import type { Actor } from "./actor";
 import { assertActor } from "./actor";
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
+import { assertCanAccessRecord } from "./permissions";
 import {
   opportunityContactRoleCreateSchema,
   opportunityContactRoleUpdateSchema,
@@ -203,6 +204,14 @@ function clearPrimary(
   }
 }
 
+function assertCanEditOpportunityRoles(db: Db, actor: Actor, opportunityId: string): void {
+  const opportunity = getLiveOpportunity(db, actor, opportunityId);
+  if (!opportunity) {
+    throw new DomainError("NOT_FOUND", "Opportunity not found");
+  }
+  assertCanAccessRecord(db, actor, "opportunity", "edit", opportunity);
+}
+
 function assertPair(db: Db, actor: Actor, opportunityId: string, contactId: string) {
   const opportunity = getLiveOpportunity(db, actor, opportunityId);
   if (!opportunity) {
@@ -229,6 +238,7 @@ export function persistOpportunityContactRoleCreate(
   assertActor(db, actor);
   const parsed = opportunityContactRoleCreateSchema.parse(input);
   assertPair(db, actor, parsed.opportunityId, parsed.contactId);
+  assertCanEditOpportunityRoles(db, actor, parsed.opportunityId);
   if (existingRoleForPair(db, actor, parsed.opportunityId, parsed.contactId)) {
     throw new DomainError(
       "DUPLICATE",
@@ -284,6 +294,7 @@ function persistUpdate(
   if (!existing) {
     throw new DomainError("NOT_FOUND", "Opportunity contact role not found");
   }
+  assertCanEditOpportunityRoles(db, actor, existing.opportunityId);
   const parsed = opportunityContactRoleUpdateSchema.parse(input);
   const ts = now();
   const isPrimary = parsed.isPrimary ?? existing.isPrimary;
@@ -335,6 +346,7 @@ export function deleteOpportunityContactRole(
   if (!existing) {
     throw new DomainError("NOT_FOUND", "Opportunity contact role not found");
   }
+  assertCanEditOpportunityRoles(db, actor, existing.opportunityId);
   db.delete(opportunityContactRoles)
     .where(
       and(
@@ -345,6 +357,10 @@ export function deleteOpportunityContactRole(
     .run();
 }
 
+/**
+ * Parent delete already checked delete on the opportunity. A profile that
+ * can delete the opportunity but cannot edit it must still clear these rows.
+ */
 export function deleteOpportunityContactRolesForOpportunity(
   db: Db,
   actor: Actor,
@@ -361,6 +377,7 @@ export function deleteOpportunityContactRolesForOpportunity(
     .run();
 }
 
+/** Parent contact delete already authorized this. Do not require opportunity edit here. */
 export function deleteOpportunityContactRolesForContact(
   db: Db,
   actor: Actor,
