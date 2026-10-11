@@ -192,7 +192,7 @@ export function createContact(
     createdBy: actor.userId,
     updatedBy: actor.userId,
   };
-  const prepared = prepareWrite(db, "contact", row, "create");
+  const prepared = prepareWrite(db, actor, "contact", row, "create");
   db.insert(contacts).values(prepared).run();
   const created = storedContact(db, actor, id);
   if (!created) {
@@ -242,7 +242,7 @@ export function updateContact(
     updatedAt: ts,
     updatedBy: actor.userId,
   });
-  const prepared = prepareWrite(db, "contact", next, "update") as Contact;
+  const prepared = prepareWrite(db, actor, "contact", next, "update") as Contact;
   db.update(contacts)
     .set(withoutId(prepared))
     .where(and(eq(contacts.id, id), eq(contacts.orgId, actor.orgId)))
@@ -261,8 +261,8 @@ export function deleteContact(db: Db, actor: Actor, id: string): void {
     throw new DomainError("NOT_FOUND", "Contact not found");
   }
   assertCanAccessRecord(db, actor, "contact", "delete", existing);
-  deleteOpportunityContactRolesForContact(db, actor, id);
   deleteTasksForRecord(db, actor, id);
+  deleteOpportunityContactRolesForContact(db, actor, id);
   deleteCustomValuesForRecord(db, id);
   // Like Salesforce: the people who reported to a deleted contact keep
   // existing, with Reports To cleared — not pointing at a deleted row.

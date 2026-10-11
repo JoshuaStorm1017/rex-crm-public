@@ -166,7 +166,7 @@ export function createOpportunity(
     createdBy: actor.userId,
     updatedBy: actor.userId,
   };
-  const prepared = prepareWrite(db, "opportunity", row, "create");
+  const prepared = prepareWrite(db, actor, "opportunity", row, "create");
   db.insert(opportunities).values(prepared).run();
   const created = storedOpportunity(db, actor, id);
   if (!created) {
@@ -207,7 +207,7 @@ export function updateOpportunity(
     updatedAt: ts,
     updatedBy: actor.userId,
   });
-  const prepared = prepareWrite(db, "opportunity", next, "update") as Opportunity;
+  const prepared = prepareWrite(db, actor, "opportunity", next, "update") as Opportunity;
   db.update(opportunities)
     .set(withoutId(prepared))
     .where(and(eq(opportunities.id, id), eq(opportunities.orgId, actor.orgId)))
@@ -226,8 +226,8 @@ export function deleteOpportunity(db: Db, actor: Actor, id: string): void {
     throw new DomainError("NOT_FOUND", "Opportunity not found");
   }
   assertCanAccessRecord(db, actor, "opportunity", "delete", existing);
-  deleteOpportunityContactRolesForOpportunity(db, actor, id);
   deleteTasksForRecord(db, actor, id);
+  deleteOpportunityContactRolesForOpportunity(db, actor, id);
   deleteCustomValuesForRecord(db, id);
   db.update(opportunities)
     .set({ deletedAt: now(), updatedAt: now() })

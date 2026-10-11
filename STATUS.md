@@ -10,8 +10,9 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-11, organization-wide defaults, roles, and
-criteria sharing rules. The 2026-10-10 setup-admin entry is still below.
+Last updated: 2026-10-11, sharing review fixes (contact roles,
+hidden saves, task cascade, duplicates, labels, and the 0014
+snapshot). The organization-wide defaults entry is still below.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -34,6 +35,86 @@ criteria sharing rules. The 2026-10-10 setup-admin entry is still below.
 ## WORKS
 
 Things actually run, with evidence.
+
+### Sharing review fixes (2026-10-11)
+
+- Opportunity contact-role lists return a row only when the actor can
+  read the opportunity and the contact. Create, update, and delete
+  require edit on the opportunity. An unreadable contact on create
+  returns "Contact does not exist". An unreadable opportunity on
+  update or delete returns "Opportunity contact role not found".
+- Account, contact, lead, opportunity, and task saves redirect to the
+  detail page when the actor can still read the row. When they
+  cannot, the action redirects to the list with "Saved. This record
+  is no longer visible to you." The account test edits a record out
+  of a criteria rule. The lead test creates a lead that an assignment
+  rule gives to the operator under a private lead default.
+- Grant hierarchy grants delete. The Setup checkbox says "Users above
+  the owner can see, edit, and delete". A chief in the parent role
+  deleted the rep's private account. The rep's delete of the chief's
+  account was not found, and that account remained.
+- `drizzle/meta/0014_snapshot.json` matches the migrated schema,
+  including partial unique index `roles_org_name_uidx` on
+  `(org_id, name)` where `deleted_at` is null. A second
+  `drizzle-kit generate` printed "No schema changes, nothing to
+  migrate". The duplicate SQL that generate emitted against the 0013
+  snapshot was discarded, and the journal still ends at
+  `0014_sharing`.
+- Deleting an account, contact, lead, or opportunity refuses when any
+  related live task fails the task delete check. The error is
+  "Cannot delete this record while other records still depend on it"
+  and does not name the task. No related task is deleted. Account
+  delete counts only contacts, opportunities, and child accounts the
+  actor can read. A hidden child does not block the delete and is
+  not named. It keeps the parent id.
+- Duplicate checks for account name, contact email, and lead email or
+  company match only rows the actor can read. Creating the same
+  private value succeeds for a member who cannot see the existing
+  row. The operator, with modify-all, still gets the duplicate error.
+- Contact, opportunity, and task detail pages show an em dash when
+  the related account or record is not readable. Contact and
+  opportunity lists do the same and do not link the hidden id. Task
+  edit omits the related fields in that case and the update keeps
+  the stored relationship. Contact edit omits the account select,
+  and opportunity edit omits the hidden account id. Delete actions
+  look up a readable account on the server and otherwise return to
+  the object list, so the hidden id is not in the page HTML.
+- `sharing.test.ts` covers the list, search, and report paths that
+  get-by-id does not. Under private account OWD, a chief who is not
+  modify-all sees the rep's account in all three, and the rep does
+  not see the chief's. `billingState not_equals AZ` includes a blank
+  state and WA and excludes AZ. `is_blank` and `is_not_blank` agree
+  on the same rows. `amountCents equals "10.00"` returns the
+  opportunity stored as 1000 cents and excludes 1001. A member
+  `createRole` and `createSharingRule` throw FORBIDDEN, and the
+  admin lists do not contain those rows.
+- **`npm run verify` (2026-10-11, 12:16 EDT):** exit 0. 34 test
+  files, 403 tests. TypeScript, ESLint, and the Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **UI, throwaway database only.** Chrome DevTools did not connect,
+  and this pass did not launch a browser viewport. No 390px check.
+  `DATABASE_PATH=/tmp/rex-crm-share-fix-20261011.sqlite`,
+  `next dev -p 3219`. Fetched the rendered HTML with a session
+  cookie. Operator `/setup/sharing` contained "Users above the owner
+  can see, edit, and delete". `/accounts?notice=Saved. This record
+  is no longer visible to you.` rendered that sentence. Riley's
+  contact detail, contact edit, task detail, task edit, opportunity
+  detail, opportunity edit, contact list, and opportunity list for
+  private operator-owned account Hidden Quarry contained neither
+  that account id nor the name. The operator's contact page showed
+  Hidden Quarry and the account link, and the edit form included
+  the account. The server was stopped after the pass. No repository
+  data database was used.
+- Still open: teams, queues, territories, manual shares, owner-based
+  rules, permission sets, and a profile setup screen. Contact is not
+  controlled by its account. The rule form has three condition rows;
+  the domain stores one to five. If the ultimate parent account is
+  unreadable, the hierarchy view roots at the highest visible
+  ancestor, and a visible grandchild under a hidden parent may not
+  attach. Detail pages other than accounts still show Edit and
+  Delete before the domain refuses the save. A hidden child left
+  behind by an account delete keeps the parent id. Change Owner is
+  not built.
 
 ### Organization-wide defaults, roles, and criteria sharing (2026-10-11)
 
@@ -92,15 +173,12 @@ Things actually run, with evidence.
   (WA). Operator deleted the rule. Riley's list kept Riley Supply
   and hid Mesa again (404). Both home pages still rendered. No
   repository data database was used.
-- Still open: teams, queues, territories, manual shares, owner-based
-  rules, and permission sets. Contact is not controlled by its
-  account. The rule form has three condition rows; the domain stores
-  one to five. If the ultimate parent account is unreadable, the
-  hierarchy view roots at the highest visible ancestor, and a visible
-  grandchild under a hidden parent may not attach. A parent delete
-  still counts hidden children, so the error can reveal that a hidden
-  child exists. Detail pages other than accounts still show Edit and
-  Delete before the domain refuses the save.
+- Still open from this pass, revised the same day: see the sharing
+  review section above. Parent delete no longer counts hidden
+  children. The items that remain are teams, queues, territories,
+  manual shares, owner-based rules, permission sets, the hierarchy
+  view, the three-row rule form, Edit/Delete buttons on non-account
+  detail pages, and hidden children that keep a deleted parent id.
 
 ### Setup administration and Read Only profile (`5126f24`)
 
@@ -848,11 +926,13 @@ The recurring build automation is paused. When the owner resumes the build,
 read `HANDOFF.md` and `ARCHITECTURE.md` before choosing the next slice.
 The long-term scope includes Salesforce-level feature breadth. Inside-org
 sharing now has organization-wide defaults, a role hierarchy, and
-criteria rules. The next sharing gaps are manual shares, owner-based
-rules, teams, queues, and territories. Permission sets and a profile
-setup screen are still open. Opportunity contact-role writes, Change
-Owner, permission-aware Edit/Delete on detail pages other than
-accounts, and cascade task deletes are still open. Undelete now follows
+criteria rules. Contact roles, duplicate checks, related labels, and
+task cascade deletes follow that visibility. The next sharing gaps
+are manual shares, owner-based rules, teams, queues, and territories.
+Permission sets and a profile setup screen are still open. Change
+Owner and permission-aware Edit/Delete on detail pages other than
+accounts are still open. A hidden child of a deleted account keeps
+the parent id. Undelete now follows
 delete access: under Public Read Only a member sees another user's bin
 row and is refused; under Private the bin hides it. Existing Riley
 admin memberships remain admin until an explicit migration or
@@ -862,6 +942,18 @@ domain writes. Record fresh verification evidence for each slice.
 ---
 
 ## Session log
+
+### Session 20 (2026-10-11, 12:16 EDT) — Rex (Grok)
+
+- Closed the code, security, and mutation review findings on the
+  sharing slice: contact roles, hidden-save redirects, hierarchy
+  delete copy, the 0014 snapshot, task cascade refusal, readable-only
+  duplicate probes, redacted related labels, and list/search/report
+  tests for hierarchy, `not_equals`, blank checks, and money cents.
+- `npm run verify` exit 0: 34 files, 403 tests, Next.js 16.3.5 build.
+  HTML fetches on port 3219 confirmed the checkbox and the hidden
+  account id. Chrome DevTools did not connect, so no viewport pass.
+- Did not push, open a PR, merge, or deploy. No real-business data.
 
 ### Session 19 (2026-10-11, 11:14 EDT) — Rex (Grok)
 

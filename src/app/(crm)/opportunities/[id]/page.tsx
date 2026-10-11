@@ -108,11 +108,7 @@ export default async function OpportunityDetailPage({
             <DeleteButton
               label="Delete"
               confirmMessage={`Delete opportunity ${opportunity.name}?`}
-              action={deleteOpportunityAction.bind(
-                null,
-                opportunity.id,
-                opportunity.accountId,
-              )}
+              action={deleteOpportunityAction.bind(null, opportunity.id)}
             />
           </div>
         </div>
@@ -129,10 +125,7 @@ export default async function OpportunityDetailPage({
           Details
         </h2>
         <dl className="grid gap-4 sm:grid-cols-3">
-          <Field
-            label="Account"
-            value={account?.name ?? opportunity.accountId}
-          />
+          <Field label="Account" value={account?.name} />
           <Field label="Amount" value={formatUsd(opportunity.amountCents)} />
           <Field label="Stage" value={opportunity.stage} />
           <Field label="Probability" value={`${opportunity.probability}%`} />

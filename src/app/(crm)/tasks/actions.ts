@@ -13,6 +13,7 @@ import {
 import {
   blank,
   formatError,
+  SAVED_HIDDEN_NOTICE,
   type ActionState,
 } from "@/lib/crm/form";
 import { requireActor } from "@/lib/crm/currentUser";
@@ -103,15 +104,22 @@ export async function createTaskAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  let task;
+  let task: Task | undefined;
+  let hidden = false;
   try {
     const actor = await requireActor();
     task = withCustomFieldWrite(getDb(), actor, "task", formData, (tx) =>
-      createTask(tx, actor, taskFields(formData))    );
+      createTask(tx, actor, taskFields(formData)),
+    );
+    hidden = !getTask(getDb(), actor, task.id);
   } catch (error) {
     return { error: formatError(error) };
   }
+  if (!task) return { error: "Something went wrong" };
   revalidateTask(task);
+  if (hidden) {
+    redirect(`/tasks?notice=${encodeURIComponent(SAVED_HIDDEN_NOTICE)}`);
+  }
   redirect(`/tasks/${task.id}`);
 }
 
@@ -120,16 +128,22 @@ export async function updateTaskAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  let task;
+  let task: Task | undefined;
+  let hidden = false;
   try {
     const actor = await requireActor();
     task = withCustomFieldWrite(getDb(), actor, "task", formData, (tx) =>
       updateTask(tx, actor, id, parseTaskUpdateFormData(formData)),
     );
+    hidden = !getTask(getDb(), actor, task.id);
   } catch (error) {
     return { error: formatError(error) };
   }
+  if (!task) return { error: "Something went wrong" };
   revalidateTask(task);
+  if (hidden) {
+    redirect(`/tasks?notice=${encodeURIComponent(SAVED_HIDDEN_NOTICE)}`);
+  }
   redirect(`/tasks/${task.id}`);
 }
 

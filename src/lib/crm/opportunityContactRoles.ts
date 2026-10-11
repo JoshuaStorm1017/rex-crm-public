@@ -9,6 +9,8 @@ import type { Actor } from "./actor";
 import { assertActor } from "./actor";
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
+import { canAccessRecord, canPerform } from "./permissions";
+import { canReadRecord, readRestrictionSql } from "./sharing";
 import {
   opportunityContactRoleCreateSchema,
   opportunityContactRoleUpdateSchema,
@@ -63,6 +65,39 @@ function getLiveContact(db: Db, actor: Actor, id: string) {
     .get();
 }
 
+function readableOpportunity(db: Db, actor: Actor, id: string) {
+  if (!canPerform(db, actor, "opportunity", "read")) return undefined;
+  const row = getLiveOpportunity(db, actor, id);
+  if (!row || !canReadRecord(db, actor, "opportunity", row)) return undefined;
+  return row;
+}
+
+function readableContact(db: Db, actor: Actor, id: string) {
+  if (!canPerform(db, actor, "contact", "read")) return undefined;
+  const row = getLiveContact(db, actor, id);
+  if (!row || !canReadRecord(db, actor, "contact", row)) return undefined;
+  return row;
+}
+
+function assertOpportunityEditable(
+  db: Db,
+  actor: Actor,
+  opportunityId: string,
+  missing = "Opportunity not found",
+) {
+  const opportunity = readableOpportunity(db, actor, opportunityId);
+  if (!opportunity) {
+    throw new DomainError("NOT_FOUND", missing);
+  }
+  if (!canAccessRecord(db, actor, "opportunity", "edit", opportunity)) {
+    throw new DomainError(
+      "FORBIDDEN",
+      "You do not have permission to edit this opportunity",
+    );
+  }
+  return opportunity;
+}
+
 export function getOpportunityContactRole(
   db: Db,
   actor: Actor,
@@ -87,19 +122,12 @@ export function listOpportunityContactRoles(
   opportunityId: string,
 ): OpportunityContactRoleListItem[] {
   assertActor(db, actor);
-  return db
+  if (!readableOpportunity(db, actor, opportunityId)) return [];
+  if (!canPerform(db, actor, "contact", "read")) return [];
+  const rows = db
     .select({
-      id: opportunityContactRoles.id,
-      orgId: opportunityContactRoles.orgId,
-      opportunityId: opportunityContactRoles.opportunityId,
-      contactId: opportunityContactRoles.contactId,
-      role: opportunityContactRoles.role,
-      isPrimary: opportunityContactRoles.isPrimary,
-      createdAt: opportunityContactRoles.createdAt,
-      updatedAt: opportunityContactRoles.updatedAt,
-      contactName: contacts.name,
-      contactTitle: contacts.title,
-      contactEmail: contacts.email,
+      role: opportunityContactRoles,
+      contact: contacts,
     })
     .from(opportunityContactRoles)
     .innerJoin(contacts, eq(opportunityContactRoles.contactId, contacts.id))
@@ -109,10 +137,19 @@ export function listOpportunityContactRoles(
         eq(opportunityContactRoles.orgId, actor.orgId),
         eq(contacts.orgId, actor.orgId),
         isNull(contacts.deletedAt),
+        readRestrictionSql(db, actor, "contact", contacts.ownerId),
       ),
     )
     .orderBy(desc(opportunityContactRoles.isPrimary), contacts.lastName)
     .all();
+  return rows
+    .filter((row) => canReadRecord(db, actor, "contact", row.contact))
+    .map((row) => ({
+      ...row.role,
+      contactName: row.contact.name,
+      contactTitle: row.contact.title,
+      contactEmail: row.contact.email,
+    }));
 }
 
 export function listOpportunityContactRolesForContact(
@@ -121,19 +158,12 @@ export function listOpportunityContactRolesForContact(
   contactId: string,
 ): ContactOpportunityRoleListItem[] {
   assertActor(db, actor);
-  return db
+  if (!readableContact(db, actor, contactId)) return [];
+  if (!canPerform(db, actor, "opportunity", "read")) return [];
+  const rows = db
     .select({
-      id: opportunityContactRoles.id,
-      orgId: opportunityContactRoles.orgId,
-      opportunityId: opportunityContactRoles.opportunityId,
-      contactId: opportunityContactRoles.contactId,
-      role: opportunityContactRoles.role,
-      isPrimary: opportunityContactRoles.isPrimary,
-      createdAt: opportunityContactRoles.createdAt,
-      updatedAt: opportunityContactRoles.updatedAt,
-      opportunityName: opportunities.name,
-      opportunityStage: opportunities.stage,
-      opportunityCloseDate: opportunities.closeDate,
+      role: opportunityContactRoles,
+      opportunity: opportunities,
     })
     .from(opportunityContactRoles)
     .innerJoin(
@@ -146,10 +176,19 @@ export function listOpportunityContactRolesForContact(
         eq(opportunityContactRoles.orgId, actor.orgId),
         eq(opportunities.orgId, actor.orgId),
         isNull(opportunities.deletedAt),
+        readRestrictionSql(db, actor, "opportunity", opportunities.ownerId),
       ),
     )
     .orderBy(opportunities.closeDate, opportunities.name)
     .all();
+  return rows
+    .filter((row) => canReadRecord(db, actor, "opportunity", row.opportunity))
+    .map((row) => ({
+      ...row.role,
+      opportunityName: row.opportunity.name,
+      opportunityStage: row.opportunity.stage,
+      opportunityCloseDate: row.opportunity.closeDate,
+    }));
 }
 
 function existingRoleForPair(
@@ -204,11 +243,8 @@ function clearPrimary(
 }
 
 function assertPair(db: Db, actor: Actor, opportunityId: string, contactId: string) {
-  const opportunity = getLiveOpportunity(db, actor, opportunityId);
-  if (!opportunity) {
-    throw new DomainError("NOT_FOUND", "Opportunity not found");
-  }
-  const contact = getLiveContact(db, actor, contactId);
+  const opportunity = assertOpportunityEditable(db, actor, opportunityId);
+  const contact = readableContact(db, actor, contactId);
   if (!contact) {
     throw new DomainError("INVALID_CONTACT", "Contact does not exist");
   }
@@ -284,6 +320,12 @@ function persistUpdate(
   if (!existing) {
     throw new DomainError("NOT_FOUND", "Opportunity contact role not found");
   }
+  assertOpportunityEditable(
+    db,
+    actor,
+    existing.opportunityId,
+    "Opportunity contact role not found",
+  );
   const parsed = opportunityContactRoleUpdateSchema.parse(input);
   const ts = now();
   const isPrimary = parsed.isPrimary ?? existing.isPrimary;
@@ -335,6 +377,12 @@ export function deleteOpportunityContactRole(
   if (!existing) {
     throw new DomainError("NOT_FOUND", "Opportunity contact role not found");
   }
+  assertOpportunityEditable(
+    db,
+    actor,
+    existing.opportunityId,
+    "Opportunity contact role not found",
+  );
   db.delete(opportunityContactRoles)
     .where(
       and(

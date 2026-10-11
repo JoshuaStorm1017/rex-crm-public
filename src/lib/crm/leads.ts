@@ -142,7 +142,7 @@ export function createLead(
     createdBy: actor.userId,
     updatedBy: actor.userId,
   };
-  const prepared = prepareWrite(db, "lead", row, "create");
+  const prepared = prepareWrite(db, actor, "lead", row, "create");
   db.insert(leads).values(prepared).run();
   const created = storedLead(db, actor, id);
   if (!created) {
@@ -177,7 +177,7 @@ export function updateLead(
     updatedAt: ts,
     updatedBy: actor.userId,
   });
-  const prepared = prepareWrite(db, "lead", next, "update") as Lead;
+  const prepared = prepareWrite(db, actor, "lead", next, "update") as Lead;
   db.update(leads)
     .set(withoutId(prepared))
     .where(and(eq(leads.id, id), eq(leads.orgId, actor.orgId)))

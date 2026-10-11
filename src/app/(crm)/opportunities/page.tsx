@@ -156,12 +156,16 @@ export default async function OpportunitiesPage({
                           {row.name}
                         </Link>
                       ) : column === "accountName" ? (
-                        <Link
-                          href={`/accounts/${row.accountId}`}
-                          className="hover:underline"
-                        >
-                          {row.accountName ?? row.accountId}
-                        </Link>
+                        row.accountName ? (
+                          <Link
+                            href={`/accounts/${row.accountId}`}
+                            className="hover:underline"
+                          >
+                            {row.accountName}
+                          </Link>
+                        ) : (
+                          "—"
+                        )
                       ) : (
                         formatOpportunityListCell(row, column)
                       )}

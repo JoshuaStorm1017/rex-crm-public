@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateContactAction } from "../../actions";
 import { RecordForm } from "@/components/RecordForm";
-import { listAccounts } from "@/lib/crm/accounts";
+import { getAccount, listAccounts } from "@/lib/crm/accounts";
 import { getContact, listEligibleManagers } from "@/lib/crm/contacts";
 import { accountPickerOptions, contactPickerOptions } from "@/lib/crm/pickers";
 import { withCustomFormFields } from "@/lib/crm/customFieldForm";
@@ -16,9 +16,25 @@ export default async function EditContactPage({
 }) {
   const actor = await requireActor();
   const { id } = await params;
-  const contact = getContact(getDb(), actor, id);
+  const db = getDb();
+  const contact = getContact(db, actor, id);
   if (!contact) notFound();
   const action = updateContactAction.bind(null, contact.id);
+  const account = getAccount(db, actor, contact.accountId);
+  const accountField = account
+    ? [
+        {
+          name: "accountId",
+          label: "Account",
+          type: "select" as const,
+          required: true,
+          options: accountPickerOptions(listAccounts(db, actor)),
+          defaultValue: account.id,
+          helpText:
+            "A contact on an opportunity cannot move account; remove the contact role first.",
+        },
+      ]
+    : [];
 
   return (
     <div className="space-y-4">
@@ -35,24 +51,15 @@ export default async function EditContactPage({
         <RecordForm
           action={action}
           submitLabel="Save"
-          fields={withCustomFormFields(getDb(), actor, "contact", [
-            {
-              name: "accountId",
-              label: "Account",
-              type: "select",
-              required: true,
-              options: accountPickerOptions(listAccounts(getDb(), actor)),
-              defaultValue: contact.accountId,
-              helpText:
-                "A contact on an opportunity cannot move account; remove the contact role first.",
-            },
+          fields={withCustomFormFields(db, actor, "contact", [
+            ...accountField,
             {
               name: "reportsToId",
               label: "Reports To",
               type: "select",
               // Excludes this contact and everyone who reports up to them.
               options: contactPickerOptions(
-                getDb(), actor, listEligibleManagers(getDb(), actor, contact.id),
+                db, actor, listEligibleManagers(db, actor, contact.id),
               ),
               defaultValue: contact.reportsToId,
             },

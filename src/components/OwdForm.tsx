@@ -57,7 +57,7 @@ export function OwdForm({
                       name={`grant_${row.objectType}`}
                       defaultChecked={row.grantHierarchy}
                     />
-                    <span>Users above the owner can see and edit</span>
+                    <span>Users above the owner can see, edit, and delete</span>
                   </label>
                 </td>
               </tr>

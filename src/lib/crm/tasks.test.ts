@@ -1,9 +1,11 @@
-import { LOCAL_ACTOR } from "./actor";
+import { LOCAL_ACTOR, actorFor } from "./actor";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb } from "../db/client";
-import { createAccount, deleteAccount } from "./accounts";
-import { createContact, deleteContact } from "./contacts";
+import { createAccount, deleteAccount, getAccount } from "./accounts";
+import { RILEY_USER_ID } from "./constants";
 import { DomainError } from "./errors";
+import { setOrgWideDefault } from "./sharing";
+import { createContact, deleteContact } from "./contacts";
 import { createLead, deleteLead } from "./leads";
 import { createOpportunity, deleteOpportunity } from "./opportunities";
 import {
@@ -239,5 +241,40 @@ describe("tasks", () => {
     });
     deleteOpportunity(db, LOCAL_ACTOR, opportunity.id);
     expect(getTask(db, LOCAL_ACTOR, onOpp.id)).toBeUndefined();
+  });
+
+  it("refuses the parent delete when a related task cannot be deleted", () => {
+    const db = openMemoryDb().db;
+    const riley = actorFor(RILEY_USER_ID);
+    const account = createAccount(db, riley, { name: "Riley Books" });
+    const hidden = createTask(db, LOCAL_ACTOR, {
+      name: "Private follow up",
+      relatedObjectType: "account",
+      relatedRecordId: account.id,
+    });
+    setOrgWideDefault(db, LOCAL_ACTOR, "task", "private", true);
+    try {
+      deleteAccount(db, riley, account.id);
+      throw new Error("expected refusal");
+    } catch (error) {
+      expect(error).toBeInstanceOf(DomainError);
+      expect((error as DomainError).message).toMatch(/other records still depend/i);
+      expect((error as DomainError).message).not.toMatch(/Private follow up/);
+    }
+    expect(getAccount(db, LOCAL_ACTOR, account.id)?.name).toBe("Riley Books");
+    expect(getTask(db, LOCAL_ACTOR, hidden.id)?.name).toBe("Private follow up");
+
+    const own = createTask(db, riley, {
+      name: "Riley follow up",
+      relatedObjectType: "account",
+      relatedRecordId: account.id,
+    });
+    expect(() => deleteAccount(db, riley, account.id)).toThrow(/other records still depend/i);
+    expect(getTask(db, riley, own.id)?.name).toBe("Riley follow up");
+
+    deleteTask(db, LOCAL_ACTOR, hidden.id);
+    deleteAccount(db, riley, account.id);
+    expect(getAccount(db, LOCAL_ACTOR, account.id)).toBeUndefined();
+    expect(getTask(db, riley, own.id)).toBeUndefined();
   });
 });

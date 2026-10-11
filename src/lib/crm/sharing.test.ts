@@ -12,8 +12,10 @@ import {
 } from "./accounts";
 import { createAssignmentRule } from "./assignmentRules";
 import { RILEY_USER_ID } from "./constants";
+import { createContact } from "./contacts";
 import { DomainError } from "./errors";
 import { createLead, getLead } from "./leads";
+import { createOpportunity, getOpportunity, listOpportunities } from "./opportunities";
 import { getDefaultListView, queryAccounts } from "./listViews";
 import { addMember, createOrganization } from "./orgs";
 import { createReport, runReport } from "./reports";
@@ -26,6 +28,8 @@ import {
   deleteRole,
   deleteSharingRule,
   listOrgWideDefaults,
+  listRoles,
+  listSharingRules,
   setOrgWideDefault,
   updateRole,
   updateSharingRule,
@@ -328,5 +332,222 @@ describe("organization-wide defaults, roles, and sharing rules", () => {
     expect(getLead(db, riley, lead.id)).toBeUndefined();
     expect(getLead(db, casey, lead.id)?.company).toBe("Spacely");
     expect(getLead(db, LOCAL_ACTOR, lead.id)?.company).toBe("Spacely");
+  });
+
+  it("private OWD lets a chief list, search, and report a rep's account, and hides the chief's from the rep", () => {
+    const db = memory();
+    privateAccounts(db);
+    const chiefRole = createRole(db, LOCAL_ACTOR, { name: "Chief" });
+    const repRole = createRole(db, LOCAL_ACTOR, {
+      name: "Rep",
+      parentRoleId: chiefRole.id,
+    });
+    const chief = member(db, "Avery Lane", "averylane");
+    assignUserRole(db, LOCAL_ACTOR, chief.userId, chiefRole.id);
+    assignUserRole(db, LOCAL_ACTOR, RILEY_USER_ID, repRole.id);
+    const reps = createAccount(db, riley, { name: "Rep Books" });
+    const chiefs = createAccount(db, chief, { name: "Chief Books" });
+    const report = createReport(db, LOCAL_ACTOR, {
+      name: "Hierarchy accounts",
+      objectType: "account",
+      format: "tabular",
+      columns: ["name"],
+    });
+
+    expect(listAccounts(db, chief).map((row) => row.id).sort()).toEqual(
+      [chiefs.id, reps.id].sort(),
+    );
+    expect(listAccounts(db, riley).map((row) => row.id)).toEqual([reps.id]);
+    expect(searchRecords(db, chief, "Rep Books").map((hit) => hit.id)).toEqual([reps.id]);
+    expect(searchRecords(db, riley, "Chief Books")).toEqual([]);
+    expect(runReport(db, chief, report).rows.map((row) => row.id).sort()).toEqual(
+      [chiefs.id, reps.id].sort(),
+    );
+    expect(runReport(db, riley, report).rows.map((row) => row.id)).toEqual([reps.id]);
+  });
+
+  it("grant hierarchy lets a role above delete", () => {
+    const db = memory();
+    privateAccounts(db);
+    const chiefRole = createRole(db, LOCAL_ACTOR, { name: "Chief" });
+    const repRole = createRole(db, LOCAL_ACTOR, {
+      name: "Rep",
+      parentRoleId: chiefRole.id,
+    });
+    const chief = member(db, "Avery Lane", "averylane");
+    assignUserRole(db, LOCAL_ACTOR, chief.userId, chiefRole.id);
+    assignUserRole(db, LOCAL_ACTOR, RILEY_USER_ID, repRole.id);
+    const owned = createAccount(db, riley, { name: "Rep Books" });
+    deleteAccount(db, chief, owned.id);
+    expect(getAccount(db, LOCAL_ACTOR, owned.id)).toBeUndefined();
+    const above = createAccount(db, chief, { name: "Chief Books" });
+    expectCode(() => deleteAccount(db, riley, above.id), "NOT_FOUND");
+    expect(getAccount(db, chief, above.id)?.name).toBe("Chief Books");
+  });
+
+  it("does not store a role or a sharing rule when a member creates one", () => {
+    const db = memory();
+    const role = createRole(db, LOCAL_ACTOR, { name: "Southwest" });
+    expectCode(() => createRole(db, riley, { name: "Sneaky" }), "FORBIDDEN");
+    expect(listRoles(db, LOCAL_ACTOR).map((row) => row.name)).not.toContain("Sneaky");
+    expectCode(
+      () =>
+        createSharingRule(db, riley, {
+          name: "Sneaky rule",
+          objectType: "account",
+          access: "read",
+          shareWithRoleId: role.id,
+          criteria: [{ field: "billingState", operator: "equals", value: "AZ" }],
+        }),
+      "FORBIDDEN",
+    );
+    expect(listSharingRules(db, LOCAL_ACTOR).map((row) => row.name)).not.toContain(
+      "Sneaky rule",
+    );
+  });
+
+  it("applies not_equals, is_blank, and is_not_blank in list, search, and report", () => {
+    const db = memory();
+    privateAccounts(db);
+    const role = createRole(db, LOCAL_ACTOR, { name: "Southwest" });
+    assignUserRole(db, LOCAL_ACTOR, RILEY_USER_ID, role.id);
+    const wa = createAccount(db, LOCAL_ACTOR, { name: "Seattle Supply", billingState: "WA" });
+    const az = createAccount(db, LOCAL_ACTOR, { name: "Mesa Supply", billingState: "AZ" });
+    const blank = createAccount(db, LOCAL_ACTOR, { name: "Blank Supply" });
+    const report = createReport(db, LOCAL_ACTOR, {
+      name: "State accounts",
+      objectType: "account",
+      format: "tabular",
+      columns: ["name", "billingState"],
+    });
+    const rule = {
+      name: "State rule",
+      objectType: "account" as const,
+      access: "read" as const,
+      shareWithRoleId: role.id,
+    };
+    const created = createSharingRule(db, LOCAL_ACTOR, {
+      ...rule,
+      criteria: [{ field: "billingState", operator: "not_equals", value: "AZ" }],
+    });
+
+    const seen = () => ({
+      list: listAccounts(db, riley).map((row) => row.id).sort(),
+      report: runReport(db, riley, report).rows.map((row) => row.id).sort(),
+      seattle: searchRecords(db, riley, "Seattle").map((hit) => hit.id),
+      mesa: searchRecords(db, riley, "Mesa").map((hit) => hit.id),
+      blank: searchRecords(db, riley, "Blank").map((hit) => hit.id),
+    });
+    expect(seen()).toEqual({
+      list: [blank.id, wa.id].sort(),
+      report: [blank.id, wa.id].sort(),
+      seattle: [wa.id],
+      mesa: [],
+      blank: [blank.id],
+    });
+
+    updateSharingRule(db, LOCAL_ACTOR, created.id, {
+      ...rule,
+      criteria: [{ field: "billingState", operator: "is_blank" }],
+    });
+    expect(seen()).toEqual({
+      list: [blank.id],
+      report: [blank.id],
+      seattle: [],
+      mesa: [],
+      blank: [blank.id],
+    });
+
+    updateSharingRule(db, LOCAL_ACTOR, created.id, {
+      ...rule,
+      criteria: [{ field: "billingState", operator: "is_not_blank" }],
+    });
+    expect(seen()).toEqual({
+      list: [az.id, wa.id].sort(),
+      report: [az.id, wa.id].sort(),
+      seattle: [wa.id],
+      mesa: [az.id],
+      blank: [],
+    });
+  });
+
+  it("matches a money criterion against stored cents in list, search, and report", () => {
+    const db = memory();
+    setOrgWideDefault(db, LOCAL_ACTOR, "opportunity", "private", true);
+    const role = createRole(db, LOCAL_ACTOR, { name: "Southwest" });
+    assignUserRole(db, LOCAL_ACTOR, RILEY_USER_ID, role.id);
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Mesa Supply" });
+    const exact = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Exact Ten",
+      stage: "Prospecting",
+      closeDate: "2026-12-01",
+      amountCents: 1000,
+    });
+    const off = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Off By Cent",
+      stage: "Prospecting",
+      closeDate: "2026-12-01",
+      amountCents: 1001,
+    });
+    createSharingRule(db, LOCAL_ACTOR, {
+      name: "Ten dollar deals",
+      objectType: "opportunity",
+      access: "read",
+      shareWithRoleId: role.id,
+      criteria: [{ field: "amountCents", operator: "equals", value: "10.00" }],
+    });
+    const report = createReport(db, LOCAL_ACTOR, {
+      name: "Ten dollar pipeline",
+      objectType: "opportunity",
+      format: "tabular",
+      columns: ["name"],
+    });
+    expect(listOpportunities(db, riley).map((row) => row.id)).toEqual([exact.id]);
+    expect(searchRecords(db, riley, "Exact Ten").map((hit) => hit.id)).toEqual([exact.id]);
+    expect(searchRecords(db, riley, "Off By Cent")).toEqual([]);
+    expect(runReport(db, riley, report).rows.map((row) => row.id)).toEqual([exact.id]);
+    expect(getOpportunity(db, LOCAL_ACTOR, off.id)?.amountCents).toBe(1001);
+  });
+
+  it("does not block account delete on a contact, opportunity, or child the actor cannot see", () => {
+    const db = memory();
+    const withContact = createAccount(db, riley, { name: "Contact Parent" });
+    createContact(db, LOCAL_ACTOR, {
+      accountId: withContact.id,
+      lastName: "Hidden",
+      firstName: "Pat",
+    });
+    setOrgWideDefault(db, LOCAL_ACTOR, "contact", "private", true);
+    deleteAccount(db, riley, withContact.id);
+    expect(getAccount(db, LOCAL_ACTOR, withContact.id)).toBeUndefined();
+
+    const withOpp = createAccount(db, riley, { name: "Opportunity Parent" });
+    const opp = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: withOpp.id,
+      name: "Hidden Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-01",
+    });
+    setOrgWideDefault(db, LOCAL_ACTOR, "opportunity", "private", true);
+    deleteAccount(db, riley, withOpp.id);
+    expect(getAccount(db, LOCAL_ACTOR, withOpp.id)).toBeUndefined();
+    expect(getOpportunity(db, LOCAL_ACTOR, opp.id)?.name).toBe("Hidden Deal");
+
+    const withChild = createAccount(db, riley, { name: "Child Parent" });
+    const hiddenChild = createAccount(db, LOCAL_ACTOR, {
+      name: "Hidden Child",
+      parentAccountId: withChild.id,
+    });
+    privateAccounts(db);
+    deleteAccount(db, riley, withChild.id);
+    expect(getAccount(db, LOCAL_ACTOR, withChild.id)).toBeUndefined();
+    expect(getAccount(db, LOCAL_ACTOR, hiddenChild.id)?.parentAccountId).toBe(withChild.id);
+
+    const visible = createAccount(db, riley, { name: "Visible Parent" });
+    createContact(db, riley, { accountId: visible.id, lastName: "Seen" });
+    expect(() => deleteAccount(db, riley, visible.id)).toThrow(/contacts/i);
+    expect(getAccount(db, riley, visible.id)?.name).toBe("Visible Parent");
   });
 });

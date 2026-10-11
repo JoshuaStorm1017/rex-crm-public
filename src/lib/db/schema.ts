@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
@@ -576,7 +577,12 @@ export const roles = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
     deletedAt: integer("deleted_at"),
   },
-  (table) => [index("roles_org_idx").on(table.orgId)],
+  (table) => [
+    index("roles_org_idx").on(table.orgId),
+    uniqueIndex("roles_org_name_uidx")
+      .on(table.orgId, table.name)
+      .where(sql`${table.deletedAt} is null`),
+  ],
 );
 
 export const sharingRules = sqliteTable(

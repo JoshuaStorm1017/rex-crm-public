@@ -19,6 +19,7 @@ import {
   assertCanAccessRecord,
   assertCanPerform,
   assertEditableFields,
+  canAccessRecord,
   canPerform,
   presentRecord,
   touchedFields,
@@ -274,7 +275,7 @@ export function createTask(
     createdBy: actor.userId,
     updatedBy: actor.userId,
   };
-  const prepared = prepareWrite(db, "task", row, "create");
+  const prepared = prepareWrite(db, actor, "task", row, "create");
   db.insert(tasks).values(prepared).run();
   const created = storedTask(db, actor, id);
   if (!created) {
@@ -320,7 +321,7 @@ export function updateTask(
     updatedAt: ts,
     updatedBy: actor.userId,
   });
-  const prepared = prepareWrite(db, "task", next, "update") as Task;
+  const prepared = prepareWrite(db, actor, "task", next, "update") as Task;
   db.update(tasks)
     .set(withoutId(prepared))
     .where(and(eq(tasks.id, id), eq(tasks.orgId, actor.orgId)))
@@ -379,12 +380,18 @@ export function deleteTasksForRecord(
 ): void {
   assertActor(db, actor);
   const related = db
-    .select({ id: tasks.id })
+    .select()
     .from(tasks)
-    .where(
-      and(eq(tasks.relatedRecordId, relatedRecordId), liveTask(actor)),
-    )
+    .where(and(eq(tasks.relatedRecordId, relatedRecordId), liveTask(actor)))
     .all();
+  // Refuse the whole parent delete rather than soft-delete a task this actor
+  // cannot delete. The message does not name the task.
+  if (related.some((task) => !canAccessRecord(db, actor, "task", "delete", task))) {
+    throw new DomainError(
+      "HAS_CHILDREN",
+      "Cannot delete this record while other records still depend on it",
+    );
+  }
   deleteCustomValuesForRecords(
     db,
     related.map((row) => row.id),

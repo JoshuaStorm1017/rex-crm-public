@@ -169,7 +169,7 @@ export function createAccount(
     createdBy: actor.userId,
     updatedBy: actor.userId,
   };
-  const prepared = prepareWrite(db, "account", row, "create");
+  const prepared = prepareWrite(db, actor, "account", row, "create");
   db.insert(accounts).values(prepared).run();
   const created = storedAccount(db, actor, id);
   if (!created) {
@@ -199,7 +199,7 @@ export function updateAccount(
     updatedAt: ts,
     updatedBy: actor.userId,
   });
-  const prepared = prepareWrite(db, "account", next, "update") as Account;
+  const prepared = prepareWrite(db, actor, "account", next, "update") as Account;
   db.update(accounts)
     .set(withoutId(prepared))
     .where(and(eq(accounts.id, id), eq(accounts.orgId, actor.orgId)))
@@ -219,6 +219,8 @@ export function deleteAccount(db: Db, actor: Actor, id: string): void {
   }
   assertCanAccessRecord(db, actor, "account", "delete", existing);
 
+  // Count rows this actor can read. A hidden child is not named and does not
+  // block; it keeps the parent id after the account is deleted.
   const contactRow = db
     .select({ n: count() })
     .from(contacts)
@@ -227,6 +229,7 @@ export function deleteAccount(db: Db, actor: Actor, id: string): void {
         eq(contacts.accountId, id),
         eq(contacts.orgId, actor.orgId),
         isNull(contacts.deletedAt),
+        readRestrictionSql(db, actor, "contact", contacts.ownerId),
       ),
     )
     .get();
@@ -245,6 +248,7 @@ export function deleteAccount(db: Db, actor: Actor, id: string): void {
         eq(opportunities.accountId, id),
         eq(opportunities.orgId, actor.orgId),
         isNull(opportunities.deletedAt),
+        readRestrictionSql(db, actor, "opportunity", opportunities.ownerId),
       ),
     )
     .get();
@@ -263,6 +267,7 @@ export function deleteAccount(db: Db, actor: Actor, id: string): void {
         eq(accounts.parentAccountId, id),
         eq(accounts.orgId, actor.orgId),
         isNull(accounts.deletedAt),
+        readRestrictionSql(db, actor, "account", accounts.ownerId),
       ),
     )
     .get();
