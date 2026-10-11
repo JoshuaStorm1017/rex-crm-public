@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-11, tests for the undelete and contact-role review gaps.
+Last updated: 2026-10-11, tests that lock object delete and the opportunity role gate.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -116,6 +116,44 @@ Runner appears only in the owner's add-role select.
   Opportunity page checking read: Riley's markup contained Make
   primary, Remove, and Add role, and did not contain the denial
   sentence. Source matched the pre-mutation files afterward.
+- **No browser pass.** The page check is `renderToStaticMarkup` on a
+  memory database. Chrome DevTools was not connected.
+- A later review survived three more mutations. The recycle tests
+  granted the same delete flag on account and opportunity, so checking
+  account delete for an opportunity row still hid and restored every
+  seeded row. The page test compared an owner who can edit and delete
+  with a member who can do neither, so gating the role controls on
+  delete still passed. The next section is that re-check.
+
+### Object delete and the opportunity role gate (2026-10-11)
+
+No enforcement change. An owner, and a modify-all user, whose profile
+can delete accounts and cannot delete opportunities see and restore the
+account. The opportunity stays out of their recycle list,
+`undeleteRecord` throws `FORBIDDEN`, and the row stays deleted. The
+inverse profile, again for an owner and for modify-all, lists and
+restores the opportunity and leaves the account deleted.
+
+The opportunity page renders for a delete-not-edit owner and for an
+edit-not-delete owner. The deleter sees "You do not have permission to
+change contact roles on this opportunity." and does not see Make
+primary, Remove, or Add role. The editor sees those three controls.
+The header Edit and Delete links are still shown for both.
+
+- **`npm run verify` (2026-10-11 16:35 EDT):** exit 0. 35 files, 394
+  tests (was 35 files, 392). TypeScript, ESLint, and Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation re-check, each change restored before that verify.**
+  Recycle list authorizing opportunity rows with account delete: the
+  new test failed (`expected true to be false`) because the opportunity
+  was listed; the other seven recycle tests passed. Undelete checking
+  account delete before restoring an opportunity: the new test failed
+  with `expected FORBIDDEN` because restore did not throw; the other
+  seven passed. Opportunity page gating role controls on delete: the
+  new render failed because the delete-not-edit owner saw Make primary,
+  Remove, and Add role and did not see the denial sentence; the older
+  owner-versus-reader render passed. Source matched the pre-mutation
+  files afterward. Full verify above ran after that restore.
 - **No browser pass.** The page check is `renderToStaticMarkup` on a
   memory database. Chrome DevTools was not connected.
 
