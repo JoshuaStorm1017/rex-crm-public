@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-11, product catalog and standard price book.
+Last updated: 2026-10-11, product catalog mutation tests.
 The organization-wide sharing slice was abandoned after three review
 rounds and is not in this tree.
 
@@ -50,10 +50,25 @@ Things actually run, with evidence.
   and cannot edit or delete it. The operator, with modify-all, can
   change Riley's price. Edit and Delete are hidden when the check
   fails, and the edit URL shows the denial instead of the form.
-- **`npm run verify` (2026-10-11, 13:04 EDT):** exit 0. 34 test files,
-  398 tests. TypeScript, ESLint, and the Next.js 16.3.5 production
+- The price cap, a sibling standard price, the home-page product
+  count, formatted money on the action, and delete are pinned by
+  tests. `9999999999.99` is `999999999999` cents.
+  `10000000000.00` is `INVALID_MONEY`. Setting Anvil to 0 leaves
+  Birdseed at 500 cents, and an admin edit of Riley's price leaves
+  the operator product at 1000 cents. After another org has a
+  product, `countProducts` is 1 for each actor. The create action
+  stores `$1,250.50` as 125050 cents, and `1.005` returns
+  `INVALID_MONEY` with no product row and no price row. An owner
+  delete soft-deletes and redirects to `/products`. Riley's delete
+  redirects with a permission notice and leaves the product and its
+  1000-cent price in place. Each of those five checks was confirmed
+  by applying the reviewer's mutation, seeing the new assertion
+  fail, and restoring the original code.
+- **`npm run verify` (2026-10-11, 13:44 EDT):** exit 0. 34 test files,
+  402 tests. TypeScript, ESLint, and the Next.js 16.3.5 production
   build passed. The build lists `/products`, `/products/new`,
-  `/products/[id]`, and `/products/[id]/edit`.
+  `/products/[id]`, and `/products/[id]/edit`. The 13:04 run was
+  398 tests, before these assertions.
 - **Browser-style pass, throwaway database only.**
   `DATABASE_PATH=/tmp/rex-crm-products-20261011.sqlite`,
   `next dev -p 3017`. Signed in by posting the login form.

@@ -47,9 +47,11 @@ describe("products", () => {
     expect(parseStandardPrice("$1,250.50")).toBe(125050);
     expect(parseStandardPrice("0")).toBe(0);
     expect(parseStandardPrice("10.5")).toBe(1050);
+    expect(parseStandardPrice("9999999999.99")).toBe(999999999999);
     expectCode(() => parseStandardPrice("1.005"), "INVALID_MONEY");
     expectCode(() => parseStandardPrice("-1"), "INVALID_MONEY");
     expectCode(() => parseStandardPrice(""), "INVALID_MONEY");
+    expectCode(() => parseStandardPrice("10000000000.00"), "INVALID_MONEY");
   });
 
   it("creates a product on the standard price book and reads it back", () => {
@@ -129,6 +131,8 @@ describe("products", () => {
     expect(foreign.priceBookId).not.toBe(
       getProduct(db, LOCAL_ACTOR, listProducts(db, LOCAL_ACTOR)[0]!.id)?.priceBookId,
     );
+    expect(countProducts(db, LOCAL_ACTOR)).toBe(1);
+    expect(countProducts(db, otherActor)).toBe(1);
   });
 
   it("updates the price, clears the code, and refuses a code another live product owns", () => {
@@ -156,6 +160,7 @@ describe("products", () => {
     expect(updated.description).toBeNull();
     expect(updated.isActive).toBe(false);
     expect(updated.standardPriceCents).toBe(0);
+    expect(getProduct(db, LOCAL_ACTOR, second.id)?.standardPriceCents).toBe(500);
     expect(listProducts(db, LOCAL_ACTOR).map((row) => row.name)).toEqual([
       "Anvil",
       "Birdseed",
@@ -245,6 +250,7 @@ describe("products", () => {
     });
     expect(edited.standardPriceCents).toBe(275);
     expect(edited.ownerId).toBe(RILEY_USER_ID);
+    expect(getProduct(db, LOCAL_ACTOR, created.id)?.standardPriceCents).toBe(1000);
   });
 
   it("refuses create when the profile cannot create, and hides rows when it cannot read", () => {
