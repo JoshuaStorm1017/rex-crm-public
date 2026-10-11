@@ -26,6 +26,7 @@ import {
 import { ID_PREFIX, newId } from "./ids";
 import { deleteCustomValuesForRecord, deleteCustomValuesForRecords } from "./customFields";
 import { recordHref, recordLabel } from "./objects";
+import { canReadRecord, readRestrictionSql } from "./sharing";
 import {
   taskCreateSchema,
   taskUpdateSchema,
@@ -57,6 +58,10 @@ function isCompleted(status: string): boolean {
 
 function liveTask(actor: Actor) {
   return and(eq(tasks.orgId, actor.orgId), isNull(tasks.deletedAt));
+}
+
+function visibleTask(db: Db, actor: Actor) {
+  return and(liveTask(actor), readRestrictionSql(db, actor, "task", tasks.ownerId));
 }
 
 function compareTasks(a: Task, b: Task): number {
@@ -91,9 +96,8 @@ export function liveRelatedRecord(
           ),
         )
         .get();
-      return row
-        ? { name: row.name, href: recordHref("account", row.id) }
-        : undefined;
+      if (!row || !canReadRecord(db, actor, "account", row)) return undefined;
+      return { name: row.name, href: recordHref("account", row.id) };
     }
     case "contact": {
       const row = db
@@ -107,9 +111,8 @@ export function liveRelatedRecord(
           ),
         )
         .get();
-      return row
-        ? { name: row.name, href: recordHref("contact", row.id) }
-        : undefined;
+      if (!row || !canReadRecord(db, actor, "contact", row)) return undefined;
+      return { name: row.name, href: recordHref("contact", row.id) };
     }
     case "lead": {
       const row = db
@@ -123,9 +126,8 @@ export function liveRelatedRecord(
           ),
         )
         .get();
-      return row
-        ? { name: row.name, href: recordHref("lead", row.id) }
-        : undefined;
+      if (!row || !canReadRecord(db, actor, "lead", row)) return undefined;
+      return { name: row.name, href: recordHref("lead", row.id) };
     }
     case "opportunity": {
       const row = db
@@ -139,9 +141,8 @@ export function liveRelatedRecord(
           ),
         )
         .get();
-      return row
-        ? { name: row.name, href: recordHref("opportunity", row.id) }
-        : undefined;
+      if (!row || !canReadRecord(db, actor, "opportunity", row)) return undefined;
+      return { name: row.name, href: recordHref("opportunity", row.id) };
     }
   }
 }
@@ -169,17 +170,23 @@ function withRelated(db: Db, actor: Actor, row: Task): TaskListItem {
   );
   return {
     ...row,
-    relatedName: related?.name ?? row.relatedRecordId,
+    relatedName: related?.name ?? "—",
     relatedHref: related?.href ?? "#",
   };
 }
 
-function loadTask(db: Db, actor: Actor, id: string): Task | undefined {
+function storedTask(db: Db, actor: Actor, id: string): Task | undefined {
   return db
     .select()
     .from(tasks)
     .where(and(eq(tasks.id, id), liveTask(actor)))
     .get();
+}
+
+function loadTask(db: Db, actor: Actor, id: string): Task | undefined {
+  const row = storedTask(db, actor, id);
+  if (!row || !canReadRecord(db, actor, "task", row)) return undefined;
+  return row;
 }
 
 export function getTask(db: Db, actor: Actor, id: string): Task | undefined {
@@ -196,7 +203,7 @@ export function listTasks(db: Db, actor: Actor): TaskListItem[] {
   return db
     .select()
     .from(tasks)
-    .where(liveTask(actor))
+    .where(visibleTask(db, actor))
     .all()
     .sort(compareTasks)
     .map((row) => withRelated(db, actor, access(row)));
@@ -217,7 +224,7 @@ export function listTasksForRecord(
       and(
         eq(tasks.relatedObjectType, objectType),
         eq(tasks.relatedRecordId, recordId),
-        liveTask(actor),
+        visibleTask(db, actor),
       ),
     )
     .all()
@@ -231,7 +238,7 @@ export function countTasks(db: Db, actor: Actor): number {
   const row = db
     .select({ n: count() })
     .from(tasks)
-    .where(liveTask(actor))
+    .where(visibleTask(db, actor))
     .get();
   return row?.n ?? 0;
 }
@@ -269,7 +276,7 @@ export function createTask(
   };
   const prepared = prepareWrite(db, "task", row, "create");
   db.insert(tasks).values(prepared).run();
-  const created = loadTask(db, actor, id);
+  const created = storedTask(db, actor, id);
   if (!created) {
     throw new DomainError("WRITE_FAILED", "Task was not persisted");
   }
@@ -318,7 +325,7 @@ export function updateTask(
     .set(withoutId(prepared))
     .where(and(eq(tasks.id, id), eq(tasks.orgId, actor.orgId)))
     .run();
-  const updated = loadTask(db, actor, id);
+  const updated = storedTask(db, actor, id);
   if (!updated) {
     throw new DomainError("WRITE_FAILED", "Task update did not persist");
   }

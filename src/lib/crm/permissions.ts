@@ -1,8 +1,7 @@
-import { and, eq } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { orgMemberships } from "../db/schema";
-import type { Actor } from "./actor";
+import { hasModifyAllData, type Actor } from "./actor";
 import { DomainError } from "./errors";
+import { recordAllows } from "./sharing";
 import {
   domainFieldKey,
   readFieldAccess,
@@ -37,23 +36,8 @@ export const OBJECT_PERMISSIONS: Readonly<
   },
 } as const;
 
-/** Global roles eligible for modify-all in an org they administer. */
-const MODIFY_ALL_ROLES: ReadonlySet<Role> = new Set(["admin"]);
-
 function hasModifyAll(db: Db, actor: Actor): boolean {
-  const role = roleOf(db, actor.userId);
-  if (!role || !MODIFY_ALL_ROLES.has(role)) return false;
-  const membership = db
-    .select({ role: orgMemberships.role })
-    .from(orgMemberships)
-    .where(
-      and(
-        eq(orgMemberships.orgId, actor.orgId),
-        eq(orgMemberships.userId, actor.userId),
-      ),
-    )
-    .get();
-  return membership?.role === "admin";
+  return hasModifyAllData(db, actor);
 }
 
 /**
@@ -98,9 +82,11 @@ export function canPerform(
 }
 
 /**
- * Object-level + record-level check.
- * - read/create: object permission is enough (OWD is Public Read/Write for read today).
- * - edit/delete: object permission AND (actor is owner OR has modify-all).
+ * Object-level permission, then record sharing.
+ * - create: object permission is enough.
+ * - read/edit/delete: object permission, then modify-all or `recordAllows`.
+ *   The default org-wide default is Public Read Only. Private, the role
+ *   hierarchy, and sharing rules are applied in `recordAllows`.
  */
 export function canAccessRecord(
   db: Db,
@@ -110,9 +96,9 @@ export function canAccessRecord(
   record: { ownerId: string },
 ): boolean {
   if (!canPerform(db, actor, object, action)) return false;
-  if (action === "read" || action === "create") return true;
-  if (actor.userId === record.ownerId) return true;
-  return hasModifyAll(db, actor);
+  if (action === "create") return true;
+  if (hasModifyAll(db, actor)) return true;
+  return recordAllows(db, actor, object, action, record);
 }
 
 export function assertCanPerform(

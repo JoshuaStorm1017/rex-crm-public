@@ -29,6 +29,7 @@ import {
   type AccountUpdateInput,
 } from "./validation";
 import { prepareWrite, withoutId } from "./prepareWrite";
+import { canReadRecord, readRestrictionSql } from "./sharing";
 import { mergeDefined } from "./validationRules";
 
 export type Account = typeof accounts.$inferSelect;
@@ -41,16 +42,29 @@ function live(actor: Actor) {
   return and(eq(accounts.orgId, actor.orgId), isNull(accounts.deletedAt));
 }
 
-function loadAccount(
-  db: Db,
-  actor: Actor,
-  id: string,
-): Account | undefined {
+function visible(db: Db, actor: Actor) {
+  return and(
+    live(actor),
+    readRestrictionSql(db, actor, "account", accounts.ownerId),
+  );
+}
+
+function storedAccount(db: Db, actor: Actor, id: string): Account | undefined {
   return db
     .select()
     .from(accounts)
     .where(and(eq(accounts.id, id), live(actor)))
     .get();
+}
+
+function loadAccount(
+  db: Db,
+  actor: Actor,
+  id: string,
+): Account | undefined {
+  const row = storedAccount(db, actor, id);
+  if (!row || !canReadRecord(db, actor, "account", row)) return undefined;
+  return row;
 }
 
 export function getAccount(
@@ -70,7 +84,7 @@ export function listAccounts(db: Db, actor: Actor): Account[] {
   return db
     .select()
     .from(accounts)
-    .where(live(actor))
+    .where(visible(db, actor))
     .orderBy(accounts.name)
     .all()
     .map((row) => presentRecord(db, actor, "account", row));
@@ -82,7 +96,7 @@ export function countAccounts(db: Db, actor: Actor): number {
   const row = db
     .select({ n: count() })
     .from(accounts)
-    .where(live(actor))
+    .where(visible(db, actor))
     .get();
   return row?.n ?? 0;
 }
@@ -157,7 +171,7 @@ export function createAccount(
   };
   const prepared = prepareWrite(db, "account", row, "create");
   db.insert(accounts).values(prepared).run();
-  const created = loadAccount(db, actor, id);
+  const created = storedAccount(db, actor, id);
   if (!created) {
     throw new DomainError("WRITE_FAILED", "Account was not persisted");
   }
@@ -190,7 +204,7 @@ export function updateAccount(
     .set(withoutId(prepared))
     .where(and(eq(accounts.id, id), eq(accounts.orgId, actor.orgId)))
     .run();
-  const updated = loadAccount(db, actor, id);
+  const updated = storedAccount(db, actor, id);
   if (!updated) {
     throw new DomainError("WRITE_FAILED", "Account update did not persist");
   }
@@ -278,7 +292,11 @@ function accountsById(
     .from(accounts)
     .where(and(inArray(accounts.id, [...ids]), live(actor)))
     .all();
-  return new Map(rows.map((row) => [row.id, row]));
+  return new Map(
+    rows
+      .filter((row) => canReadRecord(db, actor, "account", row))
+      .map((row) => [row.id, presentRecord(db, actor, "account", row)]),
+  );
 }
 
 /** Parent, grandparent … root, ordered root first. Excludes the account. */
@@ -315,8 +333,8 @@ export function getAccountHierarchy(
   assertActor(db, actor);
   const ancestors = ancestorIds(db, ACCOUNT_HIERARCHY, id, actor.orgId);
   if (ancestors.length === 0) return undefined;
-  const rootId = ancestors[ancestors.length - 1]!;
-  const tree = descendantNodes(db, ACCOUNT_HIERARCHY, rootId, actor.orgId);
+  const ultimateId = ancestors[ancestors.length - 1]!;
+  const tree = descendantNodes(db, ACCOUNT_HIERARCHY, ultimateId, actor.orgId);
   const byId = accountsById(
     db,
     actor,
@@ -330,6 +348,14 @@ export function getAccountHierarchy(
     const siblings = children.get(node.parentId) ?? [];
     siblings.push(account);
     children.set(node.parentId, siblings);
+  }
+  if (!byId.has(id)) return undefined;
+  let rootId = ultimateId;
+  if (!byId.has(rootId)) {
+    rootId = id;
+    for (const ancestorId of ancestors) {
+      if (byId.has(ancestorId)) rootId = ancestorId;
+    }
   }
   const root = byId.get(rootId);
   if (!root) return undefined;
@@ -374,7 +400,8 @@ export function listChildAccounts(
   return db
     .select()
     .from(accounts)
-    .where(and(eq(accounts.parentAccountId, parentId), live(actor)))
+    .where(and(eq(accounts.parentAccountId, parentId), visible(db, actor)))
     .orderBy(accounts.name)
-    .all();
+    .all()
+    .map((row) => presentRecord(db, actor, "account", row));
 }

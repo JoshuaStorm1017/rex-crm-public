@@ -25,6 +25,7 @@ import {
 } from "../db/schema";
 import type { Account } from "./accounts";
 import { canPerform, canReadField, fieldAccess, presentRecord } from "./permissions";
+import { readRestrictionSql } from "./sharing";
 import type { Actor } from "./actor";
 import { assertActor } from "./actor";
 import type { Contact } from "./contacts";
@@ -1053,6 +1054,21 @@ function orgIdColumn(objectType: ListViewObjectType): AnySQLiteColumn {
   }
 }
 
+function ownerIdColumn(objectType: ListViewObjectType): AnySQLiteColumn {
+  switch (objectType) {
+    case "account":
+      return accounts.ownerId;
+    case "contact":
+      return contacts.ownerId;
+    case "lead":
+      return leads.ownerId;
+    case "opportunity":
+      return opportunities.ownerId;
+    case "task":
+      return tasks.ownerId;
+  }
+}
+
 function sortFieldForActor(
   db: Db,
   actor: Actor,
@@ -1094,6 +1110,13 @@ export function listViewConditions(
     isNull(deletedAtColumn(objectType)),
     eq(orgIdColumn(objectType), actor.orgId),
   ];
+  const visible = readRestrictionSql(
+    db,
+    actor,
+    objectType,
+    ownerIdColumn(objectType),
+  );
+  if (visible) conditions.push(visible);
   for (const filter of filters) {
     if (!canReadField(db, actor, objectType, filter.field)) continue;
     const clause = isCustomFieldApiName(filter.field)
@@ -1358,6 +1381,7 @@ export function queryContacts(
       and(
         eq(contacts.accountId, accounts.id),
         eq(accounts.orgId, actor.orgId),
+        readRestrictionSql(db, actor, "account", accounts.ownerId),
       ),
     )
     .where(and(...conditions))
@@ -1464,6 +1488,7 @@ export function queryOpportunities(
       and(
         eq(opportunities.accountId, accounts.id),
         eq(accounts.orgId, actor.orgId),
+        readRestrictionSql(db, actor, "account", accounts.ownerId),
       ),
     )
     .where(and(...conditions))
@@ -1526,6 +1551,7 @@ export function queryTasks(
         eq(tasks.relatedObjectType, "account"),
         eq(tasks.relatedRecordId, accounts.id),
         eq(accounts.orgId, actor.orgId),
+        readRestrictionSql(db, actor, "account", accounts.ownerId),
       ),
     )
     .leftJoin(
@@ -1534,6 +1560,7 @@ export function queryTasks(
         eq(tasks.relatedObjectType, "contact"),
         eq(tasks.relatedRecordId, contacts.id),
         eq(contacts.orgId, actor.orgId),
+        readRestrictionSql(db, actor, "contact", contacts.ownerId),
       ),
     )
     .leftJoin(
@@ -1542,6 +1569,7 @@ export function queryTasks(
         eq(tasks.relatedObjectType, "lead"),
         eq(tasks.relatedRecordId, leads.id),
         eq(leads.orgId, actor.orgId),
+        readRestrictionSql(db, actor, "lead", leads.ownerId),
       ),
     )
     .leftJoin(
@@ -1550,6 +1578,7 @@ export function queryTasks(
         eq(tasks.relatedObjectType, "opportunity"),
         eq(tasks.relatedRecordId, opportunities.id),
         eq(opportunities.orgId, actor.orgId),
+        readRestrictionSql(db, actor, "opportunity", opportunities.ownerId),
       ),
     )
     .where(and(...conditions))

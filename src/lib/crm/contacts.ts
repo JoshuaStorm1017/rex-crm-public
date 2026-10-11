@@ -32,6 +32,7 @@ import {
   type ContactUpdateInput,
 } from "./validation";
 import { prepareWrite, withoutId } from "./prepareWrite";
+import { canReadRecord, readRestrictionSql } from "./sharing";
 import { mergeDefined } from "./validationRules";
 
 export type Contact = typeof contacts.$inferSelect;
@@ -48,16 +49,26 @@ function live(actor: Actor) {
   return and(eq(contacts.orgId, actor.orgId), isNull(contacts.deletedAt));
 }
 
-function loadContact(
-  db: Db,
-  actor: Actor,
-  id: string,
-): Contact | undefined {
+function visible(db: Db, actor: Actor) {
+  return and(live(actor), readRestrictionSql(db, actor, "contact", contacts.ownerId));
+}
+
+function storedContact(db: Db, actor: Actor, id: string): Contact | undefined {
   return db
     .select()
     .from(contacts)
     .where(and(eq(contacts.id, id), live(actor)))
     .get();
+}
+
+function loadContact(
+  db: Db,
+  actor: Actor,
+  id: string,
+): Contact | undefined {
+  const row = storedContact(db, actor, id);
+  if (!row || !canReadRecord(db, actor, "contact", row)) return undefined;
+  return row;
 }
 
 export function getContact(
@@ -108,7 +119,7 @@ export function listContacts(db: Db, actor: Actor): Contact[] {
   return db
     .select()
     .from(contacts)
-    .where(live(actor))
+    .where(visible(db, actor))
     .orderBy(contacts.lastName, contacts.firstName)
     .all()
     .map((row) => presentRecord(db, actor, "contact", row));
@@ -124,7 +135,7 @@ export function listContactsForAccount(
   return db
     .select()
     .from(contacts)
-    .where(and(eq(contacts.accountId, accountId), live(actor)))
+    .where(and(eq(contacts.accountId, accountId), visible(db, actor)))
     .orderBy(contacts.lastName, contacts.firstName)
     .all()
     .map((row) => presentRecord(db, actor, "contact", row));
@@ -136,7 +147,7 @@ export function countContacts(db: Db, actor: Actor): number {
   const row = db
     .select({ n: count() })
     .from(contacts)
-    .where(live(actor))
+    .where(visible(db, actor))
     .get();
   return row?.n ?? 0;
 }
@@ -183,7 +194,7 @@ export function createContact(
   };
   const prepared = prepareWrite(db, "contact", row, "create");
   db.insert(contacts).values(prepared).run();
-  const created = loadContact(db, actor, id);
+  const created = storedContact(db, actor, id);
   if (!created) {
     throw new DomainError("WRITE_FAILED", "Contact was not persisted");
   }
@@ -236,7 +247,7 @@ export function updateContact(
     .set(withoutId(prepared))
     .where(and(eq(contacts.id, id), eq(contacts.orgId, actor.orgId)))
     .run();
-  const updated = loadContact(db, actor, id);
+  const updated = storedContact(db, actor, id);
   if (!updated) {
     throw new DomainError("WRITE_FAILED", "Contact update did not persist");
   }
@@ -277,12 +288,14 @@ export function listDirectReports(
   contactId: string,
 ): Contact[] {
   assertActor(db, actor);
+  if (!canPerform(db, actor, "contact", "read")) return [];
   return db
     .select()
     .from(contacts)
-    .where(and(eq(contacts.reportsToId, contactId), live(actor)))
+    .where(and(eq(contacts.reportsToId, contactId), visible(db, actor)))
     .orderBy(contacts.lastName, contacts.firstName)
-    .all();
+    .all()
+    .map((row) => presentRecord(db, actor, "contact", row));
 }
 
 /**

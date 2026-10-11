@@ -10,8 +10,8 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-10, Setup administration and Read Only profile
-(`5126f24`, based on profile reconciliation `d932885`).
+Last updated: 2026-10-11, organization-wide defaults, roles, and
+criteria sharing rules. The 2026-10-10 setup-admin entry is still below.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -34,6 +34,73 @@ Last updated: 2026-10-10, Setup administration and Read Only profile
 ## WORKS
 
 Things actually run, with evidence.
+
+### Organization-wide defaults, roles, and criteria sharing (2026-10-11)
+
+- New databases start each of the five objects at Public Read Only,
+  with grant hierarchy on. A member can read every record in the org.
+  Edit and delete stay with the owner, with a role above the owner
+  when grant hierarchy is on, or with modify-all. Modify-all is
+  `users.role === "admin"` and an admin membership. A membership
+  admin whose user role is `user` does not get it. Public Read/Write
+  lets a member who already has the object permission edit and delete.
+  A sharing rule's Read/Write does not grant delete.
+- Private hides another user's record from get, list, count, list
+  views, search, reports, the recycle bin, and recently viewed.
+  Opening the hidden id is not found, so the response does not admit
+  the row exists. A criteria rule Billing State equals AZ shares that
+  account with a role; deleting the rule revokes it. Peers in the
+  same role do not see each other. `includeSubordinates` shares
+  downward only when it is on. Turning grant hierarchy off removes
+  the ancestor's access. The operator, with no role, still reads
+  private rows because of modify-all.
+- Creating a lead that an assignment rule moves to someone else
+  returns the saved row. A later get by the creator is not found
+  when the lead OWD is private. The creator is not modify-all in
+  that test.
+- Setup is `/setup/sharing`, `/setup/sharing/roles`, and
+  `/setup/sharing/rules`. The same admin gate as the rest of Setup
+  applies. The home page says defaults start at Public Read Only.
+- This also fixes the red verify: inserting an org membership now
+  sets `roleId` to null. `0014_sharing` was already in the journal.
+  The migration test now applies that file onto a database that
+  already has `0013_profiles`.
+- **`npm run verify` (2026-10-11, 11:07 EDT):** exit 0. 33 test
+  files, 388 tests. TypeScript, ESLint, and the Next.js 16.3.5
+  production build passed. The build lists the sharing routes above.
+  `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation:** an early `return undefined` in `readRestrictionSql`
+  made `sharing.test.ts` fail. Riley's private account list contained
+  both accounts. `getAccount` still hid the other user's row, so the
+  direct read check is separate from the list filter. The mutation
+  was restored. That one test passed again. The verify run above is
+  the restored tree.
+- **UI, throwaway database only.** Chrome headless exited 139 in
+  this sandbox, so there are no viewport screenshots and no 390px
+  pass. `DATABASE_PATH=/tmp/rex-crm-sharing-20261011.sqlite`,
+  `next dev -p 3217`. The check submitted the HTML forms (the no-JS
+  path) and read the responses. Operator signed in, created Mesa
+  Supply with billing state AZ, and set the account default to
+  Private. Riley's account list omitted Mesa, and the direct URL
+  returned 404. Riley has no Setup link; `/setup/sharing` says only
+  an organization admin can open Setup. Operator created role
+  Southwest, assigned Riley, and created sharing rule Arizona
+  accounts (Billing State equals AZ, Read Only, share with
+  Southwest). The Setup card moved from "0 roles, 0 sharing rules"
+  to "1 role, 1 sharing rule". Riley then listed and opened Mesa
+  and the detail page had no Edit link. Riley created Riley Supply
+  (WA). Operator deleted the rule. Riley's list kept Riley Supply
+  and hid Mesa again (404). Both home pages still rendered. No
+  repository data database was used.
+- Still open: teams, queues, territories, manual shares, owner-based
+  rules, and permission sets. Contact is not controlled by its
+  account. The rule form has three condition rows; the domain stores
+  one to five. If the ultimate parent account is unreadable, the
+  hierarchy view roots at the highest visible ancestor, and a visible
+  grandchild under a hidden parent may not attach. A parent delete
+  still counts hidden children, so the error can reveal that a hidden
+  child exists. Detail pages other than accounts still show Edit and
+  Delete before the domain refuses the save.
 
 ### Setup administration and Read Only profile (`5126f24`)
 
@@ -579,21 +646,25 @@ on the existing file (1 list view, 0 of everything else).
 ## PARTIAL
 
 - **`deleted_at`** — written on account/contact/lead/opportunity/task
-  delete, filtered in get/list. `/recycle` lists them and undeletes the
-  one row. No empty-bin. Undelete does not restore tasks or other
-  children that were soft-deleted with the parent. No hard purge.
-  Junction roles are still hard-deleted with the parent opportunity or
-  contact.
+  delete, filtered in get/list. `/recycle` lists rows the actor can
+  read and undeletes a row only when that actor could delete it.
+  Under Public Read Only, a member sees another user's bin row and
+  undelete is forbidden. Under Private, the bin hides it and undelete
+  is not found. The owner can still restore it. No empty-bin. Undelete
+  does not restore tasks or other children that were soft-deleted with
+  the parent. No hard purge. Junction roles are still hard-deleted
+  with the parent opportunity or contact.
 - **Sharing** — login is real. Another org's records are hidden
-  (`0012_orgs`). Inside one org, a member whose profile can read the
-  object still sees every record. No OWD and no “My …” views. Profiles
-  and field permissions exist (`0013_profiles`, see WORKS) and are
-  AND-ed with the session 18 role matrix. That matrix is still
-  identical for `admin` and `user`, so a denial has to come from the
-  profile or from owner-or-admin. The demo seed inserts both operator
-  and Riley as org-membership role `admin`. Riley's `users.role` stays
-  `user`, so Riley does not get modify-all, but Riley can change
-  profile rows. There is no profile setup screen.
+  (`0012_orgs`). Inside one org, Public Read Only is the default, so
+  a member whose profile can read the object still sees every record
+  until an admin sets Private. Private, role hierarchy, and criteria
+  rules are in WORKS for 2026-10-11. No “My …” views, teams, queues,
+  territories, manual shares, or owner-based rules. Profiles and
+  field permissions (`0013_profiles`) are still AND-ed with the role
+  matrix. That matrix is identical for `admin` and `user`, so a
+  denial has to come from the profile, from sharing, or from
+  owner-or-above. There is no profile setup screen. New databases
+  seed Riley as a member, not an org admin.
 - **Validation rules** (session 16) — real rows, enforced on save of the
   five standard objects. Standard fields only. No custom fields, no
   formula language, no OR, no cross-object criteria. Error field is
@@ -734,7 +805,7 @@ This list is supposed to stay long. It is the research measurement.
 
 ### Sharing / identity
 
-- Roles, OWD, sharing rules, teams, queues, groups, MFA/SSO
+- Teams, queues, groups, manual shares, owner-based rules, territories, MFA/SSO. Organization-wide defaults, the role hierarchy, and criteria sharing rules landed 2026-10-11.
 - User admin UI, self-service signup, password change, “My …” list views
 
 ### Analytics
@@ -775,17 +846,38 @@ These stay in scope. See `SALESFORCE-PARITY.md`. They are not done:
 
 The recurring build automation is paused. When the owner resumes the build,
 read `HANDOFF.md` and `ARCHITECTURE.md` before choosing the next slice.
-The long-term scope includes Salesforce-level feature breadth. The next
-correctness gaps are owner-or-admin checks on undelete, opportunity
-contact-role writes, Change Owner, permission-aware Edit/Delete controls,
-and cascade task deletes. Existing Riley admin memberships remain admin
-until an explicit migration or reassignment. Do not reintroduce a
-default `LOCAL_USER_ID` actor on domain writes. Record fresh verification
-evidence for each slice.
+The long-term scope includes Salesforce-level feature breadth. Inside-org
+sharing now has organization-wide defaults, a role hierarchy, and
+criteria rules. The next sharing gaps are manual shares, owner-based
+rules, teams, queues, and territories. Permission sets and a profile
+setup screen are still open. Opportunity contact-role writes, Change
+Owner, permission-aware Edit/Delete on detail pages other than
+accounts, and cascade task deletes are still open. Undelete now follows
+delete access: under Public Read Only a member sees another user's bin
+row and is refused; under Private the bin hides it. Existing Riley
+admin memberships remain admin until an explicit migration or
+reassignment. Do not reintroduce a default `LOCAL_USER_ID` actor on
+domain writes. Record fresh verification evidence for each slice.
 
 ---
 
 ## Session log
+
+### Session 19 (2026-10-11, 11:14 EDT) — Rex (Grok)
+
+- Organization-wide defaults, role hierarchy, and criteria sharing
+  rules, including Setup pages and enforcement on lists, search,
+  reports, recycle, and recently viewed. Default stays Public Read
+  Only so existing reads keep working.
+- Fixed the red verify (`org_memberships.roleId` on insert) and
+  pointed the newest-migration test at `0014_sharing`.
+- `npm run verify` exit 0: 33 files, 388 tests, Next.js 16.3.5 build.
+  See WORKS. Mutation of the list filter failed the private list
+  test, then was restored.
+- UI pass used HTML form posts against
+  `/tmp/rex-crm-sharing-20261011.sqlite` on port 3217. Chrome
+  headless exited 139, so no browser viewport pass.
+- Did not push, open a PR, merge, or deploy. No real-business data.
 
 ### Reconciliation (2026-10-10) — profiles from `cc5f786`
 

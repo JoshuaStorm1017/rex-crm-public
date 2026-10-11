@@ -6,6 +6,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { ensureSystemListViews } from "../crm/listViews";
 import { ensureDefaultOrganization } from "../crm/orgs";
 import { ensureProfiles } from "../crm/profiles";
+import { ensureOrgWideDefaults } from "../crm/sharing";
 import { ensureLocalUsers } from "../crm/users";
 import { ensureSystemValidationRules } from "../crm/validationRules";
 import * as schema from "./schema";
@@ -45,6 +46,7 @@ export function openDb(filename: string): OpenedDb {
   ensureLocalUsers(db);
   ensureDefaultOrganization(db);
   ensureProfiles(db);
+  ensureOrgWideDefaults(db);
   ensureSystemListViews(db);
   ensureSystemValidationRules(db);
   return {

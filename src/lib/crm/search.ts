@@ -5,6 +5,7 @@ import type { Actor } from "./actor";
 import { assertActor } from "./actor";
 import type { RecordObjectType } from "./constants";
 import { canPerform, fieldAccess } from "./permissions";
+import { readRestrictionSql } from "./sharing";
 import { recordHref, recordLabel } from "./objects";
 
 export type SearchHit = {
@@ -44,6 +45,7 @@ export function searchRecords(
             and(
               eq(accounts.orgId, actor.orgId),
               isNull(accounts.deletedAt),
+              readRestrictionSql(db, actor, "account", accounts.ownerId),
               like(accounts.name, pattern),
             ),
           )
@@ -74,6 +76,7 @@ export function searchRecords(
             and(
               eq(contacts.orgId, actor.orgId),
               isNull(contacts.deletedAt),
+              readRestrictionSql(db, actor, "contact", contacts.ownerId),
               contactFields.canRead("email")
                 ? or(like(contacts.name, pattern), like(contacts.email, pattern))
                 : like(contacts.name, pattern),
@@ -106,6 +109,7 @@ export function searchRecords(
             and(
               eq(leads.orgId, actor.orgId),
               isNull(leads.deletedAt),
+              readRestrictionSql(db, actor, "lead", leads.ownerId),
               or(
                 like(leads.name, pattern),
                 ...(leadFields.canRead("email")
@@ -144,6 +148,7 @@ export function searchRecords(
             and(
               eq(opportunities.orgId, actor.orgId),
               isNull(opportunities.deletedAt),
+              readRestrictionSql(db, actor, "opportunity", opportunities.ownerId),
               like(opportunities.name, pattern),
             ),
           )
@@ -174,6 +179,7 @@ export function searchRecords(
             and(
               eq(tasks.orgId, actor.orgId),
               isNull(tasks.deletedAt),
+              readRestrictionSql(db, actor, "task", tasks.ownerId),
               like(tasks.name, pattern),
             ),
           )

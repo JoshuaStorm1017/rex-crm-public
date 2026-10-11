@@ -11,6 +11,7 @@ import {
 import type { Actor } from "./actor";
 import { assertActor } from "./actor";
 import type { RecordObjectType } from "./constants";
+import { canReadRecord } from "./sharing";
 import { recordHref, recordLabel } from "./objects";
 
 export type RecentlyViewedItem = {
@@ -61,9 +62,8 @@ function liveName(
           ),
         )
         .get();
-      return row
-        ? { name: row.name, subtitle: row.type ?? recordLabel(objectType) }
-        : undefined;
+      if (!row || !canReadRecord(db, actor, "account", row)) return undefined;
+      return { name: row.name, subtitle: row.type ?? recordLabel(objectType) };
     }
     case "contact": {
       const row = db
@@ -77,9 +77,8 @@ function liveName(
           ),
         )
         .get();
-      return row
-        ? { name: row.name, subtitle: row.email ?? recordLabel(objectType) }
-        : undefined;
+      if (!row || !canReadRecord(db, actor, "contact", row)) return undefined;
+      return { name: row.name, subtitle: row.email ?? recordLabel(objectType) };
     }
     case "lead": {
       const row = db
@@ -93,9 +92,8 @@ function liveName(
           ),
         )
         .get();
-      return row
-        ? { name: row.name, subtitle: row.company }
-        : undefined;
+      if (!row || !canReadRecord(db, actor, "lead", row)) return undefined;
+      return { name: row.name, subtitle: row.company };
     }
     case "opportunity": {
       const row = db
@@ -109,9 +107,8 @@ function liveName(
           ),
         )
         .get();
-      return row
-        ? { name: row.name, subtitle: row.stage }
-        : undefined;
+      if (!row || !canReadRecord(db, actor, "opportunity", row)) return undefined;
+      return { name: row.name, subtitle: row.stage };
     }
     case "task": {
       const row = db
@@ -125,9 +122,8 @@ function liveName(
           ),
         )
         .get();
-      return row
-        ? { name: row.name, subtitle: row.status }
-        : undefined;
+      if (!row || !canReadRecord(db, actor, "task", row)) return undefined;
+      return { name: row.name, subtitle: row.status };
     }
   }
 }

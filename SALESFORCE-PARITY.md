@@ -270,11 +270,11 @@ tracks the gap. It does not block other rows.
 - **Source:** Organization-wide defaults, role hierarchy, owner/criteria/manual sharing, teams, queues, enterprise territory management.
 - **Expected:** Private OWD hides records the user does not own and does not receive via hierarchy or a rule. Queues own work items. Territory rules assign accounts.
 - **Dependencies:** IAM-SHARE-001.
-- **Status:** NOT STARTED. `owner_id` is stored and displayed. It does not filter reads.
-- **Implementation:** `owner_id` columns.
+- **Status:** PARTIAL. Organization-wide defaults, the role hierarchy, and criteria-based sharing rules work for the five objects. Teams, queues, territories, manual shares, and owner-based rules do not.
+- **Implementation:** `drizzle/0014_sharing.sql` (already journaled; this session did not add a migration). `src/lib/crm/sharing.ts` enforces reads in SQL and on get. Edit and delete use the same record check after the profile allows the action. Setup pages under `src/app/(crm)/setup/sharing/`. Default is Public Read Only. `sharing_rules.owner_id` is the user who owns the rule row, not an owner-based share.
 - **Acceptance:** Private account OWD: user B does not list user A's account, cannot open it by id, and a report run as B omits it. A criteria rule for Billing State = AZ grants it, and removing the rule revokes it.
-- **Latest:** not run.
-- **Gaps:** —
+- **Latest:** 2026-10-11. `sharing.test.ts` covers that acceptance, plus hierarchy, Read/Write without delete, recycle, and an assignment that moves a lead away from its creator. `npm run verify` exit 0 (33 files, 388 tests). HTML form pass on a throwaway database: Riley lost Mesa Supply at Private, gained it from the AZ rule, and lost it when the rule was deleted. Chrome did not start (exit 139), so no viewport pass. Details in `STATUS.md`.
+- **Gaps:** No teams, queues, territories, manual shares, or owner-based rules. No permission sets. Contact OWD is independent of the account. A sharing rule never grants delete. The hierarchy view drops an unreadable ancestor and may not attach a visible grandchild under a hidden parent. Parent delete still counts hidden children. Detail pages other than accounts still render Edit and Delete before the domain refuses. The form stores three conditions; the domain allows five.
 
 ### IAM-SHARE-003 External and guest access
 
@@ -609,7 +609,7 @@ These cut across rows. None are done.
 Dependencies, not a calendar. Reorder only with a reason recorded in `STATUS.md`.
 
 1. **Tenant boundary (session 14, 2026-10-10).** `PLAT-ORG-001` meets its expected behavior. `PLAT-ORG-002`, `IAM-AUTH-002`, and `IAM-ENFORCE-001` are partial: membership is enforced, org switching and inside-org sharing are not. Reason: Stacky's inspection showed reads had no actor, and every later cloud would otherwise leak.
-2. **Inside-org sharing.** `IAM-SHARE-001` is PARTIAL (profiles, object CRUD, and field security on the five objects, reconciled with the role matrix and ownership). Permission sets and the setup UI are still open, then `IAM-SHARE-002`. Reason: membership is not a permission model. Reports and search must use it before new objects multiply the hole.
+2. **Inside-org sharing.** `IAM-SHARE-001` is PARTIAL (profiles, object CRUD, and field security on the five objects). `IAM-SHARE-002` is PARTIAL as of 2026-10-11: organization-wide defaults, role hierarchy, and criteria rules. Permission sets, manual shares, owner-based rules, teams, queues, and territories are still open. Reason: membership is not a permission model, and Public Read Only is not a private org.
 3. **Metadata the admin can shape.** Validation rules, then custom objects, layouts, formulas. Reason: the five objects are enough of a host to grow metadata without a second stack.
 4. **Durable execution.** Job table, outbox, crash test. Reason: journeys, SLAs, billing, and flow all need it. Build it once.
 5. **Sales completeness on the current objects.** Fix clear-on-edit for leads, opportunities, and tasks. Activities, products, price books.
