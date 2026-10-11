@@ -12,7 +12,7 @@ import { getCustomValues } from "@/lib/crm/customFields";
 import { getLead } from "@/lib/crm/leads";
 import { getOpportunity } from "@/lib/crm/opportunities";
 import { recordView } from "@/lib/crm/recentlyViewed";
-import { canChangeOwner } from "@/lib/crm/ownership";
+import { canChangeOwner, getOwnerTarget } from "@/lib/crm/ownership";
 import { canReadField } from "@/lib/crm/permissions";
 import { listTasksForRecord } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
@@ -56,6 +56,9 @@ export default async function LeadDetailPage({
   if (!lead) notFound();
   recordView(db, actor, "lead", lead.id);
 
+  // `getLead` nulls a hidden status, so the freeze must read the stored
+  // status. Otherwise a converted lead offers Change owner.
+  const ownerTarget = getOwnerTarget(db, actor, "lead", lead.id);
   const converted = lead.status === "Converted";
   const account = lead.convertedAccountId
     ? getAccount(db, actor, lead.convertedAccountId)
@@ -88,7 +91,7 @@ export default async function LeadDetailPage({
           </div>
           {converted ? null : (
             <div className="flex gap-2">
-              {canChangeOwner(db, actor, "lead", lead) ? (
+              {ownerTarget && canChangeOwner(db, actor, "lead", ownerTarget) ? (
                 <ChangeOwnerLink objectType="lead" recordId={lead.id} />
               ) : null}
               <Link

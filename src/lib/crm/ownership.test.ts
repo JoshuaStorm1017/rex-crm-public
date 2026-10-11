@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
-import { accounts, contacts, users } from "../db/schema";
+import { accounts, contacts, opportunities, tasks, users } from "../db/schema";
 import { actorFor, LOCAL_ACTOR, type Actor } from "./actor";
 import { createAccount, deleteAccount, getAccount } from "./accounts";
 import { createAutomationRule } from "./automationRules";
@@ -21,7 +21,7 @@ import {
   listEligibleOwners,
   type ChangeOwnerInput,
 } from "./ownership";
-import { createOpportunity, getOpportunity } from "./opportunities";
+import { createOpportunity, deleteOpportunity, getOpportunity } from "./opportunities";
 import { createOpportunityContactRole, listOpportunityContactRoles } from "./opportunityContactRoles";
 import { addMember, createOrganization } from "./orgs";
 import type { CrmObject } from "./permissions";
@@ -31,7 +31,7 @@ import {
   setObjectPermission,
   type ObjectPermissionFlags,
 } from "./profiles";
-import { createTask, getTask } from "./tasks";
+import { createTask, deleteTask, getTask } from "./tasks";
 import { createUser, disableUser, type PublicUser } from "./users";
 import { createValidationRule } from "./validationRules";
 
@@ -438,6 +438,79 @@ describe("changeOwner", () => {
     const deleted = db.select().from(contacts).where(eq(contacts.id, gone.id)).get();
     expect(deleted?.deletedAt).not.toBeNull();
     expect(deleted?.ownerId).toBe(RILEY_USER_ID);
+  });
+
+  it("leaves soft-deleted open and closed opportunities, and a soft-deleted open task, with the previous owner", () => {
+    const db = memory();
+    const riley = actorFor(RILEY_USER_ID);
+    const account = createAccount(db, riley, { name: "Bin Book" });
+    const deletedOpen = createOpportunity(db, riley, {
+      accountId: account.id,
+      name: "Deleted Open",
+      stage: "Prospecting",
+      closeDate: "2026-12-01",
+      amountCents: 11100,
+    });
+    const deletedWon = createOpportunity(db, riley, {
+      accountId: account.id,
+      name: "Deleted Won",
+      stage: "Closed Won",
+      closeDate: "2026-12-02",
+      amountCents: 22200,
+    });
+    const liveOpen = createOpportunity(db, riley, {
+      accountId: account.id,
+      name: "Live Open",
+      stage: "Qualification",
+      closeDate: "2026-12-03",
+      amountCents: 33300,
+    });
+    const deletedTask = createTask(db, riley, {
+      name: "Deleted open task",
+      relatedObjectType: "account",
+      relatedRecordId: account.id,
+    });
+    const liveTask = createTask(db, riley, {
+      name: "Live open task",
+      relatedObjectType: "account",
+      relatedRecordId: account.id,
+    });
+    deleteOpportunity(db, riley, deletedOpen.id);
+    deleteOpportunity(db, riley, deletedWon.id);
+    deleteTask(db, riley, deletedTask.id);
+
+    const result = transfer(db, LOCAL_ACTOR, "account", account.id, {
+      newOwnerId: LOCAL_USER_ID,
+      transferOpenOpportunities: true,
+      transferClosedOpportunities: true,
+      transferOpenTasks: true,
+    });
+
+    expect(result.transferred.opportunities).toEqual([liveOpen.id]);
+    expect(result.transferred.tasks).toEqual([liveTask.id]);
+    expect(getOpportunity(db, LOCAL_ACTOR, liveOpen.id)?.ownerId).toBe(LOCAL_USER_ID);
+    expect(getOpportunity(db, LOCAL_ACTOR, liveOpen.id)?.amountCents).toBe(33300);
+    expect(getTask(db, LOCAL_ACTOR, liveTask.id)?.ownerId).toBe(LOCAL_USER_ID);
+
+    const storedOpen = db
+      .select()
+      .from(opportunities)
+      .where(eq(opportunities.id, deletedOpen.id))
+      .get();
+    const storedWon = db
+      .select()
+      .from(opportunities)
+      .where(eq(opportunities.id, deletedWon.id))
+      .get();
+    const storedTask = db.select().from(tasks).where(eq(tasks.id, deletedTask.id)).get();
+    expect(storedOpen?.ownerId).toBe(RILEY_USER_ID);
+    expect(storedOpen?.deletedAt).not.toBeNull();
+    expect(storedOpen?.amountCents).toBe(11100);
+    expect(storedWon?.ownerId).toBe(RILEY_USER_ID);
+    expect(storedWon?.deletedAt).not.toBeNull();
+    expect(storedWon?.amountCents).toBe(22200);
+    expect(storedTask?.ownerId).toBe(RILEY_USER_ID);
+    expect(storedTask?.deletedAt).not.toBeNull();
   });
 
   it("transfers open and closed opportunities separately, including tasks only on the ones that move", () => {

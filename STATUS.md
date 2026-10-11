@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-11, Change Owner respects field security.
+Last updated: 2026-10-11, Change Owner stays shut when lead status is hidden.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -33,6 +33,47 @@ Last updated: 2026-10-11, Change Owner respects field security.
 ## WORKS
 
 Things actually run, with evidence.
+
+### Change Owner stays shut when status is hidden (2026-10-11)
+
+A converted lead whose `status` the profile cannot read no longer offers
+Change owner. The detail page passes `getOwnerTarget`, which keeps the
+stored status, into `canChangeOwner`. `getLead` still nulls that field,
+so the page does not say Converted. Edit, Delete, and the Convert form
+still render in that case, because those follow the presented status.
+
+The save redirect uses the same sentence as the form when lead status
+is unreadable: "This lead cannot be transferred." The address does not
+contain "converted". An actor who can read status still gets "Converted
+leads cannot be transferred" in the redirect. `changeOwner` itself
+still throws the domain sentence.
+
+Posting `transferContacts=false` leaves the contact with the previous
+owner. Posting the open-opportunity, closed-opportunity, and open-task
+boxes moves those rows, and the closed and open deals keep
+`amountCents`. A soft-deleted open deal, a soft-deleted Closed Won
+deal, and a soft-deleted open task stay deleted with the previous
+owner and their amounts. Contact, lead, and task detail pages hide
+Change owner for a delete-not-edit owner and show it for an
+edit-not-delete owner.
+
+- **`npm run verify` (2026-10-11 19:13 EDT):** exit 0. 41 files, 428
+  tests (was 38 files, 419). TypeScript, ESLint, and Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation evidence, focused tests, each change restored before that
+  verify.** `checked()` treating any present value as on moved the
+  contact to Riley; the test expected the operator. Hardcoding closed
+  opportunities, open opportunities, or open tasks to false left that
+  row with the operator. Skipping the redirect rewrite put "converted"
+  in the lead owner URL. Dropping `isNull(deletedAt)` on opportunities
+  transferred three deals; the test expected the live one. The same
+  drop on tasks transferred two tasks; the test expected the live one.
+  Always rendering Change owner on the contact, lead, and task pages
+  put the link in the delete-not-edit markup. Passing the presented
+  lead into `canChangeOwner` put Change owner on the hidden-status
+  converted lead.
+- **No browser pass.** The page checks are `renderToStaticMarkup` on a
+  memory database. Chrome DevTools was not connected.
 
 ### Change Owner field security (2026-10-11)
 

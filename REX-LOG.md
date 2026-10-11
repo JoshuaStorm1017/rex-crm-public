@@ -1,5 +1,39 @@
 # Rex log
 
+## 2026-10-11 19:13 EDT
+
+Closed the change-owner review that fail-opened a converted lead. The
+lead page was calling `canChangeOwner` with the presented row, so a
+hidden status looked unconverted and the link showed. It now passes
+`getOwnerTarget`, which still has the stored status. The page does not
+say Converted. Edit, Delete, and Convert still show, because those
+follow the presented status.
+
+The owner action was copying "Converted leads cannot be transferred"
+into the redirect even when status was hidden. That redirect now says
+"This lead cannot be transferred." The readable-status redirect still
+names Converted. The domain error is unchanged.
+
+The five mutation survivors were missing tests. `transferContacts=false`
+leaves the contact. The three related checkboxes, posted as true, move
+the open deal, the Closed Won deal (amount included), and the open
+task. A deleted open deal, a deleted Closed Won deal, and a deleted
+open task stay with the previous owner. Contact, lead, and task detail
+hide Change owner when the actor can delete and cannot edit.
+
+`npm run verify` exited 0 at 19:13 EDT: 41 files, 428 tests, Next.js
+16.3.5 build. Eleven mutations (checkbox any-value, each transfer flag
+forced off, raw Converted redirect, deleted opportunity filter removed,
+deleted task filter removed, Change owner forced on for contact, lead,
+and task, presented lead passed to `canChangeOwner`) each failed a new
+test and were restored before that run. No browser pass. Chrome
+DevTools was not connected.
+
+Next: hide Edit and Delete wherever the domain will refuse the save,
+including the edit page and a converted lead whose status is hidden.
+Cascade task deletes still skip the task owner. Do not retry the whole
+sharing model or the product catalog in one change.
+
 ## 2026-10-11 18:22 EDT
 
 Closed the change-owner review. The owner page was showing a name that
