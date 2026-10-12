@@ -7,6 +7,7 @@ const HEADING: Record<CrmObject, string> = {
   lead: "Edit Lead",
   opportunity: "Edit Opportunity",
   task: "Edit Task",
+  product: "Edit Product",
 };
 
 /** Shown instead of the edit form when the domain would refuse the save. */

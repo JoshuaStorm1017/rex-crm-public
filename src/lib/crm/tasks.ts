@@ -385,12 +385,17 @@ export function deleteTasksForRecord(
 ): void {
   assertActor(db, actor);
   const related = db
-    .select({ id: tasks.id })
+    .select({ id: tasks.id, ownerId: tasks.ownerId })
     .from(tasks)
     .where(
       and(eq(tasks.relatedRecordId, relatedRecordId), liveTask(actor)),
     )
     .all();
+  // Check every related task before writing anything, so a refusal
+  // leaves the parent and all of its tasks untouched.
+  for (const task of related) {
+    assertCanAccessRecord(db, actor, "task", "delete", task);
+  }
   deleteCustomValuesForRecords(
     db,
     related.map((row) => row.id),

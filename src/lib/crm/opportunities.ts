@@ -208,8 +208,9 @@ export function deleteOpportunity(db: Db, actor: Actor, id: string): void {
     throw new DomainError("NOT_FOUND", "Opportunity not found");
   }
   assertCanAccessRecord(db, actor, "opportunity", "delete", existing);
-  deleteOpportunityContactRolesForOpportunity(db, actor, id);
+  // Tasks first: the cascade refuses before anything is written.
   deleteTasksForRecord(db, actor, id);
+  deleteOpportunityContactRolesForOpportunity(db, actor, id);
   deleteCustomValuesForRecord(db, id);
   db.update(opportunities)
     .set({ deletedAt: now(), updatedAt: now() })

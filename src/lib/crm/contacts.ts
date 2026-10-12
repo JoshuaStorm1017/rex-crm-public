@@ -250,8 +250,9 @@ export function deleteContact(db: Db, actor: Actor, id: string): void {
     throw new DomainError("NOT_FOUND", "Contact not found");
   }
   assertCanAccessRecord(db, actor, "contact", "delete", existing);
-  deleteOpportunityContactRolesForContact(db, actor, id);
+  // Tasks first: the cascade refuses before anything is written.
   deleteTasksForRecord(db, actor, id);
+  deleteOpportunityContactRolesForContact(db, actor, id);
   deleteCustomValuesForRecord(db, id);
   // Like Salesforce: the people who reported to a deleted contact keep
   // existing, with Reports To cleared — not pointing at a deleted row.
