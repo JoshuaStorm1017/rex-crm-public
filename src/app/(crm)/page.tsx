@@ -34,8 +34,10 @@ export default async function HomePage() {
           detail, and list views of the five original objects. Opening a
           record writes recently viewed for this user. Search matches name and
           email. Members of this organization see its records. Other
-          organizations are isolated. Inside an organization there is still no
-          organization-wide default or role sharing.
+          organizations are isolated. Inside this organization,
+          organization-wide defaults start at Public Read Only. An
+          administrator can set an object to Private and open records through
+          the role hierarchy or a criteria-based sharing rule.
         </p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

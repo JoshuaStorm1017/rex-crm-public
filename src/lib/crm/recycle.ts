@@ -5,7 +5,8 @@ import type { Actor } from "./actor";
 import { assertActor } from "./actor";
 import { RECORD_OBJECT_TYPES, type RecordObjectType } from "./constants";
 import { DomainError } from "./errors";
-import { assertCanAccessRecord, canAccessRecord } from "./permissions";
+import { assertCanAccessRecord, canAccessRecord, canPerform } from "./permissions";
+import { canReadRecord } from "./sharing";
 
 export type DeletedRecord = {
   objectType: RecordObjectType;
@@ -34,6 +35,10 @@ function keepRestorable(
   const visible: DeletedRecord[] = [];
   for (const row of rows) {
     if (row.deletedAt == null) continue;
+    // Private rows stay hidden. A readable row is listed only when this
+    // actor can restore it, which uses the same delete check as a live row.
+    if (!canPerform(db, actor, objectType, "read")) continue;
+    if (!canReadRecord(db, actor, objectType, row)) continue;
     if (!canAccessRecord(db, actor, objectType, "delete", row)) continue;
     visible.push({
       objectType,
@@ -45,85 +50,55 @@ function keepRestorable(
   return visible;
 }
 
+function deletedAccounts(db: Db, orgId: string) {
+  return db
+    .select()
+    .from(accounts)
+    .where(and(eq(accounts.orgId, orgId), isNotNull(accounts.deletedAt)))
+    .all();
+}
+
+function deletedContacts(db: Db, orgId: string) {
+  return db
+    .select()
+    .from(contacts)
+    .where(and(eq(contacts.orgId, orgId), isNotNull(contacts.deletedAt)))
+    .all();
+}
+
+function deletedLeads(db: Db, orgId: string) {
+  return db
+    .select()
+    .from(leads)
+    .where(and(eq(leads.orgId, orgId), isNotNull(leads.deletedAt)))
+    .all();
+}
+
+function deletedOpportunities(db: Db, orgId: string) {
+  return db
+    .select()
+    .from(opportunities)
+    .where(and(eq(opportunities.orgId, orgId), isNotNull(opportunities.deletedAt)))
+    .all();
+}
+
+function deletedTasks(db: Db, orgId: string) {
+  return db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.orgId, orgId), isNotNull(tasks.deletedAt)))
+    .all();
+}
+
 export function listDeletedRecords(db: Db, actor: Actor): DeletedRecord[] {
   assertActor(db, actor);
   const orgId = actor.orgId;
   const rows: DeletedRecord[] = [
-    ...keepRestorable(
-      db,
-      actor,
-      "account",
-      db
-        .select({
-          id: accounts.id,
-          name: accounts.name,
-          deletedAt: accounts.deletedAt,
-          ownerId: accounts.ownerId,
-        })
-        .from(accounts)
-        .where(and(eq(accounts.orgId, orgId), isNotNull(accounts.deletedAt)))
-        .all(),
-    ),
-    ...keepRestorable(
-      db,
-      actor,
-      "contact",
-      db
-        .select({
-          id: contacts.id,
-          name: contacts.name,
-          deletedAt: contacts.deletedAt,
-          ownerId: contacts.ownerId,
-        })
-        .from(contacts)
-        .where(and(eq(contacts.orgId, orgId), isNotNull(contacts.deletedAt)))
-        .all(),
-    ),
-    ...keepRestorable(
-      db,
-      actor,
-      "lead",
-      db
-        .select({
-          id: leads.id,
-          name: leads.name,
-          deletedAt: leads.deletedAt,
-          ownerId: leads.ownerId,
-        })
-        .from(leads)
-        .where(and(eq(leads.orgId, orgId), isNotNull(leads.deletedAt)))
-        .all(),
-    ),
-    ...keepRestorable(
-      db,
-      actor,
-      "opportunity",
-      db
-        .select({
-          id: opportunities.id,
-          name: opportunities.name,
-          deletedAt: opportunities.deletedAt,
-          ownerId: opportunities.ownerId,
-        })
-        .from(opportunities)
-        .where(and(eq(opportunities.orgId, orgId), isNotNull(opportunities.deletedAt)))
-        .all(),
-    ),
-    ...keepRestorable(
-      db,
-      actor,
-      "task",
-      db
-        .select({
-          id: tasks.id,
-          name: tasks.name,
-          deletedAt: tasks.deletedAt,
-          ownerId: tasks.ownerId,
-        })
-        .from(tasks)
-        .where(and(eq(tasks.orgId, orgId), isNotNull(tasks.deletedAt)))
-        .all(),
-    ),
+    ...keepRestorable(db, actor, "account", deletedAccounts(db, orgId)),
+    ...keepRestorable(db, actor, "contact", deletedContacts(db, orgId)),
+    ...keepRestorable(db, actor, "lead", deletedLeads(db, orgId)),
+    ...keepRestorable(db, actor, "opportunity", deletedOpportunities(db, orgId)),
+    ...keepRestorable(db, actor, "task", deletedTasks(db, orgId)),
   ];
   return rows.sort((a, b) => b.deletedAt - a.deletedAt || a.name.localeCompare(b.name));
 }
@@ -160,7 +135,9 @@ function restore(
   if (existing.deletedAt == null) {
     throw new DomainError("NOT_DELETED", "Record is not in the recycle bin");
   }
-  // Same rule as deleting a live record: profile delete, and owner or modify-all.
+  if (!canPerform(db, actor, objectType, "read") || !canReadRecord(db, actor, objectType, existing)) {
+    throw new DomainError("NOT_FOUND", "Record not found");
+  }
   assertCanAccessRecord(db, actor, objectType, "delete", existing);
   db.update(table)
     .set({ deletedAt: null, updatedAt: ts })

@@ -3,6 +3,7 @@ import type { Db } from "../db/client";
 import { orgMemberships, organizations } from "../db/schema";
 import { LOCAL_ORG_ID, LOCAL_USER_ID } from "./constants";
 import { DomainError, isDomainError } from "./errors";
+import { getUser } from "./users";
 
 /**
  * Who is acting, and in which organization. Every tenant-scoped read and
@@ -24,8 +25,9 @@ export function actorFor(userId: string, orgId: string = LOCAL_ORG_ID): Actor {
 }
 
 /**
- * Membership is the tenant boundary. Same-org sharing (OWD, roles) is a
- * later policy layered on top of this check, not a substitute for it.
+ * Membership is the tenant boundary. Organization-wide defaults, the role
+ * hierarchy, and sharing rules narrow what a member can do inside the org.
+ * They never replace this check.
  */
 export function assertActor(db: Db, actor: Actor): void {
   if (!actor?.userId || !actor?.orgId) {
@@ -81,6 +83,28 @@ export function assertCurrentOrgAdmin(db: Db, actor: Actor): void {
       "Only an organization admin can change this",
     );
   }
+}
+
+/**
+ * Modify-all inside this org. The global user role and the membership
+ * role both have to be admin. A global admin who is only a member here
+ * does not get it, and neither does a membership admin whose user role
+ * is `user`. Sharing does not widen this.
+ */
+export function hasModifyAllData(db: Db, actor: Actor): boolean {
+  const user = getUser(db, actor.userId);
+  if (!user || user.role !== "admin") return false;
+  const membership = db
+    .select({ role: orgMemberships.role })
+    .from(orgMemberships)
+    .where(
+      and(
+        eq(orgMemberships.orgId, actor.orgId),
+        eq(orgMemberships.userId, actor.userId),
+      ),
+    )
+    .get();
+  return membership?.role === "admin";
 }
 
 /** Same gate as `assertCurrentOrgAdmin`, for nav and page visibility. */

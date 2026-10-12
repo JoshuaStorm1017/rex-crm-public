@@ -5,6 +5,8 @@ import type { Actor } from "./actor";
 import { assertActor, assertCurrentOrgAdmin, recordOrgId } from "./actor";
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
+import { canPerform } from "./permissions";
+import { readRestrictionSql } from "./sharing";
 
 export const DUPLICATE_FIELDS = {
   account: ["name"],
@@ -198,12 +200,14 @@ function normalized(value: unknown): string {
 
 function hasConflict(
   db: Db,
-  orgId: string,
+  actor: Actor,
   objectType: DuplicateObjectType,
   field: string,
   value: string,
   exceptId: string | undefined,
 ): boolean {
+  // A match on a row this actor cannot read would confirm the private value exists.
+  if (!canPerform(db, actor, objectType, "read")) return false;
   if (objectType === "account" && field === "name") {
     return (
       db
@@ -211,8 +215,9 @@ function hasConflict(
         .from(accounts)
         .where(
           and(
-            eq(accounts.orgId, orgId),
+            eq(accounts.orgId, actor.orgId),
             isNull(accounts.deletedAt),
+            readRestrictionSql(db, actor, "account", accounts.ownerId),
             sql`lower(trim(${accounts.name})) = ${value}`,
             exceptId ? ne(accounts.id, exceptId) : undefined,
           ),
@@ -227,8 +232,9 @@ function hasConflict(
         .from(contacts)
         .where(
           and(
-            eq(contacts.orgId, orgId),
+            eq(contacts.orgId, actor.orgId),
             isNull(contacts.deletedAt),
+            readRestrictionSql(db, actor, "contact", contacts.ownerId),
             sql`lower(trim(${contacts.email})) = ${value}`,
             exceptId ? ne(contacts.id, exceptId) : undefined,
           ),
@@ -238,14 +244,16 @@ function hasConflict(
   }
   if (objectType === "lead" && (field === "email" || field === "company")) {
     const column = field === "email" ? leads.email : leads.company;
+    const ownerColumn = leads.ownerId;
     return (
       db
         .select({ id: leads.id })
         .from(leads)
         .where(
           and(
-            eq(leads.orgId, orgId),
+            eq(leads.orgId, actor.orgId),
             isNull(leads.deletedAt),
+            readRestrictionSql(db, actor, "lead", ownerColumn),
             sql`lower(trim(${column})) = ${value}`,
             exceptId ? ne(leads.id, exceptId) : undefined,
           ),
@@ -258,6 +266,7 @@ function hasConflict(
 
 export function enforceDuplicateRules(
   db: Db,
+  actor: Actor,
   objectType: string,
   record: Record<string, unknown>,
 ): void {
@@ -271,7 +280,7 @@ export function enforceDuplicateRules(
     if (!rule.active) continue;
     const value = normalized(record[rule.matchField]);
     if (!value) continue;
-    if (hasConflict(db, orgId, objectType, rule.matchField, value, exceptId)) {
+    if (hasConflict(db, actor, objectType, rule.matchField, value, exceptId)) {
       throw new DomainError("DUPLICATE", rule.errorMessage);
     }
   }

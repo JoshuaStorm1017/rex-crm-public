@@ -2,6 +2,10 @@ import { isDomainError } from "./errors";
 
 export type ActionState = { error: string; code?: string } | null;
 
+/** Shown on the list when a save succeeds and sharing then hides the row. */
+export const SAVED_HIDDEN_NOTICE =
+  "Saved. This record is no longer visible to you.";
+
 export function blank(
   value: FormDataEntryValue | null | undefined,
 ): string | undefined {

@@ -29,6 +29,7 @@ import {
   type LeadUpdateInput,
 } from "./validation";
 import { prepareWrite, withoutId } from "./prepareWrite";
+import { canReadRecord, readRestrictionSql } from "./sharing";
 import { mergeDefined } from "./validationRules";
 
 export type Lead = typeof leads.$inferSelect;
@@ -51,18 +52,28 @@ function live(actor: Actor) {
   return and(eq(leads.orgId, actor.orgId), isNull(leads.deletedAt));
 }
 
+function visible(db: Db, actor: Actor) {
+  return and(live(actor), readRestrictionSql(db, actor, "lead", leads.ownerId));
+}
+
 function assertNotConverted(lead: Lead) {
   if (lead.status === "Converted") {
     throw new DomainError("FROZEN", "Converted leads cannot be edited");
   }
 }
 
-function loadLead(db: Db, actor: Actor, id: string): Lead | undefined {
+function storedLead(db: Db, actor: Actor, id: string): Lead | undefined {
   return db
     .select()
     .from(leads)
     .where(and(eq(leads.id, id), live(actor)))
     .get();
+}
+
+function loadLead(db: Db, actor: Actor, id: string): Lead | undefined {
+  const row = storedLead(db, actor, id);
+  if (!row || !canReadRecord(db, actor, "lead", row)) return undefined;
+  return row;
 }
 
 export function getLead(db: Db, actor: Actor, id: string): Lead | undefined {
@@ -78,7 +89,7 @@ export function listLeads(db: Db, actor: Actor): Lead[] {
   return db
     .select()
     .from(leads)
-    .where(live(actor))
+    .where(visible(db, actor))
     .orderBy(leads.name)
     .all()
     .map((row) => presentRecord(db, actor, "lead", row));
@@ -90,7 +101,7 @@ export function countLeads(db: Db, actor: Actor): number {
   const row = db
     .select({ n: count() })
     .from(leads)
-    .where(live(actor))
+    .where(visible(db, actor))
     .get();
   return row?.n ?? 0;
 }
@@ -131,9 +142,9 @@ export function createLead(
     createdBy: actor.userId,
     updatedBy: actor.userId,
   };
-  const prepared = prepareWrite(db, "lead", row, "create");
+  const prepared = prepareWrite(db, actor, "lead", row, "create");
   db.insert(leads).values(prepared).run();
-  const created = loadLead(db, actor, id);
+  const created = storedLead(db, actor, id);
   if (!created) {
     throw new DomainError("WRITE_FAILED", "Lead was not persisted");
   }
@@ -166,12 +177,12 @@ export function updateLead(
     updatedAt: ts,
     updatedBy: actor.userId,
   });
-  const prepared = prepareWrite(db, "lead", next, "update") as Lead;
+  const prepared = prepareWrite(db, actor, "lead", next, "update") as Lead;
   db.update(leads)
     .set(withoutId(prepared))
     .where(and(eq(leads.id, id), eq(leads.orgId, actor.orgId)))
     .run();
-  const updated = loadLead(db, actor, id);
+  const updated = storedLead(db, actor, id);
   if (!updated) {
     throw new DomainError("WRITE_FAILED", "Lead update did not persist");
   }

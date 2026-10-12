@@ -155,12 +155,16 @@ export default async function ContactsPage({
                           {row.name}
                         </Link>
                       ) : column === "accountName" ? (
-                        <Link
-                          href={`/accounts/${row.accountId}`}
-                          className="hover:underline"
-                        >
-                          {row.accountName ?? row.accountId}
-                        </Link>
+                        row.accountName ? (
+                          <Link
+                            href={`/accounts/${row.accountId}`}
+                            className="hover:underline"
+                          >
+                            {row.accountName}
+                          </Link>
+                        ) : (
+                          "—"
+                        )
                       ) : (
                         formatContactListCell(row, column)
                       )}

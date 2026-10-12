@@ -104,7 +104,7 @@ describe("contact reports-to (session 12)", () => {
   it("rejects a reporting loop, including one two levels deep", () => {
     const { db, lumbergh, milton } = org();
     expect(() => updateContact(db, LOCAL_ACTOR, lumbergh.id, { reportsToId: milton.id })).toThrow(
-      /already reports up to this contact/,
+      "Reports To contact is not valid",
     );
     expect(getContact(db, LOCAL_ACTOR, lumbergh.id)?.reportsToId).toBeNull();
   });

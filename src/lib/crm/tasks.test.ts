@@ -1,9 +1,11 @@
-import { LOCAL_ACTOR } from "./actor";
+import { LOCAL_ACTOR, actorFor } from "./actor";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb } from "../db/client";
-import { createAccount, deleteAccount } from "./accounts";
-import { createContact, deleteContact } from "./contacts";
+import { createAccount, deleteAccount, getAccount } from "./accounts";
+import { RILEY_USER_ID } from "./constants";
 import { DomainError } from "./errors";
+import { setOrgWideDefault } from "./sharing";
+import { createContact, deleteContact } from "./contacts";
 import { createLead, deleteLead } from "./leads";
 import { createOpportunity, deleteOpportunity } from "./opportunities";
 import {
@@ -239,5 +241,127 @@ describe("tasks", () => {
     });
     deleteOpportunity(db, LOCAL_ACTOR, opportunity.id);
     expect(getTask(db, LOCAL_ACTOR, onOpp.id)).toBeUndefined();
+  });
+
+  it("skips a private related task and refuses when a readable task cannot be deleted", () => {
+    const db = openMemoryDb().db;
+    const riley = actorFor(RILEY_USER_ID);
+    const account = createAccount(db, riley, { name: "Riley Books" });
+    const hidden = createTask(db, LOCAL_ACTOR, {
+      name: "Private follow up",
+      relatedObjectType: "account",
+      relatedRecordId: account.id,
+    });
+    const own = createTask(db, riley, {
+      name: "Riley follow up",
+      relatedObjectType: "account",
+      relatedRecordId: account.id,
+    });
+    setOrgWideDefault(db, LOCAL_ACTOR, "task", "private", true);
+    deleteAccount(db, riley, account.id);
+    expect(getAccount(db, LOCAL_ACTOR, account.id)).toBeUndefined();
+    expect(getTask(db, LOCAL_ACTOR, hidden.id)?.name).toBe("Private follow up");
+    expect(getTask(db, riley, hidden.id)).toBeUndefined();
+    expect(getTask(db, riley, own.id)).toBeUndefined();
+    expect(JSON.stringify(listTasks(db, riley))).not.toContain("Private follow up");
+
+    setOrgWideDefault(db, LOCAL_ACTOR, "task", "public_read", true);
+    const other = createAccount(db, riley, { name: "Open Books" });
+    const seen = createTask(db, LOCAL_ACTOR, {
+      name: "Shared follow up",
+      relatedObjectType: "account",
+      relatedRecordId: other.id,
+    });
+    const second = createTask(db, riley, {
+      name: "Second follow up",
+      relatedObjectType: "account",
+      relatedRecordId: other.id,
+    });
+    expect(getTask(db, riley, seen.id)?.name).toBe("Shared follow up");
+    try {
+      deleteAccount(db, riley, other.id);
+      throw new Error("expected refusal");
+    } catch (error) {
+      expect(error).toBeInstanceOf(DomainError);
+      expect((error as DomainError).message).toMatch(/other records still depend/i);
+      expect((error as DomainError).message).not.toMatch(/Shared follow up/);
+    }
+    expect(getAccount(db, riley, other.id)?.name).toBe("Open Books");
+    expect(getTask(db, riley, second.id)?.name).toBe("Second follow up");
+    expect(getTask(db, LOCAL_ACTOR, seen.id)?.name).toBe("Shared follow up");
+  });
+
+  it("hides a related name when the parent record is private", () => {
+    const db = openMemoryDb().db;
+    const riley = actorFor(RILEY_USER_ID);
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Secretquarry" });
+    const contact = createContact(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      lastName: "Secretperson",
+    });
+    const lead = createLead(db, LOCAL_ACTOR, {
+      lastName: "Secretlead",
+      company: "Secret Company",
+    });
+    const opportunity = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Secretdeal",
+      stage: "Prospecting",
+      closeDate: "2026-12-01",
+    });
+    const accountTask = createTask(db, riley, {
+      name: "Account ping",
+      relatedObjectType: "account",
+      relatedRecordId: account.id,
+    });
+    const contactTask = createTask(db, riley, {
+      name: "Contact ping",
+      relatedObjectType: "contact",
+      relatedRecordId: contact.id,
+    });
+    const leadTask = createTask(db, riley, {
+      name: "Lead ping",
+      relatedObjectType: "lead",
+      relatedRecordId: lead.id,
+    });
+    const opportunityTask = createTask(db, riley, {
+      name: "Opportunity ping",
+      relatedObjectType: "opportunity",
+      relatedRecordId: opportunity.id,
+    });
+    const before = listTasks(db, riley);
+    expect(before.find((row) => row.id === accountTask.id)?.relatedName).toBe("Secretquarry");
+    expect(before.find((row) => row.id === contactTask.id)?.relatedName).toBe("Secretperson");
+    expect(before.find((row) => row.id === leadTask.id)?.relatedName).toBe("Secretlead");
+    expect(before.find((row) => row.id === opportunityTask.id)?.relatedName).toBe("Secretdeal");
+
+    setOrgWideDefault(db, LOCAL_ACTOR, "account", "private", true);
+    setOrgWideDefault(db, LOCAL_ACTOR, "contact", "private", true);
+    setOrgWideDefault(db, LOCAL_ACTOR, "lead", "private", true);
+    setOrgWideDefault(db, LOCAL_ACTOR, "opportunity", "private", true);
+
+    const listed = listTasks(db, riley);
+    for (const id of [accountTask.id, contactTask.id, leadTask.id, opportunityTask.id]) {
+      expect(listed.find((row) => row.id === id)?.relatedName).toBe("—");
+      expect(listed.find((row) => row.id === id)?.relatedHref).toBe("#");
+    }
+    const payload = JSON.stringify(listed);
+    expect(payload).not.toContain("Secretquarry");
+    expect(payload).not.toContain("Secretperson");
+    expect(payload).not.toContain("Secretlead");
+    expect(payload).not.toContain("Secretdeal");
+    expect(payload).not.toContain("Secret Company");
+    expect(listTasks(db, LOCAL_ACTOR).find((row) => row.id === accountTask.id)?.relatedName).toBe(
+      "Secretquarry",
+    );
+    expect(listTasks(db, LOCAL_ACTOR).find((row) => row.id === contactTask.id)?.relatedName).toBe(
+      "Secretperson",
+    );
+    expect(listTasks(db, LOCAL_ACTOR).find((row) => row.id === leadTask.id)?.relatedName).toBe(
+      "Secretlead",
+    );
+    expect(
+      listTasks(db, LOCAL_ACTOR).find((row) => row.id === opportunityTask.id)?.relatedName,
+    ).toBe("Secretdeal");
   });
 });

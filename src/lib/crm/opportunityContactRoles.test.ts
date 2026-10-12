@@ -14,8 +14,27 @@ import {
   deleteOpportunity,
   getOpportunity,
 } from "./opportunities";
-import { createProfile, setObjectPermission } from "./profiles";
+import { createProfile, setFieldPermission, setObjectPermission } from "./profiles";
+import { setOrgWideDefault } from "./sharing";
 import { createUser } from "./users";
+import {
+  createOpportunityContactRole,
+  deleteOpportunityContactRole,
+  getOpportunityContactRole,
+  listOpportunityContactRoles,
+  listOpportunityContactRolesForContact,
+  updateOpportunityContactRole,
+} from "./opportunityContactRoles";
+
+const riley = actorFor(RILEY_USER_ID);
+
+const FULL = {
+  canCreate: true,
+  canRead: true,
+  canUpdate: true,
+  canDelete: true,
+} as const;
+
 
 function expectCode(run: () => unknown, code: string) {
   try {
@@ -27,23 +46,6 @@ function expectCode(run: () => unknown, code: string) {
   }
   throw new Error(`expected ${code}`);
 }
-
-const riley = actorFor(RILEY_USER_ID);
-
-const FULL = {
-  canCreate: true,
-  canRead: true,
-  canUpdate: true,
-  canDelete: true,
-} as const;
-import {
-  createOpportunityContactRole,
-  deleteOpportunityContactRole,
-  getOpportunityContactRole,
-  listOpportunityContactRoles,
-  listOpportunityContactRolesForContact,
-  updateOpportunityContactRole,
-} from "./opportunityContactRoles";
 
 function setup() {
   const db = openMemoryDb().db;
@@ -222,6 +224,101 @@ describe("opportunity contact roles", () => {
     ).toThrow(/opportunity/i);
   });
 
+  it("drops a contact the member cannot read, and edit requires the opportunity", () => {
+    const { db, wile, opp } = setup();
+    const role = createOpportunityContactRole(db, LOCAL_ACTOR, {
+      opportunityId: opp.id,
+      contactId: wile.id,
+      role: "Decision Maker",
+      isPrimary: true,
+    });
+    setOrgWideDefault(db, LOCAL_ACTOR, "contact", "private", true);
+    const listed = listOpportunityContactRoles(db, riley, opp.id);
+    expect(listed).toEqual([]);
+    expect(JSON.stringify(listed)).not.toContain("wile@acme.test");
+    expect(JSON.stringify(listed)).not.toContain("Wile E. Coyote");
+    expectCode(
+      () => updateOpportunityContactRole(db, riley, role.id, { role: "Other" }),
+      "NOT_FOUND",
+    );
+    // The contact is unreadable, so the role is not found before the
+    // opportunity edit check runs.
+    expectCode(() => deleteOpportunityContactRole(db, riley, role.id), "NOT_FOUND");
+    expect(getOpportunityContactRole(db, LOCAL_ACTOR, role.id)?.role).toBe("Decision Maker");
+
+    setOrgWideDefault(db, LOCAL_ACTOR, "opportunity", "private", true);
+    expect(listOpportunityContactRoles(db, riley, opp.id)).toEqual([]);
+    expectCode(() => deleteOpportunityContactRole(db, riley, role.id), "NOT_FOUND");
+    expect(getOpportunityContactRole(db, LOCAL_ACTOR, role.id)?.contactId).toBe(wile.id);
+  });
+
+  it("drops an opportunity the member cannot read from the contact", () => {
+    const { db, wile, opp } = setup();
+    createOpportunityContactRole(db, LOCAL_ACTOR, {
+      opportunityId: opp.id,
+      contactId: wile.id,
+      role: "Decision Maker",
+    });
+    setOrgWideDefault(db, LOCAL_ACTOR, "opportunity", "private", true);
+    const listed = listOpportunityContactRolesForContact(db, riley, wile.id);
+    expect(listed).toEqual([]);
+    expect(JSON.stringify(listed)).not.toContain("Anvil Restock");
+    expect(JSON.stringify(listed)).not.toContain("Prospecting");
+    expect(JSON.stringify(listed)).not.toContain("2026-10-31");
+  });
+
+  it("does not attach a contact the member cannot read", () => {
+    const { db, acme, wile } = setup();
+    setOrgWideDefault(db, LOCAL_ACTOR, "contact", "private", true);
+    const opp = createOpportunity(db, riley, {
+      accountId: acme.id,
+      name: "Riley Deal",
+      stage: "Prospecting",
+      closeDate: "2026-11-30",
+    });
+    expectCode(
+      () =>
+        createOpportunityContactRole(db, riley, {
+          opportunityId: opp.id,
+          contactId: wile.id,
+          role: "Other",
+        }),
+      "INVALID_CONTACT",
+    );
+    expect(listOpportunityContactRoles(db, LOCAL_ACTOR, opp.id)).toEqual([]);
+  });
+
+  it("lets the owner add, update, and delete a role on their own opportunity", () => {
+    const db = openMemoryDb().db;
+    const account = createAccount(db, riley, { name: "Riley Co" });
+    const contact = createContact(db, riley, {
+      accountId: account.id,
+      lastName: "Lane",
+      email: "lane@example.com",
+    });
+    const opp = createOpportunity(db, riley, {
+      accountId: account.id,
+      name: "Lane Deal",
+      stage: "Prospecting",
+      closeDate: "2026-11-01",
+    });
+    const role = createOpportunityContactRole(db, riley, {
+      opportunityId: opp.id,
+      contactId: contact.id,
+      role: "Decision Maker",
+    });
+    expect(listOpportunityContactRoles(db, riley, opp.id)[0]?.contactEmail).toBe(
+      "lane@example.com",
+    );
+    expect(
+      listOpportunityContactRolesForContact(db, riley, contact.id)[0]?.opportunityName,
+    ).toBe("Lane Deal");
+    updateOpportunityContactRole(db, riley, role.id, { isPrimary: true });
+    expect(getOpportunityContactRole(db, riley, role.id)?.isPrimary).toBe(true);
+    deleteOpportunityContactRole(db, riley, role.id);
+    expect(listOpportunityContactRoles(db, riley, opp.id)).toEqual([]);
+  });
+
   it("refuses create, update, and delete when the actor cannot edit the opportunity", () => {
     const { db, acme, wile, runner, opp } = setup();
     const spare = createContact(db, LOCAL_ACTOR, {
@@ -341,7 +438,7 @@ describe("opportunity contact roles", () => {
     expect(listOpportunityContactRoles(db, LOCAL_ACTOR, operatorOpp.id)).toEqual([]);
   });
 
-  it("uses opportunity edit, not delete, and still cascades on opportunity or contact delete", () => {
+  it("uses opportunity edit, not delete, cascades on opportunity delete, and refuses contact delete", () => {
     const db = openMemoryDb().db;
     const deleter = createUser(db, {
       name: "Deleter",
@@ -416,9 +513,9 @@ describe("opportunity contact roles", () => {
       contactId: cascadeContact.id,
       role: "Other",
     });
-    deleteContact(db, deleteActor, cascadeContact.id);
-    expect(getContact(db, LOCAL_ACTOR, cascadeContact.id)).toBeUndefined();
-    expect(getOpportunityContactRole(db, LOCAL_ACTOR, cascadeRole.id)).toBeUndefined();
+    expectCode(() => deleteContact(db, deleteActor, cascadeContact.id), "HAS_CHILDREN");
+    expect(getContact(db, LOCAL_ACTOR, cascadeContact.id)?.lastName).toBe("Cascade");
+    expect(getOpportunityContactRole(db, LOCAL_ACTOR, cascadeRole.id)?.role).toBe("Other");
     expect(getOpportunity(db, deleteActor, cascadeDeal.id)?.name).toBe("Cascade Deal");
 
     const editor = createUser(db, {
@@ -507,5 +604,277 @@ describe("opportunity contact roles", () => {
       .all()
       .map((row) => row.name);
     expect(names).not.toContain("Spacely Sprockets");
+  });
+
+  it("redacts contact title and email the actor cannot read", () => {
+    const db = openMemoryDb().db;
+    const user = createUser(db, {
+      name: "Field Reader",
+      email: "field.reader@example.com",
+      username: "fieldreader",
+      password: "long-enough",
+    });
+    const profileId = createProfile(db, LOCAL_ACTOR, "Hide Contact Fields");
+    for (const objectType of ["account", "contact", "opportunity"] as const) {
+      setObjectPermission(db, LOCAL_ACTOR, profileId, objectType, FULL);
+    }
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "contact", "email", {
+      canRead: false,
+      canEdit: false,
+    });
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "contact", "title", {
+      canRead: false,
+      canEdit: false,
+    });
+    addMember(db, LOCAL_ORG_ID, user.id, "member", profileId);
+    const actor = actorFor(user.id);
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Field Co" });
+    const contact = createContact(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      lastName: "Private",
+      email: "private@example.com",
+      title: "Secret Title",
+    });
+    const opportunity = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Field Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-01",
+    });
+    createOpportunityContactRole(db, LOCAL_ACTOR, {
+      opportunityId: opportunity.id,
+      contactId: contact.id,
+      role: "Decision Maker",
+    });
+    const listed = listOpportunityContactRoles(db, actor, opportunity.id);
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.contactName).toBe("Private");
+    expect(listed[0]?.contactEmail).toBeNull();
+    expect(listed[0]?.contactTitle).toBeNull();
+    expect(JSON.stringify(listed)).not.toContain("private@example.com");
+    expect(JSON.stringify(listed)).not.toContain("Secret Title");
+
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "contact", "name", {
+      canRead: false,
+      canEdit: false,
+    });
+    const hiddenName = listOpportunityContactRoles(db, actor, opportunity.id);
+    expect(hiddenName[0]?.contactName).toBe("—");
+    expect(JSON.stringify(hiddenName)).not.toContain("Private");
+    expect(JSON.stringify(hiddenName)).not.toContain("private@example.com");
+  });
+
+  it("redacts opportunity name, stage, and close date the actor cannot read", () => {
+    const db = openMemoryDb().db;
+    const user = createUser(db, {
+      name: "Deal Reader",
+      email: "deal.reader@example.com",
+      username: "dealreader",
+      password: "long-enough",
+    });
+    const profileId = createProfile(db, LOCAL_ACTOR, "Hide Opportunity Fields");
+    for (const objectType of ["account", "contact", "opportunity"] as const) {
+      setObjectPermission(db, LOCAL_ACTOR, profileId, objectType, FULL);
+    }
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "opportunity", "stage", {
+      canRead: false,
+      canEdit: false,
+    });
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "opportunity", "closeDate", {
+      canRead: false,
+      canEdit: false,
+    });
+    addMember(db, LOCAL_ORG_ID, user.id, "member", profileId);
+    const actor = actorFor(user.id);
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Field Co" });
+    const contact = createContact(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      lastName: "Public",
+    });
+    const opportunity = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Field Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-19",
+    });
+    createOpportunityContactRole(db, LOCAL_ACTOR, {
+      opportunityId: opportunity.id,
+      contactId: contact.id,
+      role: "Decision Maker",
+    });
+    const listed = listOpportunityContactRolesForContact(db, actor, contact.id);
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.opportunityName).toBe("Field Deal");
+    expect(listed[0]?.opportunityStage).toBe("—");
+    expect(listed[0]?.opportunityCloseDate).toBe("—");
+    const payload = JSON.stringify(listed);
+    expect(payload).not.toContain("Prospecting");
+    expect(payload).not.toContain("2026-12-19");
+
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "opportunity", "name", {
+      canRead: false,
+      canEdit: false,
+    });
+    const hiddenName = listOpportunityContactRolesForContact(db, actor, contact.id);
+    expect(hiddenName[0]?.opportunityName).toBe("—");
+    expect(hiddenName[0]?.opportunityStage).toBe("—");
+    expect(hiddenName[0]?.opportunityCloseDate).toBe("—");
+    expect(JSON.stringify(hiddenName)).not.toContain("Field Deal");
+    expect(JSON.stringify(hiddenName)).not.toContain("Prospecting");
+    expect(JSON.stringify(hiddenName)).not.toContain("2026-12-19");
+  });
+
+  it("refuses to move a contact that is on an opportunity the actor cannot read", () => {
+    const db = openMemoryDb().db;
+    const home = createAccount(db, riley, { name: "Home Co" });
+    const away = createAccount(db, riley, { name: "Away Co" });
+    const contact = createContact(db, riley, {
+      accountId: home.id,
+      lastName: "Mover",
+    });
+    const opportunity = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: home.id,
+      name: "Hidden Restock",
+      stage: "Prospecting",
+      closeDate: "2026-12-15",
+    });
+    const role = createOpportunityContactRole(db, LOCAL_ACTOR, {
+      opportunityId: opportunity.id,
+      contactId: contact.id,
+      role: "Other",
+    });
+    setOrgWideDefault(db, LOCAL_ACTOR, "opportunity", "private", true);
+    expect(listOpportunityContactRolesForContact(db, riley, contact.id)).toEqual([]);
+    try {
+      updateContact(db, riley, contact.id, { accountId: away.id });
+      throw new Error("expected refusal");
+    } catch (error) {
+      expect(error).toBeInstanceOf(DomainError);
+      expect((error as DomainError).code).toBe("HAS_CHILDREN");
+      expect((error as DomainError).message).toBe(
+        "Cannot move a contact that is on an opportunity",
+      );
+      expect((error as DomainError).message).not.toContain("Hidden Restock");
+    }
+    expect(getContact(db, riley, contact.id)?.accountId).toBe(home.id);
+    expect(getOpportunityContactRole(db, LOCAL_ACTOR, role.id)?.opportunityId).toBe(
+      opportunity.id,
+    );
+
+    const user = createUser(db, {
+      name: "No Deals",
+      email: "no.deals@example.com",
+      username: "nodeals",
+      password: "long-enough",
+    });
+    const profileId = createProfile(db, LOCAL_ACTOR, "No Opportunity Read");
+    for (const objectType of ["account", "contact"] as const) {
+      setObjectPermission(db, LOCAL_ACTOR, profileId, objectType, FULL);
+    }
+    setObjectPermission(db, LOCAL_ACTOR, profileId, "opportunity", {
+      canCreate: false,
+      canRead: false,
+      canUpdate: false,
+      canDelete: false,
+    });
+    addMember(db, LOCAL_ORG_ID, user.id, "member", profileId);
+    const actor = actorFor(user.id);
+    const actorHome = createAccount(db, actor, { name: "Actor Home" });
+    const actorAway = createAccount(db, actor, { name: "Actor Away" });
+    const actorContact = createContact(db, actor, {
+      accountId: actorHome.id,
+      lastName: "Blind",
+    });
+    const visible = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: actorHome.id,
+      name: "Visible Restock",
+      stage: "Qualification",
+      closeDate: "2026-12-16",
+    });
+    createOpportunityContactRole(db, LOCAL_ACTOR, {
+      opportunityId: visible.id,
+      contactId: actorContact.id,
+      role: "Other",
+    });
+    expect(listOpportunityContactRolesForContact(db, actor, actorContact.id)).toEqual([]);
+    try {
+      updateContact(db, actor, actorContact.id, { accountId: actorAway.id });
+      throw new Error("expected refusal");
+    } catch (error) {
+      expect(error).toBeInstanceOf(DomainError);
+      expect((error as DomainError).message).toBe(
+        "Cannot move a contact that is on an opportunity",
+      );
+      expect((error as DomainError).message).not.toContain("Visible Restock");
+    }
+    expect(getContact(db, actor, actorContact.id)?.accountId).toBe(actorHome.id);
+  });
+
+  it("does not block contact delete on an opportunity the actor cannot read, and keeps that role", () => {
+    const db = openMemoryDb().db;
+    const account = createAccount(db, riley, { name: "Riley Co" });
+    const contact = createContact(db, riley, {
+      accountId: account.id,
+      lastName: "Lane",
+    });
+    const hiddenOpp = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Hidden Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-01",
+    });
+    const hiddenRole = createOpportunityContactRole(db, LOCAL_ACTOR, {
+      opportunityId: hiddenOpp.id,
+      contactId: contact.id,
+      role: "Other",
+    });
+    const ownOpp = createOpportunity(db, riley, {
+      accountId: account.id,
+      name: "Own Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-02",
+    });
+    const ownRole = createOpportunityContactRole(db, riley, {
+      opportunityId: ownOpp.id,
+      contactId: contact.id,
+      role: "Decision Maker",
+    });
+    setOrgWideDefault(db, LOCAL_ACTOR, "opportunity", "private", true);
+    deleteContact(db, riley, contact.id);
+    expect(getContact(db, riley, contact.id)).toBeUndefined();
+    expect(getOpportunityContactRole(db, LOCAL_ACTOR, hiddenRole.id)?.role).toBe("Other");
+    expect(getOpportunityContactRole(db, LOCAL_ACTOR, ownRole.id)).toBeUndefined();
+    expect(getOpportunity(db, LOCAL_ACTOR, hiddenOpp.id)?.name).toBe("Hidden Deal");
+
+    setOrgWideDefault(db, LOCAL_ACTOR, "opportunity", "public_read", true);
+    const contact2 = createContact(db, riley, {
+      accountId: account.id,
+      lastName: "Kent",
+    });
+    const seenOpp = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Shared Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-03",
+    });
+    const seenRole = createOpportunityContactRole(db, LOCAL_ACTOR, {
+      opportunityId: seenOpp.id,
+      contactId: contact2.id,
+      role: "Influencer",
+    });
+    expect(
+      listOpportunityContactRolesForContact(db, riley, contact2.id)[0]?.opportunityName,
+    ).toBe("Shared Deal");
+    try {
+      deleteContact(db, riley, contact2.id);
+      throw new Error("expected refusal");
+    } catch (error) {
+      expect(error).toBeInstanceOf(DomainError);
+      expect((error as DomainError).code).toBe("HAS_CHILDREN");
+      expect((error as DomainError).message).toMatch(/other records still depend/i);
+      expect((error as DomainError).message).not.toMatch(/Shared Deal/);
+    }
+    expect(getContact(db, riley, contact2.id)?.lastName).toBe("Kent");
+    expect(getOpportunityContactRole(db, LOCAL_ACTOR, seenRole.id)?.role).toBe("Influencer");
   });
 });

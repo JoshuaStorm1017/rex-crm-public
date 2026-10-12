@@ -5,6 +5,7 @@ import { requireActor } from "@/lib/crm/currentUser";
 import { listCustomFields } from "@/lib/crm/customFields";
 import { listDuplicateRules } from "@/lib/crm/duplicateRules";
 import { listDeletedRecords } from "@/lib/crm/recycle";
+import { listRoles, listSharingRules } from "@/lib/crm/sharing";
 import { listValidationRules } from "@/lib/crm/validationRules";
 import { getDb } from "@/lib/db/client";
 
@@ -17,12 +18,15 @@ export default async function SetupPage() {
   const automation = listAutomationRules(db, actor);
   const duplicates = listDuplicateRules(db, actor);
   const deleted = listDeletedRecords(db, actor);
+  const sharingRoles = listRoles(db, actor);
+  const sharingRules = listSharingRules(db, actor);
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Setup</h1>
         <p className="mt-1 text-sm text-[#5c564c]">
-          Rules are data. This is not Object Manager, profiles, or Flow.
+          Rules are data. Sharing defaults, roles, and criteria rules are
+          data too. This is not Object Manager, profiles, or Flow.
         </p>
       </div>
       <div className="grid gap-3">
@@ -31,6 +35,7 @@ export default async function SetupPage() {
         <SetupCard href="/setup/assignment" title="Assignment Rules" body={`${assignment.length} rule${assignment.length === 1 ? "" : "s"}. Lead create only.`} />
         <SetupCard href="/setup/automation" title="Automation Rules" body={`${automation.length} rule${automation.length === 1 ? "" : "s"}. One field update, no chaining.`} />
         <SetupCard href="/setup/duplicates" title="Duplicate Rules" body={`${duplicates.length} rule${duplicates.length === 1 ? "" : "s"}. Exact match. Blank does not match.`} />
+        <SetupCard href="/setup/sharing" title="Sharing" body={`${sharingRoles.length} role${sharingRoles.length === 1 ? "" : "s"}, ${sharingRules.length} sharing rule${sharingRules.length === 1 ? "" : "s"}. Defaults start at Public Read Only.`} />
         <SetupCard href="/recycle" title="Recycle Bin" body={`${deleted.length} deleted record${deleted.length === 1 ? "" : "s"}. Undelete does not restore children.`} />
       </div>
     </div>

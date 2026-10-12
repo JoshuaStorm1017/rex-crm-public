@@ -13,6 +13,7 @@ import {
 import type { Actor } from "./actor";
 import { assertActor } from "./actor";
 import { assertCanPerform, canReadField } from "./permissions";
+import { readRestrictionSql } from "./sharing";
 import {
   ACCOUNT_TYPES,
   LEAD_RATINGS,
@@ -858,22 +859,31 @@ export function deleteReport(db: Db, actor: Actor, id: string): void {
 // ---------------------------------------------------------------------------
 
 /** FROM + the same joins list views use, so filter expressions resolve. */
-function fromClause(actor: Actor, objectType: ListViewObjectType): SQL {
+function fromClause(db: Db, actor: Actor, objectType: ListViewObjectType): SQL {
+  const accountVisible = readRestrictionSql(db, actor, "account", accounts.ownerId);
+  const contactVisible = readRestrictionSql(db, actor, "contact", contacts.ownerId);
+  const leadVisible = readRestrictionSql(db, actor, "lead", leads.ownerId);
+  const opportunityVisible = readRestrictionSql(
+    db,
+    actor,
+    "opportunity",
+    opportunities.ownerId,
+  );
   switch (objectType) {
     case "account":
       return sql`${accounts}`;
     case "contact":
-      return sql`${contacts} left join ${accounts} on ${and(eq(contacts.accountId, accounts.id), eq(accounts.orgId, actor.orgId))}`;
+      return sql`${contacts} left join ${accounts} on ${and(eq(contacts.accountId, accounts.id), eq(accounts.orgId, actor.orgId), accountVisible)}`;
     case "lead":
       return sql`${leads}`;
     case "opportunity":
-      return sql`${opportunities} left join ${accounts} on ${and(eq(opportunities.accountId, accounts.id), eq(accounts.orgId, actor.orgId))}`;
+      return sql`${opportunities} left join ${accounts} on ${and(eq(opportunities.accountId, accounts.id), eq(accounts.orgId, actor.orgId), accountVisible)}`;
     case "task":
       return sql`${tasks}
-        left join ${accounts} on ${and(eq(tasks.relatedObjectType, "account"), eq(tasks.relatedRecordId, accounts.id), eq(accounts.orgId, actor.orgId))}
-        left join ${contacts} on ${and(eq(tasks.relatedObjectType, "contact"), eq(tasks.relatedRecordId, contacts.id), eq(contacts.orgId, actor.orgId))}
-        left join ${leads} on ${and(eq(tasks.relatedObjectType, "lead"), eq(tasks.relatedRecordId, leads.id), eq(leads.orgId, actor.orgId))}
-        left join ${opportunities} on ${and(eq(tasks.relatedObjectType, "opportunity"), eq(tasks.relatedRecordId, opportunities.id), eq(opportunities.orgId, actor.orgId))}`;
+        left join ${accounts} on ${and(eq(tasks.relatedObjectType, "account"), eq(tasks.relatedRecordId, accounts.id), eq(accounts.orgId, actor.orgId), accountVisible)}
+        left join ${contacts} on ${and(eq(tasks.relatedObjectType, "contact"), eq(tasks.relatedRecordId, contacts.id), eq(contacts.orgId, actor.orgId), contactVisible)}
+        left join ${leads} on ${and(eq(tasks.relatedObjectType, "lead"), eq(tasks.relatedRecordId, leads.id), eq(leads.orgId, actor.orgId), leadVisible)}
+        left join ${opportunities} on ${and(eq(tasks.relatedObjectType, "opportunity"), eq(tasks.relatedRecordId, opportunities.id), eq(opportunities.orgId, actor.orgId), opportunityVisible)}`;
   }
 }
 
@@ -1296,7 +1306,7 @@ export function runReport(
     options.today ?? localIsoDate(),
     customFields,
   );
-  const from = fromClause(actor, objectType);
+  const from = fromClause(db, actor, objectType);
   // listViewConditions always includes the live-records clause, so `and` is
   // never empty; the fallback only keeps the type honest.
   const where =
