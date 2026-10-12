@@ -10,9 +10,12 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-11, sharing review fixes (contact roles,
-hidden saves, task cascade, duplicates, labels, and the 0014
-snapshot). The organization-wide defaults entry is still below.
+Last updated: 2026-10-12, relationship writes, field redaction, and the merged undelete gate.
+
+The sections dated 2026-10-11 describe the tree verified that day.
+Contact delete no longer clears every junction row or every Reports To
+link. Under Public Read Only the recycle bin no longer lists another
+user's row. The current rules are the 2026-10-12 entry below.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -36,6 +39,181 @@ snapshot). The organization-wide defaults entry is still below.
 
 Things actually run, with evidence.
 
+### Relationship writes, field redaction, and the merged undelete gate (2026-10-12)
+
+Merged `origin/main` into this branch and kept both sides. Undelete
+lists a deleted row only when the actor can read it and can delete it.
+A readable row the actor cannot delete is forbidden. An unreadable row
+is not found. Under Public Read Only the bin omits another user's row
+and undelete is forbidden. Under Private the bin omits it and undelete
+is not found. Opportunity contact-role create, update, and delete still
+require edit on a readable opportunity. An unreadable opportunity is
+not found. Lead convert still rolls back when that edit is denied.
+Deleting the opportunity still clears junction rows without the edit
+check. Deleting the contact refuses, and changes nothing, when a
+related opportunity or a direct report is not editable. The error is
+"Cannot delete this record while other records still depend on it".
+
+A blank Parent Account or Reports To select is omitted when the stored
+related row is not readable, and a null update keeps that stored id.
+The picker and the cycle check walk only rows the actor can read. A
+failed cycle check says "Parent account is not valid" or "Reports To
+contact is not valid". A visible record that hangs off a hidden one
+stays in the picker, and saving that parent can persist a cycle through
+the hidden row. A direct report the actor cannot edit blocks contact
+delete. Nothing is cleared.
+
+A sharing rule with two conditions (billing state equals AZ, and name
+contains Mesa) shares only the row that matches both. List, search, and
+report omit a row that matches one. A profile that can create accounts
+and cannot read them can create "Hidden Co" while that name already
+exists. The operator still gets the duplicate error. Recently viewed
+omits a row whose name is not readable and does not copy a hidden
+email or company into the subtitle. Opportunity contact roles null a
+hidden contact title and email, and show an em dash when the contact
+name is hidden.
+
+- **`npm run verify` (2026-10-12, 00:31 EDT):** exit 0. 38 test files,
+  426 tests. TypeScript, ESLint, and the Next.js 16.3.5 production
+  build passed. `NO_COLOR`/`FORCE_COLOR` warnings only. An earlier
+  verify in the same session, before the edit-page render tests, was
+  also exit 0 at 37 files and 424 tests.
+- **Mutation re-check, restored before that verify.** Changing one
+  sharing rule's criteria from `and` to `or` made the two-condition
+  list return three accounts. Removing the duplicate object-read guard
+  made creating "Hidden Co" throw `DUPLICATE`. Both source edits were
+  put back. This verify ran on the restored tree.
+- **UI.** `renderToStaticMarkup` of the account and contact edit pages
+  on a memory database. Riley's edit of an account whose parent is
+  private contained neither `name="parentAccountId"` nor the hidden
+  account id. The edit of an account whose parent Riley can read
+  contained the select and that parent. The contact edit did the same
+  for Reports To. Chrome DevTools did not connect, so this was not a
+  viewport or click pass. No dev server was started.
+
+### Undelete and opportunity contact roles (2026-10-11)
+
+Restoring a deleted record uses the same rule as deleting a live one:
+the profile must allow delete, and the actor must own the record or
+have modify-all (`users.role` admin and an admin membership in this
+org). The recycle list only includes rows that pass that check. A
+global admin who is only a member, and an org-membership admin whose
+global role is `user`, cannot restore someone else's record. An owner
+whose profile can edit but not delete cannot restore it either.
+
+Creating, updating, or removing an opportunity contact role requires
+edit on that live opportunity. Lead convert uses the same check. A
+profile that can create the opportunity but cannot edit it rolls the
+convert back: the lead stays New and no account is left behind. Deleting the opportunity still removes the junction rows without
+that edit check, including when the profile can delete the opportunity
+but cannot edit it. On this 15:32 run, deleting the contact did the
+same. That contact-delete cascade is not the current rule.
+
+The opportunity page hides Add role, Make primary, and Remove when the
+actor cannot edit. The recycle page does not offer Undelete for a row
+the actor cannot delete. Edit and Delete on the opportunity header are
+still shown. This did not add Change Owner.
+
+- **`npm run verify` (2026-10-11 15:32 EDT):** exit 0. 34 files, 391
+  tests (was 32 files, 378). TypeScript, ESLint, and Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation evidence, focused suite, each change restored:** removing
+  the undelete check, the recycle-list filter, the create check, the
+  update check, or the single-role delete check failed that suite.
+  Switching undelete or the list from delete permission to edit failed.
+  Switching the role gate from edit to delete failed. Making the
+  opportunity-delete cascade require edit failed. Full verify above
+  ran after the source was restored. A later review showed that
+  switching delete to edit was only killed for accounts, and that role
+  update, the contact-delete cascade, and the opportunity page were
+  not covered. The next section is the re-check.
+- **HTML pass, throwaway database only.** `next dev -p 3019` with
+  `DATABASE_PATH=/tmp/rex-crm-auth-browser-20261011.sqlite`. Sessions
+  minted for operator and Riley. No repository database was written.
+  Riley's Operator Anvil page showed Elmer Fudd and "You do not have
+  permission to change contact roles on this opportunity", and did not
+  show Add role, Make primary, or Remove. Riley's own Riley Anvil page
+  and the operator's view of that page showed Make primary and Remove.
+  Add role was absent there because the only contact was already on the
+  opportunity. Riley's `/recycle` said "No records you can restore" and
+  had no undelete form. The operator's `/recycle` listed Operator Bin
+  Co with an Undelete button. SQLite still had that account deleted
+  after the page reads. Server stopped. Chrome DevTools was not
+  connected, so this was not a viewport or click pass. A hand-built
+  multipart post of the Undelete action returned "Connection closed"
+  for both users and did not restore the row.
+
+### Same rules, tests that kill the review survivors (2026-10-11)
+
+No enforcement change. The four survivors were missing tests. An owner
+whose profile can edit but not delete is now refused on account,
+contact, lead, opportunity, and task: the recycle list hides each row,
+`undeleteRecord` throws `FORBIDDEN`, and the row stays deleted. In the
+edit-versus-delete role test, the editor's
+`updateOpportunityContactRole` changes the role to Decision Maker and
+sets primary, and the deleter's update throws `FORBIDDEN` and leaves
+Decision Maker / primary in place. On this run, that deleter's `deleteContact` removed the contact and
+its role row, and left the opportunity. That cascade is not the
+current rule. The
+opportunity page is rendered: the owner sees Make primary, Remove, and
+Add role; Riley, who can read the operator's opportunity but cannot
+edit it, sees the denial sentence and none of those controls. Road
+Runner appears only in the owner's add-role select.
+
+- **`npm run verify` (2026-10-11 16:07 EDT):** exit 0. 35 files, 392
+  tests (was 34 files, 391). TypeScript, ESLint, and Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation re-check, each change restored before that verify.**
+  Recycle list using edit for non-accounts: the contact row was listed
+  (`expected true to be false`). Recycle restore using edit for
+  non-accounts: `undeleteRecord` did not throw `FORBIDDEN`. Role update
+  requiring opportunity delete: the deleter's update did not throw
+  `FORBIDDEN`. Contact cascade requiring opportunity edit:
+  `deleteContact` threw "You do not have permission to edit this
+  opportunity" from `deleteOpportunityContactRolesForContact`.
+  Opportunity page checking read: Riley's markup contained Make
+  primary, Remove, and Add role, and did not contain the denial
+  sentence. Source matched the pre-mutation files afterward.
+- **No browser pass.** The page check is `renderToStaticMarkup` on a
+  memory database. Chrome DevTools was not connected.
+- A later review survived three more mutations. The recycle tests
+  granted the same delete flag on account and opportunity, so checking
+  account delete for an opportunity row still hid and restored every
+  seeded row. The page test compared an owner who can edit and delete
+  with a member who can do neither, so gating the role controls on
+  delete still passed. The next section is that re-check.
+
+### Object delete and the opportunity role gate (2026-10-11)
+
+No enforcement change. An owner, and a modify-all user, whose profile
+can delete accounts and cannot delete opportunities see and restore the
+account. The opportunity stays out of their recycle list,
+`undeleteRecord` throws `FORBIDDEN`, and the row stays deleted. The
+inverse profile, again for an owner and for modify-all, lists and
+restores the opportunity and leaves the account deleted.
+
+The opportunity page renders for a delete-not-edit owner and for an
+edit-not-delete owner. The deleter sees "You do not have permission to
+change contact roles on this opportunity." and does not see Make
+primary, Remove, or Add role. The editor sees those three controls.
+The header Edit and Delete links are still shown for both.
+
+- **`npm run verify` (2026-10-11 16:35 EDT):** exit 0. 35 files, 394
+  tests (was 35 files, 392). TypeScript, ESLint, and Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation re-check, each change restored before that verify.**
+  Recycle list authorizing opportunity rows with account delete: the
+  new test failed (`expected true to be false`) because the opportunity
+  was listed; the other seven recycle tests passed. Undelete checking
+  account delete before restoring an opportunity: the new test failed
+  with `expected FORBIDDEN` because restore did not throw; the other
+  seven passed. Opportunity page gating role controls on delete: the
+  new render failed because the delete-not-edit owner saw Make primary,
+  Remove, and Add role and did not see the denial sentence; the older
+  owner-versus-reader render passed. Source matched the pre-mutation
+  files afterward. Full verify above ran after that restore.
+- **No browser pass.** The page check is `renderToStaticMarkup` on a
+  memory database. Chrome DevTools was not connected.
 ### Sharing review fixes (2026-10-11)
 
 - Opportunity contact-role lists return a row only when the actor can
@@ -724,14 +902,17 @@ on the existing file (1 list view, 0 of everything else).
 ## PARTIAL
 
 - **`deleted_at`** — written on account/contact/lead/opportunity/task
-  delete, filtered in get/list. `/recycle` lists rows the actor can
-  read and undeletes a row only when that actor could delete it.
-  Under Public Read Only, a member sees another user's bin row and
-  undelete is forbidden. Under Private, the bin hides it and undelete
-  is not found. The owner can still restore it. No empty-bin. Undelete
-  does not restore tasks or other children that were soft-deleted with
-  the parent. No hard purge. Junction roles are still hard-deleted
-  with the parent opportunity or contact.
+  delete, filtered in get/list. `/recycle` lists a row only when the
+  actor can read it and can delete it. Undelete of a readable row the
+  actor cannot delete is forbidden. Undelete of a row the actor cannot
+  read is not found. Under Public Read Only, another user's row is
+  omitted and undelete is forbidden. Under Private, the bin hides it
+  and undelete is not found. The owner can still restore their own row.
+  No empty-bin. Undelete does not restore tasks or other children that
+  were soft-deleted with the parent. No hard purge. Junction roles are
+  still hard-deleted with the parent opportunity. Contact delete refuses
+  when a related opportunity is not editable, or when a direct report
+  is not editable, and changes nothing.
 - **Sharing** — login is real. Another org's records are hidden
   (`0012_orgs`). Inside one org, Public Read Only is the default, so
   a member whose profile can read the object still sees every record
@@ -771,13 +952,18 @@ on the existing file (1 list view, 0 of everything else).
   picker. Omitting `accountId` still creates an account from the company.
 - **Lookups** — Contact Account (new and edit), Account Parent, and
   Contact Reports To are pickers (session 13). They are server-rendered
-  `<select>`s of every live record, not a typeahead — fine locally, not
-  at 100k rows. **Opportunity Account is still a raw id**, and so is
-  Task related-to, unless you arrive from a related list. Contact on a
-  role is a real select of that account's contacts.
+  `<select>`s of records the actor can read, not a typeahead — fine
+  locally, not at 100k rows. The parent and Reports To selects are
+  omitted when the stored related row is not readable. A visible record
+  that hangs off a hidden one stays in the picker. **Opportunity Account
+  is still a raw id**, and so is Task related-to, unless you arrive from
+  a related list. Contact on a role is a real select of that account's
+  contacts.
 - **Contact Reports To** (session 13, Claude) — self-lookup, cycles
   refused, Direct Reports list on the detail page. Deleting a manager
-  clears Reports To on their direct reports. Not restricted to the same
+  clears Reports To only when every direct report is editable, and only
+  on those rows. If any direct report is not editable, the delete is
+  refused and nothing changes. Not restricted to the same
   account (Salesforce isn't either); a contact that moves account keeps
   their manager.
 - **Search** — name/email/company/task-subject `LIKE` substring, five
@@ -932,9 +1118,16 @@ are manual shares, owner-based rules, teams, queues, and territories.
 Permission sets and a profile setup screen are still open. Change
 Owner and permission-aware Edit/Delete on detail pages other than
 accounts are still open. A hidden child of a deleted account keeps
-the parent id. Undelete now follows
-delete access: under Public Read Only a member sees another user's bin
-row and is refused; under Private the bin hides it. Existing Riley
+the parent id. The recycle bin lists a row only when the actor can
+read it and can delete it. Under Public Read Only another user's row
+is omitted and undelete is forbidden. Under Private the bin omits it
+and undelete is not found. Contact delete refuses, and changes
+nothing, when a related opportunity or a direct report is not
+editable. Opportunity delete still clears junction rows without an
+edit check. A parent or Reports To select is omitted when that
+related row is not readable, and a null on update keeps the stored
+link. Cycle checks walk only readable rows and use a generic error.
+Existing Riley
 admin memberships remain admin until an explicit migration or
 reassignment. Do not reintroduce a default `LOCAL_USER_ID` actor on
 domain writes. Record fresh verification evidence for each slice.
@@ -943,6 +1136,32 @@ domain writes. Record fresh verification evidence for each slice.
 
 ## Session log
 
+### 2026-10-12 — relationship writes and the main merge (Rex)
+
+- Merged `origin/main` and kept both undelete rules: read, then the
+  delete check. Closed the three review rounds on hidden parent and
+  manager writes, contact delete, contact-role field redaction,
+  recently viewed subtitles, a two-condition sharing rule, and a
+  create-without-read duplicate.
+- `npm run verify` exit 0 at 00:31 EDT: 38 files, 426 tests, Next.js
+  16.3.5 build. The two survivor mutations failed the new tests and
+  were restored before that run. Edit-page markup was checked with
+  `renderToStaticMarkup`. Chrome DevTools did not connect.
+- Did not push, open a PR, or merge. No real-business data.
+
+### 2026-10-11 — undelete and opportunity contact roles (Rex)
+
+- Gated recycle restore and the recycle list with the live-delete rule.
+  Gated opportunity contact-role create, update, and delete with edit on
+  the opportunity. Parent delete still clears junction rows without that
+  edit check. Lead convert rolls back when the actor cannot edit the
+  new opportunity.
+- `npm run verify` exit 0 at 15:32 EDT: 34 files, 391 tests, Next.js
+  16.3.5 build. Nine focused mutations failed, then the source was
+  restored. HTML
+  reads on a throwaway database at port 3019 matched the buttons.
+  No viewport pass. The server was stopped.
+- Did not build sharing, products, or Change Owner. Did not push.
 ### Session 20 (2026-10-11, 12:16 EDT) — Rex (Grok)
 
 - Closed the code, security, and mutation review findings on the

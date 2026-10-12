@@ -16,8 +16,27 @@ export default async function EditAccountPage({
 }) {
   const actor = await requireActor();
   const { id } = await params;
-  const account = getAccount(getDb(), actor, id);
+  const db = getDb();
+  const account = getAccount(db, actor, id);
   if (!account) notFound();
+  const parentVisible =
+    account.parentAccountId == null ||
+    getAccount(db, actor, account.parentAccountId) != null;
+  const parentField = parentVisible
+    ? [
+        {
+          name: "parentAccountId",
+          label: "Parent Account",
+          type: "select" as const,
+          // Excludes this account and everything under it, so the
+          // picker cannot offer a loop. The domain refuses one anyway.
+          options: listEligibleParentAccounts(db, actor, account.id).map(
+            (candidate) => ({ value: candidate.id, label: candidate.name }),
+          ),
+          defaultValue: account.parentAccountId,
+        },
+      ]
+    : [];
 
   const action = updateAccountAction.bind(null, account.id);
 
@@ -36,7 +55,7 @@ export default async function EditAccountPage({
         <RecordForm
           action={action}
           submitLabel="Save"
-          fields={withCustomFormFields(getDb(), actor, "account", [
+          fields={withCustomFormFields(db, actor, "account", [
             {
               name: "name",
               label: "Account Name",
@@ -72,17 +91,7 @@ export default async function EditAccountPage({
               type: "number",
               defaultValue: account.numberOfEmployees,
             },
-            {
-              name: "parentAccountId",
-              label: "Parent Account",
-              type: "select",
-              // Excludes this account and everything under it, so the
-              // picker cannot offer a loop. The domain refuses one anyway.
-              options: listEligibleParentAccounts(getDb(), actor, account.id).map(
-                (candidate) => ({ value: candidate.id, label: candidate.name }),
-              ),
-              defaultValue: account.parentAccountId,
-            },
+            ...parentField,
             {
               name: "billingStreet",
               label: "Billing Street",

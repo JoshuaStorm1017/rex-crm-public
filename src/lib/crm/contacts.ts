@@ -8,6 +8,7 @@ import {
   assertCanAccessRecord,
   assertCanPerform,
   assertEditableFields,
+  canAccessRecord,
   canPerform,
   presentRecord,
   touchedFields,
@@ -20,6 +21,7 @@ import {
 } from "./hierarchy";
 import { ID_PREFIX, newId } from "./ids";
 import {
+  assertOpportunityContactRolesAllowContactDelete,
   countOpportunityContactRolesForContact,
   deleteOpportunityContactRolesForContact,
 } from "./opportunityContactRoles";
@@ -82,6 +84,16 @@ export function getContact(
   return row ? presentRecord(db, actor, "contact", row) : undefined;
 }
 
+function readableContactIds(db: Db, actor: Actor): Set<string> {
+  if (!canPerform(db, actor, "contact", "read")) return new Set();
+  const ids = new Set<string>();
+  const rows = db.select().from(contacts).where(live(actor)).all();
+  for (const row of rows) {
+    if (canReadRecord(db, actor, "contact", row)) ids.add(row.id);
+  }
+  return ids;
+}
+
 function assertReportsTo(
   db: Db,
   actor: Actor,
@@ -102,14 +114,20 @@ function assertReportsTo(
       "Reports To contact does not exist",
     );
   }
+  const allowed = readableContactIds(db, actor);
+  if (selfId) allowed.add(selfId);
   if (
     selfId &&
-    wouldCreateCycle(db, CONTACT_HIERARCHY, selfId, reportsToId, actor.orgId)
+    wouldCreateCycle(
+      db,
+      CONTACT_HIERARCHY,
+      selfId,
+      reportsToId,
+      actor.orgId,
+      allowed,
+    )
   ) {
-    throw new DomainError(
-      "INVALID_REPORTS_TO",
-      `${manager.name} already reports up to this contact, so they cannot be their manager`,
-    );
+    throw new DomainError("INVALID_REPORTS_TO", "Reports To contact is not valid");
   }
 }
 
@@ -230,7 +248,15 @@ export function updateContact(
       );
     }
   }
-  assertReportsTo(db, actor, parsed.reportsToId, id);
+  // A blank Reports To select posts null. Keep the stored manager when
+  // this actor cannot read that contact, so the save does not clear the link.
+  const reportsToId =
+    parsed.reportsToId === null &&
+    existing.reportsToId &&
+    !getContact(db, actor, existing.reportsToId)
+      ? undefined
+      : parsed.reportsToId;
+  assertReportsTo(db, actor, reportsToId, id);
   const firstName =
     parsed.firstName !== undefined ? parsed.firstName : existing.firstName;
   const lastName =
@@ -238,6 +264,7 @@ export function updateContact(
   const ts = now();
   const next = mergeDefined(existing, {
     ...parsed,
+    reportsToId,
     name: displayName(firstName ?? undefined, lastName),
     updatedAt: ts,
     updatedBy: actor.userId,
@@ -261,13 +288,9 @@ export function deleteContact(db: Db, actor: Actor, id: string): void {
     throw new DomainError("NOT_FOUND", "Contact not found");
   }
   assertCanAccessRecord(db, actor, "contact", "delete", existing);
-  deleteTasksForRecord(db, actor, id);
-  deleteOpportunityContactRolesForContact(db, actor, id);
-  deleteCustomValuesForRecord(db, id);
-  // Like Salesforce: the people who reported to a deleted contact keep
-  // existing, with Reports To cleared — not pointing at a deleted row.
-  db.update(contacts)
-    .set({ reportsToId: null, updatedAt: now() })
+  const reports = db
+    .select()
+    .from(contacts)
     .where(
       and(
         eq(contacts.reportsToId, id),
@@ -275,7 +298,27 @@ export function deleteContact(db: Db, actor: Actor, id: string): void {
         isNull(contacts.deletedAt),
       ),
     )
-    .run();
+    .all();
+  // A direct report this actor cannot edit blocks the delete. Nothing is
+  // cleared, including reports they can edit.
+  if (reports.some((row) => !canAccessRecord(db, actor, "contact", "edit", row))) {
+    throw new DomainError(
+      "HAS_CHILDREN",
+      "Cannot delete this record while other records still depend on it",
+    );
+  }
+  assertOpportunityContactRolesAllowContactDelete(db, actor, id);
+  deleteTasksForRecord(db, actor, id);
+  deleteOpportunityContactRolesForContact(db, actor, id);
+  deleteCustomValuesForRecord(db, id);
+  const ts = now();
+  for (const row of reports) {
+    if (!canAccessRecord(db, actor, "contact", "edit", row)) continue;
+    db.update(contacts)
+      .set({ reportsToId: null, updatedAt: ts })
+      .where(and(eq(contacts.id, row.id), eq(contacts.orgId, actor.orgId)))
+      .run();
+  }
   db.update(contacts)
     .set({ deletedAt: now(), updatedAt: now() })
     .where(and(eq(contacts.id, id), eq(contacts.orgId, actor.orgId)))
@@ -310,7 +353,15 @@ export function listEligibleManagers(
   assertActor(db, actor);
   const all = listContacts(db, actor);
   if (!contactId) return all;
-  const blocked = descendantIds(db, CONTACT_HIERARCHY, contactId, actor.orgId);
+  const allowed = readableContactIds(db, actor);
+  allowed.add(contactId);
+  const blocked = descendantIds(
+    db,
+    CONTACT_HIERARCHY,
+    contactId,
+    actor.orgId,
+    allowed,
+  );
   blocked.add(contactId);
   return all.filter((contact) => !blocked.has(contact.id));
 }

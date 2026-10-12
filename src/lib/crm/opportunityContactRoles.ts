@@ -9,7 +9,7 @@ import type { Actor } from "./actor";
 import { assertActor } from "./actor";
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
-import { canAccessRecord, canPerform } from "./permissions";
+import { canAccessRecord, canPerform, canReadField } from "./permissions";
 import { canReadRecord, readRestrictionSql } from "./sharing";
 import {
   opportunityContactRoleCreateSchema,
@@ -142,13 +142,16 @@ export function listOpportunityContactRoles(
     )
     .orderBy(desc(opportunityContactRoles.isPrimary), contacts.lastName)
     .all();
+  const nameReadable = canReadField(db, actor, "contact", "name");
+  const titleReadable = canReadField(db, actor, "contact", "title");
+  const emailReadable = canReadField(db, actor, "contact", "email");
   return rows
     .filter((row) => canReadRecord(db, actor, "contact", row.contact))
     .map((row) => ({
       ...row.role,
-      contactName: row.contact.name,
-      contactTitle: row.contact.title,
-      contactEmail: row.contact.email,
+      contactName: nameReadable ? row.contact.name : "—",
+      contactTitle: titleReadable ? row.contact.title : null,
+      contactEmail: emailReadable ? row.contact.email : null,
     }));
 }
 
@@ -393,6 +396,10 @@ export function deleteOpportunityContactRole(
     .run();
 }
 
+/**
+ * Parent delete already checked delete on the opportunity. A profile that
+ * can delete the opportunity but cannot edit it must still clear these rows.
+ */
 export function deleteOpportunityContactRolesForOpportunity(
   db: Db,
   actor: Actor,
@@ -409,12 +416,44 @@ export function deleteOpportunityContactRolesForOpportunity(
     .run();
 }
 
+const DEPENDENT_RECORDS =
+  "Cannot delete this record while other records still depend on it";
+
+/**
+ * A live opportunity the actor cannot edit blocks contact delete. The
+ * error does not name the opportunity. Orphan roles are not a block.
+ */
+export function assertOpportunityContactRolesAllowContactDelete(
+  db: Db,
+  actor: Actor,
+  contactId: string,
+): void {
+  const roles = db
+    .select()
+    .from(opportunityContactRoles)
+    .where(
+      and(
+        eq(opportunityContactRoles.contactId, contactId),
+        eq(opportunityContactRoles.orgId, actor.orgId),
+      ),
+    )
+    .all();
+  for (const role of roles) {
+    const opportunity = getLiveOpportunity(db, actor, role.opportunityId);
+    if (!opportunity) continue;
+    if (!canAccessRecord(db, actor, "opportunity", "edit", opportunity)) {
+      throw new DomainError("HAS_CHILDREN", DEPENDENT_RECORDS);
+    }
+  }
+}
+
 export function deleteOpportunityContactRolesForContact(
   db: Db,
   actor: Actor,
   contactId: string,
 ): void {
   assertActor(db, actor);
+  assertOpportunityContactRolesAllowContactDelete(db, actor, contactId);
   db.delete(opportunityContactRoles)
     .where(
       and(

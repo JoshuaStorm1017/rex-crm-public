@@ -3,7 +3,7 @@
 > **Publication note.** Commit hashes and branch names below refer to the earlier
 > private repository this one began as a snapshot of. They do not resolve here.
 
-Updated 2026-10-10 after Setup administration and Read Only profile.
+Updated 2026-10-12 after the sharing merge and the relationship-write review.
 `STATUS.md` is the evidence ledger. This file is the baton for the next
 slice. Do not delete it until that slice has absorbed it.
 
@@ -87,16 +87,25 @@ regressed. Evidence is the STATUS entry for this branch.
    `assignProfile`. There is still no profile setup screen. The role
    matrix is still the same for `admin` and `user`.
 
+Closed in the 2026-10-11 slice. Evidence is the STATUS entry.
+
+2. **Undelete uses read plus the live delete rule.** A row the actor
+   cannot read is not found. A readable row is listed and restored only
+   when `canAccessRecord` allows `delete`. Under Public Read Only the
+   bin omits another user's row and undelete is forbidden. Under
+   Private the bin omits it and undelete is not found. Modify-all is
+   still `users.role` admin plus an admin membership, not membership
+   admin alone.
+3. **Opportunity contact-role writes require edit on the opportunity.**
+   Create (including lead convert), update, and delete of one role call
+   `assertOpportunityEditable`. An unreadable opportunity is not found.
+   The opportunity page hides Add role, Make primary, and Remove when
+   that check is false. Deleting the opportunity still clears junction
+   rows without the edit check. Deleting the contact refuses, and
+   changes nothing, when a related opportunity is not editable.
+
 Still open:
 
-2. **Undelete is not owner-or-admin gated.** `undeleteRecord` restores a
-   row inside the actor's org and does not check the owner.
-3. **Opportunity contact-role writes are ungated.**
-   `addOpportunityContactRoleAction`,
-   `setPrimaryOpportunityContactRoleAction`, and
-   `deleteOpportunityContactRoleAction` call `requireActor()`. The
-   domain functions in `opportunityContactRoles.ts` call `assertActor`
-   only.
 4. **Keep the actor required.** Domain paths take an `Actor`.
    `assertActor` refuses a missing org or a non-member. No production
    function defaults the user to `LOCAL_USER_ID`. Do not put that
@@ -112,20 +121,22 @@ Still open:
    pages were not given the account-style button gate. Contact and lead
    detail omit only phone when it is unreadable; other hidden values
    become an em dash because `presentRecord` nulls them.
-8. **Cascade deletes bypass child task permissions.** Deleting a
-   contact, opportunity, or lead soft-deletes its tasks without checking
-   those tasks' owners.
+8. **Parent task delete refuses when a related task is not deletable.**
+   `deleteTasksForRecord` throws the generic dependent-records error
+   and deletes nothing. It does not skip the task owner.
 
 ## 4. Direction
 
 Suggested order when work resumes:
 
 0. CI. A GitHub Actions workflow running `npm ci && npm run verify`.
-1. Close the rest of section 3. Gate undelete and contact-role writes.
-   Change Owner. Hide Edit and Delete wherever `canAccessRecord` is
-   false, including the edit page. Mutation-test it. Browser-test it
-   on a throwaway `DATABASE_PATH`. Setup admin, Riley's membership, and
-   the seeded Read Only profile are done in this slice.
+1. Close the rest of section 3. Change Owner. Hide Edit and Delete
+   wherever `canAccessRecord` is false, including the edit page.
+   Mutation-test it.
+   Browser-test it on a throwaway `DATABASE_PATH`. Setup admin, Riley's
+   membership, the seeded Read Only profile, undelete, and opportunity
+   contact-role writes are done. Do not retry organization-wide
+   defaults or a product catalog in one change.
 2. A field registry, proven on Opportunity, then the other objects.
    Add further field permissions on that registry rather than beside it.
 

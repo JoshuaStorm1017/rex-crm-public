@@ -21,6 +21,24 @@ export default async function EditContactPage({
   if (!contact) notFound();
   const action = updateContactAction.bind(null, contact.id);
   const account = getAccount(db, actor, contact.accountId);
+  const managerVisible =
+    contact.reportsToId == null || getContact(db, actor, contact.reportsToId) != null;
+  const managerField = managerVisible
+    ? [
+        {
+          name: "reportsToId",
+          label: "Reports To",
+          type: "select" as const,
+          // Excludes this contact and everyone who reports up to them.
+          options: contactPickerOptions(
+            db,
+            actor,
+            listEligibleManagers(db, actor, contact.id),
+          ),
+          defaultValue: contact.reportsToId,
+        },
+      ]
+    : [];
   const accountField = account
     ? [
         {
@@ -53,16 +71,7 @@ export default async function EditContactPage({
           submitLabel="Save"
           fields={withCustomFormFields(db, actor, "contact", [
             ...accountField,
-            {
-              name: "reportsToId",
-              label: "Reports To",
-              type: "select",
-              // Excludes this contact and everyone who reports up to them.
-              options: contactPickerOptions(
-                db, actor, listEligibleManagers(db, actor, contact.id),
-              ),
-              defaultValue: contact.reportsToId,
-            },
+            ...managerField,
             {
               name: "firstName",
               label: "First Name",

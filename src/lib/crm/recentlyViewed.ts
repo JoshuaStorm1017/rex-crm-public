@@ -11,6 +11,7 @@ import {
 import type { Actor } from "./actor";
 import { assertActor } from "./actor";
 import type { RecordObjectType } from "./constants";
+import { canReadField } from "./permissions";
 import { canReadRecord } from "./sharing";
 import { recordHref, recordLabel } from "./objects";
 
@@ -43,12 +44,24 @@ function nextViewedAt(db: Db, actor: Actor): number {
   return ts;
 }
 
+function shown(
+  db: Db,
+  actor: Actor,
+  objectType: RecordObjectType,
+  field: string,
+  value: string | null,
+): string | null {
+  if (!canReadField(db, actor, objectType, field)) return null;
+  return value;
+}
+
 function liveName(
   db: Db,
   actor: Actor,
   objectType: RecordObjectType,
   recordId: string,
 ): { name: string; subtitle: string } | undefined {
+  const label = recordLabel(objectType);
   switch (objectType) {
     case "account": {
       const row = db
@@ -63,7 +76,9 @@ function liveName(
         )
         .get();
       if (!row || !canReadRecord(db, actor, "account", row)) return undefined;
-      return { name: row.name, subtitle: row.type ?? recordLabel(objectType) };
+      const name = shown(db, actor, "account", "name", row.name);
+      if (!name) return undefined;
+      return { name, subtitle: shown(db, actor, "account", "type", row.type) ?? label };
     }
     case "contact": {
       const row = db
@@ -78,7 +93,9 @@ function liveName(
         )
         .get();
       if (!row || !canReadRecord(db, actor, "contact", row)) return undefined;
-      return { name: row.name, subtitle: row.email ?? recordLabel(objectType) };
+      const name = shown(db, actor, "contact", "name", row.name);
+      if (!name) return undefined;
+      return { name, subtitle: shown(db, actor, "contact", "email", row.email) ?? label };
     }
     case "lead": {
       const row = db
@@ -93,7 +110,12 @@ function liveName(
         )
         .get();
       if (!row || !canReadRecord(db, actor, "lead", row)) return undefined;
-      return { name: row.name, subtitle: row.company };
+      const name = shown(db, actor, "lead", "name", row.name);
+      if (!name) return undefined;
+      return {
+        name,
+        subtitle: shown(db, actor, "lead", "company", row.company) ?? label,
+      };
     }
     case "opportunity": {
       const row = db
@@ -108,7 +130,12 @@ function liveName(
         )
         .get();
       if (!row || !canReadRecord(db, actor, "opportunity", row)) return undefined;
-      return { name: row.name, subtitle: row.stage };
+      const name = shown(db, actor, "opportunity", "name", row.name);
+      if (!name) return undefined;
+      return {
+        name,
+        subtitle: shown(db, actor, "opportunity", "stage", row.stage) ?? label,
+      };
     }
     case "task": {
       const row = db
@@ -123,7 +150,12 @@ function liveName(
         )
         .get();
       if (!row || !canReadRecord(db, actor, "task", row)) return undefined;
-      return { name: row.name, subtitle: row.status };
+      const name = shown(db, actor, "task", "name", row.name);
+      if (!name) return undefined;
+      return {
+        name,
+        subtitle: shown(db, actor, "task", "status", row.status) ?? label,
+      };
     }
   }
 }

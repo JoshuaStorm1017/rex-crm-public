@@ -8,11 +8,18 @@ import {
   getAccount,
   listAccounts,
   listChildAccounts,
+  listEligibleParentAccounts,
   updateAccount,
 } from "./accounts";
 import { createAssignmentRule } from "./assignmentRules";
 import { RILEY_USER_ID } from "./constants";
-import { createContact } from "./contacts";
+import {
+  createContact,
+  deleteContact,
+  getContact,
+  listEligibleManagers,
+  updateContact,
+} from "./contacts";
 import { DomainError } from "./errors";
 import { createLead, getLead } from "./leads";
 import { createOpportunity, getOpportunity, listOpportunities } from "./opportunities";
@@ -290,7 +297,7 @@ describe("organization-wide defaults, roles, and sharing rules", () => {
     const db = memory();
     const account = createAccount(db, LOCAL_ACTOR, { name: "Bin Supply" });
     deleteAccount(db, LOCAL_ACTOR, account.id);
-    expect(listDeletedRecords(db, riley).some((row) => row.id === account.id)).toBe(true);
+    expect(listDeletedRecords(db, riley).some((row) => row.id === account.id)).toBe(false);
     expectCode(() => undeleteRecord(db, riley, "account", account.id), "FORBIDDEN");
     privateAccounts(db);
     expect(listDeletedRecords(db, riley).some((row) => row.id === account.id)).toBe(false);
@@ -549,5 +556,103 @@ describe("organization-wide defaults, roles, and sharing rules", () => {
     createContact(db, riley, { accountId: visible.id, lastName: "Seen" });
     expect(() => deleteAccount(db, riley, visible.id)).toThrow(/contacts/i);
     expect(getAccount(db, riley, visible.id)?.name).toBe("Visible Parent");
+  });
+
+  it("requires every condition of a sharing rule in list, search, and report", () => {
+    const db = memory();
+    privateAccounts(db);
+    const role = createRole(db, LOCAL_ACTOR, { name: "Southwest" });
+    assignUserRole(db, LOCAL_ACTOR, RILEY_USER_ID, role.id);
+    const both = createAccount(db, LOCAL_ACTOR, {
+      name: "Mesa Supply",
+      billingState: "AZ",
+    });
+    const nameOnly = createAccount(db, LOCAL_ACTOR, {
+      name: "Mesa North",
+      billingState: "WA",
+    });
+    const stateOnly = createAccount(db, LOCAL_ACTOR, {
+      name: "Phoenix Supply",
+      billingState: "AZ",
+    });
+    createSharingRule(db, LOCAL_ACTOR, {
+      name: "Mesa Arizona",
+      objectType: "account",
+      access: "read",
+      shareWithRoleId: role.id,
+      criteria: [
+        { field: "billingState", operator: "equals", value: "AZ" },
+        { field: "name", operator: "contains", value: "Mesa" },
+      ],
+    });
+    const report = createReport(db, LOCAL_ACTOR, {
+      name: "Mesa Arizona accounts",
+      objectType: "account",
+      format: "tabular",
+      columns: ["name", "billingState"],
+    });
+    expect(listAccounts(db, riley).map((row) => row.id)).toEqual([both.id]);
+    expect(searchRecords(db, riley, "Mesa Supply").map((hit) => hit.id)).toEqual([both.id]);
+    expect(searchRecords(db, riley, "Mesa North")).toEqual([]);
+    expect(searchRecords(db, riley, "Phoenix")).toEqual([]);
+    expect(runReport(db, riley, report).rows.map((row) => row.id)).toEqual([both.id]);
+    expect(getAccount(db, riley, nameOnly.id)).toBeUndefined();
+    expect(getAccount(db, riley, stateOnly.id)).toBeUndefined();
+    expect(getAccount(db, LOCAL_ACTOR, nameOnly.id)?.name).toBe("Mesa North");
+  });
+
+  it("does not reveal a hidden parent or manager through the picker or a save", () => {
+    const db = memory();
+    const top = createAccount(db, riley, { name: "Top Co" });
+    const hidden = createAccount(db, LOCAL_ACTOR, { name: "Hidden Mid" });
+    const leaf = createAccount(db, riley, { name: "Visible Leaf" });
+    updateAccount(db, LOCAL_ACTOR, hidden.id, { parentAccountId: top.id });
+    updateAccount(db, LOCAL_ACTOR, leaf.id, { parentAccountId: hidden.id });
+    const manager = createContact(db, riley, {
+      accountId: top.id,
+      lastName: "Boss",
+    });
+    const hiddenReport = createContact(db, LOCAL_ACTOR, {
+      accountId: top.id,
+      lastName: "Hidden Report",
+      reportsToId: manager.id,
+    });
+    const visibleReport = createContact(db, riley, {
+      accountId: top.id,
+      lastName: "Visible Report",
+    });
+    updateContact(db, LOCAL_ACTOR, visibleReport.id, { reportsToId: hiddenReport.id });
+    privateAccounts(db);
+    setOrgWideDefault(db, LOCAL_ACTOR, "contact", "private", true);
+
+    const parents = listEligibleParentAccounts(db, riley, top.id).map((row) => row.name);
+    expect(parents).toContain("Visible Leaf");
+    expect(parents).not.toContain("Hidden Mid");
+    expect(parents).not.toContain("Top Co");
+    const saved = updateAccount(db, riley, top.id, {
+      parentAccountId: leaf.id,
+      phone: "555-0100",
+    });
+    expect(saved.phone).toBe("555-0100");
+    expect(saved.parentAccountId).toBe(leaf.id);
+
+    const kept = updateAccount(db, riley, leaf.id, {
+      parentAccountId: null,
+      phone: "555-0199",
+    });
+    expect(kept.phone).toBe("555-0199");
+    expect(getAccount(db, LOCAL_ACTOR, leaf.id)?.parentAccountId).toBe(hidden.id);
+
+    const managers = listEligibleManagers(db, riley, manager.id).map((row) => row.name);
+    expect(managers).toContain("Visible Report");
+    expect(managers).not.toContain("Hidden Report");
+    expect(managers).not.toContain("Boss");
+    const keptManager = updateContact(db, riley, visibleReport.id, { reportsToId: null });
+    expect(keptManager.reportsToId).toBe(hiddenReport.id);
+
+    expectCode(() => deleteContact(db, riley, manager.id), "HAS_CHILDREN");
+    expect(getContact(db, riley, manager.id)?.lastName).toBe("Boss");
+    expect(getContact(db, LOCAL_ACTOR, hiddenReport.id)?.reportsToId).toBe(manager.id);
+    expect(getContact(db, riley, visibleReport.id)?.reportsToId).toBe(hiddenReport.id);
   });
 });

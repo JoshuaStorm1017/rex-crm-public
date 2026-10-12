@@ -101,6 +101,16 @@ export function countAccounts(db: Db, actor: Actor): number {
   return row?.n ?? 0;
 }
 
+function readableAccountIds(db: Db, actor: Actor): Set<string> {
+  if (!canPerform(db, actor, "account", "read")) return new Set();
+  const ids = new Set<string>();
+  const rows = db.select().from(accounts).where(live(actor)).all();
+  for (const row of rows) {
+    if (canReadRecord(db, actor, "account", row)) ids.add(row.id);
+  }
+  return ids;
+}
+
 function assertParent(
   db: Db,
   actor: Actor,
@@ -118,14 +128,20 @@ function assertParent(
   if (!parent) {
     throw new DomainError("INVALID_PARENT", "Parent account does not exist");
   }
+  const allowed = readableAccountIds(db, actor);
+  if (selfId) allowed.add(selfId);
   if (
     selfId &&
-    wouldCreateCycle(db, ACCOUNT_HIERARCHY, selfId, parentId, actor.orgId)
+    wouldCreateCycle(
+      db,
+      ACCOUNT_HIERARCHY,
+      selfId,
+      parentId,
+      actor.orgId,
+      allowed,
+    )
   ) {
-    throw new DomainError(
-      "INVALID_PARENT",
-      `${parent.name} is already under this account, so it cannot be its parent`,
-    );
+    throw new DomainError("INVALID_PARENT", "Parent account is not valid");
   }
 }
 
@@ -192,10 +208,19 @@ export function updateAccount(
   assertCanAccessRecord(db, actor, "account", "edit", existing);
   const parsed = accountUpdateSchema.parse(input);
   assertEditableFields(db, actor, "account", touchedFields(parsed));
-  assertParent(db, actor, parsed.parentAccountId, id);
+  // A blank parent select posts null. Keep the stored parent when this
+  // actor cannot read that account, so the save does not clear the link.
+  const parentAccountId =
+    parsed.parentAccountId === null &&
+    existing.parentAccountId &&
+    !getAccount(db, actor, existing.parentAccountId)
+      ? undefined
+      : parsed.parentAccountId;
+  assertParent(db, actor, parentAccountId, id);
   const ts = now();
   const next = mergeDefined(existing, {
     ...parsed,
+    parentAccountId,
     updatedAt: ts,
     updatedBy: actor.userId,
   });
@@ -391,7 +416,9 @@ export function listEligibleParentAccounts(
   assertActor(db, actor);
   const all = listAccounts(db, actor);
   if (!id) return all;
-  const blocked = descendantIds(db, ACCOUNT_HIERARCHY, id, actor.orgId);
+  const allowed = readableAccountIds(db, actor);
+  allowed.add(id);
+  const blocked = descendantIds(db, ACCOUNT_HIERARCHY, id, actor.orgId, allowed);
   blocked.add(id);
   return all.filter((account) => !blocked.has(account.id));
 }
