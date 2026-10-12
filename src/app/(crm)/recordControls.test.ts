@@ -35,7 +35,11 @@ import { createContact } from "@/lib/crm/contacts";
 import { createLead } from "@/lib/crm/leads";
 import { createOpportunity } from "@/lib/crm/opportunities";
 import { addMember } from "@/lib/crm/orgs";
-import { canAccessRecord, type CrmObject } from "@/lib/crm/permissions";
+import {
+  canAccessRecord,
+  canPerform,
+  type CrmObject,
+} from "@/lib/crm/permissions";
 import { createProfile, setObjectPermission } from "@/lib/crm/profiles";
 import { createTask } from "@/lib/crm/tasks";
 import { createUser, getUser, type PublicUser } from "@/lib/crm/users";
@@ -364,6 +368,27 @@ describe("record Edit and Delete controls", () => {
       const asReader = await renderDetail(object, operatorRow.id);
       expect(asReader).not.toContain(editPath(object, operatorRow.id));
       expect(asReader).not.toContain(">Delete</button>");
+      if (object === "task") {
+        expect(canPerform(db, reader.actor, "task", "edit")).toBe(true);
+        expect(asReader).not.toContain(">Complete</button>");
+        expect(asReader).not.toContain(">Reopen</button>");
+        const operatorDone = createOwned(
+          db,
+          LOCAL_ACTOR,
+          "task",
+          "operator completed task",
+          parent.id,
+          "Completed",
+        );
+        expect(operatorDone.ownerId).not.toBe(reader.user.id);
+        expect(
+          canAccessRecord(db, reader.actor, "task", "edit", operatorDone),
+        ).toBe(false);
+        const doneAsReader = await renderDetail("task", operatorDone.id);
+        expect(doneAsReader).not.toContain(">Reopen</button>");
+        expect(doneAsReader).not.toContain(">Complete</button>");
+        expect(doneAsReader).not.toContain(editPath("task", operatorDone.id));
+      }
       const readerEdit = await renderEdit(object, operatorRow.id);
       expect(readerEdit).toContain(denial(object));
       expect(readerEdit).not.toContain(">Save</button>");
@@ -647,6 +672,90 @@ describe("record Edit and Delete controls", () => {
       expect(doneRow).toContain(">Completed<");
       expect(doneRow).toContain(">Reopen</button>");
       expect(doneRow).not.toContain(">Complete</button>");
+    },
+  );
+
+  it.each(RELATED_PARENTS)(
+    "shows related Complete and Reopen only on the tasks this actor can edit (%s)",
+    async (object) => {
+      const db = openMemoryDb().db;
+      vi.mocked(getDb).mockReturnValue(db);
+      const owner = member(db, {
+        name: `${object} mixed task owner`,
+        focus: "task",
+        canUpdate: true,
+        canDelete: false,
+        opposite: true,
+      });
+      const parent = createRelatedParent(
+        db,
+        owner.actor,
+        object,
+        `${object} mixed quarry`,
+      );
+      const mineOpen = relateTask(
+        db,
+        owner.actor,
+        object,
+        parent.id,
+        "Mine Open",
+      );
+      const mineDone = relateTask(
+        db,
+        owner.actor,
+        object,
+        parent.id,
+        "Mine Finished",
+        "Completed",
+      );
+      const theirsOpen = relateTask(
+        db,
+        LOCAL_ACTOR,
+        object,
+        parent.id,
+        "Theirs Open",
+      );
+      const theirsDone = relateTask(
+        db,
+        LOCAL_ACTOR,
+        object,
+        parent.id,
+        "Theirs Finished",
+        "Completed",
+      );
+      expect(mineOpen.ownerId).toBe(owner.user.id);
+      expect(theirsOpen.ownerId).not.toBe(owner.user.id);
+      expect(theirsDone.ownerId).not.toBe(owner.user.id);
+      expect(canPerform(db, owner.actor, "task", "edit")).toBe(true);
+      expect(canAccessRecord(db, owner.actor, "task", "edit", mineOpen)).toBe(
+        true,
+      );
+      expect(canAccessRecord(db, owner.actor, "task", "edit", mineDone)).toBe(
+        true,
+      );
+      expect(canAccessRecord(db, owner.actor, "task", "edit", theirsOpen)).toBe(
+        false,
+      );
+      expect(canAccessRecord(db, owner.actor, "task", "edit", theirsDone)).toBe(
+        false,
+      );
+
+      asUser(owner.user);
+      const html = await renderDetail(object, parent.id);
+      const mineOpenRow = taskRow(html, "Mine Open");
+      expect(mineOpenRow).toContain(">Complete</button>");
+      expect(mineOpenRow).not.toContain(">Reopen</button>");
+      const theirsOpenRow = taskRow(html, "Theirs Open");
+      expect(theirsOpenRow).not.toContain(">Complete</button>");
+      expect(theirsOpenRow).not.toContain(">Reopen</button>");
+      const mineDoneRow = taskRow(html, "Mine Finished");
+      expect(mineDoneRow).toContain(">Completed<");
+      expect(mineDoneRow).toContain(">Reopen</button>");
+      expect(mineDoneRow).not.toContain(">Complete</button>");
+      const theirsDoneRow = taskRow(html, "Theirs Finished");
+      expect(theirsDoneRow).toContain(">Completed<");
+      expect(theirsDoneRow).not.toContain(">Complete</button>");
+      expect(theirsDoneRow).not.toContain(">Reopen</button>");
     },
   );
 });

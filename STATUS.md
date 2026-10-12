@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-11, a completed related task stays closed without edit, and modify-all still gets Complete and Reopen on someone else's task.
+Last updated: 2026-10-11, one parent can list tasks the actor can edit and tasks they cannot, and the task page hides Complete and Reopen on someone else's task.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -33,6 +33,43 @@ Last updated: 2026-10-11, a completed related task stays closed without edit, an
 ## WORKS
 
 Things actually run, with evidence.
+
+### Mixed related tasks and someone else's Complete (2026-10-11)
+
+No enforcement change. `withTaskEditAccess` already calls
+`canAccessRecord` for each task. The task page already uses that same
+record edit check for Complete, Reopen, and the Edit link. The previous
+related lists gave every task on a parent the same owner, so copying
+the first row's edit flag onto the rest still passed. The non-owner
+detail render checked the edit URL and Delete, and never checked
+Complete or Reopen.
+
+Account, contact, lead, and opportunity now each list Mine Open, Mine
+Finished, Theirs Open, and Theirs Finished. The owner can update tasks
+and is not modify-all. Mine Open shows Complete. Mine Finished shows
+Reopen and not Complete. Theirs Open and Theirs Finished show neither.
+A reader who can update tasks, is not the owner, and is not modify-all
+opens someone else's open task and does not see Complete, Reopen, or
+Edit. The same reader opens someone else's completed task and does not
+see Reopen, Complete, or Edit.
+
+- **`npm run verify` (2026-10-11 23:34 EDT):** exit 0. 36 files, 413
+  tests (was 36 files, 409). TypeScript, ESLint, and Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation re-check, each change restored before that verify.**
+  Stamping `rows[0]`'s edit access onto every related task failed all
+  four parents: Theirs Open contained Complete. The other 17 tests in
+  `recordControls.test.ts` and `opportunities/[id]/page.test.ts` still
+  passed. The task page checking `canPerform(..., "edit")` for
+  Complete and Reopen, while the Edit link stayed on `canAccessRecord`,
+  failed the non-owner test: the open task contained Complete and did
+  not contain the edit URL. Vitest stopped on that assertion, so the
+  completed-task Reopen assertion in the same test was not reached
+  under the mutation. It passed on the restored source. Source again
+  checks each row in `withTaskEditAccess` and uses `canEdit` for
+  Complete and Reopen.
+- **No browser pass.** The check is `renderToStaticMarkup` on a memory
+  database. Chrome DevTools was not connected. The pages did not change.
 
 ### Completed related tasks and modify-all (2026-10-11)
 
@@ -1035,6 +1072,22 @@ rounds. Record fresh verification evidence for each slice.
 ---
 
 ## Session log
+
+### 2026-10-11 — mixed task edit and someone else's Complete (Rex)
+
+- No enforcement change. Related lists on account, contact, lead, and
+  opportunity now render an owned open task, an owned completed task,
+  and the same pair owned by someone else. Complete and Reopen show
+  only on the rows this actor can edit. The task detail page hides
+  Complete on someone else's open task and Reopen on someone else's
+  completed task when the viewer can update tasks and is not modify-all.
+- `npm run verify` exit 0 at 23:34 EDT: 36 files, 413 tests, Next.js
+  16.3.5 build. The first-row edit stamp failed all four parent tests.
+  The object-level Complete check failed the non-owner test. Both
+  mutations were restored before verify. No browser pass. Chrome
+  DevTools was not connected.
+- Did not build Change Owner, cascade task deletes, sharing, or
+  products. Did not push.
 
 ### 2026-10-11 — record Edit and Delete controls (Rex)
 

@@ -1,5 +1,30 @@
 # Rex log
 
+## 2026-10-11 23:34 EDT
+
+Closed the two authorization mutations that survived the last pass.
+The checks were already right. Every related list used one owner, and
+the task page never asserted Complete or Reopen for a non-owner.
+
+Account, contact, lead, and opportunity now list an owned open task,
+an owned completed task, and the same pair owned by someone else.
+Complete and Reopen show only on the owned rows. A reader who can
+update tasks and is not modify-all sees neither button on someone
+else's open task or someone else's completed task. Copying the first
+row's edit flag put Complete on Theirs Open for all four parents. The
+older related-task tests still passed under that copy. Checking
+object-level edit for Complete and Reopen showed Complete on the open
+foreign task. The Edit link stayed hidden.
+
+`npm run verify` exited 0 at 23:34 EDT: 36 files, 413 tests, Next.js
+16.3.5 build. Each mutation was restored before that run. No browser
+pass. Chrome DevTools was not connected. The pages did not change.
+
+Next: Change Owner. Then cascade task deletes, which still skip the
+task owner. Convert and the New record links are still shown when the
+domain may refuse them. Do not retry the whole sharing model or the
+product catalog in one change.
+
 ## 2026-10-11 23:07 EDT
 
 Closed the two related-task mutations that survived the last pass. The
