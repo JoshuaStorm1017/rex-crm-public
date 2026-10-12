@@ -21,6 +21,7 @@ import {
   assertEditableFields,
   canAccessRecord,
   canPerform,
+  canReadField,
   presentRecord,
   touchedFields,
 } from "./permissions";
@@ -77,13 +78,29 @@ function compareTasks(a: Task, b: Task): number {
   return a.name.localeCompare(b.name);
 }
 
-export function liveRelatedRecord(
+/**
+ * Contact and lead `name` is the stored display name built from first and
+ * last name. The label is hidden when that name field is not readable, and
+ * also when either part it is built from is not readable.
+ */
+function canReadRelatedName(
+  db: Db,
+  actor: Actor,
+  objectType: TaskRelatedObjectType,
+): boolean {
+  const fields =
+    objectType === "contact" || objectType === "lead"
+      ? (["name", "firstName", "lastName"] as const)
+      : (["name"] as const);
+  return fields.every((field) => canReadField(db, actor, objectType, field));
+}
+
+function storedRelated(
   db: Db,
   actor: Actor,
   objectType: TaskRelatedObjectType,
   recordId: string,
-): RelatedRecordLive | undefined {
-  assertActor(db, actor);
+): { id: string; name: string } | undefined {
   switch (objectType) {
     case "account": {
       const row = db
@@ -98,7 +115,7 @@ export function liveRelatedRecord(
         )
         .get();
       if (!row || !canReadRecord(db, actor, "account", row)) return undefined;
-      return { name: row.name, href: recordHref("account", row.id) };
+      return { id: row.id, name: row.name };
     }
     case "contact": {
       const row = db
@@ -113,7 +130,7 @@ export function liveRelatedRecord(
         )
         .get();
       if (!row || !canReadRecord(db, actor, "contact", row)) return undefined;
-      return { name: row.name, href: recordHref("contact", row.id) };
+      return { id: row.id, name: row.name };
     }
     case "lead": {
       const row = db
@@ -128,7 +145,7 @@ export function liveRelatedRecord(
         )
         .get();
       if (!row || !canReadRecord(db, actor, "lead", row)) return undefined;
-      return { name: row.name, href: recordHref("lead", row.id) };
+      return { id: row.id, name: row.name };
     }
     case "opportunity": {
       const row = db
@@ -143,9 +160,22 @@ export function liveRelatedRecord(
         )
         .get();
       if (!row || !canReadRecord(db, actor, "opportunity", row)) return undefined;
-      return { name: row.name, href: recordHref("opportunity", row.id) };
+      return { id: row.id, name: row.name };
     }
   }
+}
+
+export function liveRelatedRecord(
+  db: Db,
+  actor: Actor,
+  objectType: TaskRelatedObjectType,
+  recordId: string,
+): RelatedRecordLive | undefined {
+  assertActor(db, actor);
+  const row = storedRelated(db, actor, objectType, recordId);
+  if (!row) return undefined;
+  if (!canReadRelatedName(db, actor, objectType)) return undefined;
+  return { name: row.name, href: recordHref(objectType, row.id) };
 }
 
 function assertRelated(
@@ -154,7 +184,9 @@ function assertRelated(
   objectType: TaskRelatedObjectType,
   recordId: string,
 ): void {
-  if (!liveRelatedRecord(db, actor, objectType, recordId)) {
+  // Existence and sharing only. A hidden name still leaves a real record
+  // the task can point at; the label is omitted by liveRelatedRecord.
+  if (!storedRelated(db, actor, objectType, recordId)) {
     throw new DomainError(
       "INVALID_RELATED",
       `Related ${recordLabel(objectType).toLowerCase()} does not exist`,
