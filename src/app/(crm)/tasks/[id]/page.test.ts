@@ -115,7 +115,8 @@ describe("task detail change owner", () => {
     });
     const asDeleter = await renderTask(deleteTaskRow.id);
     expect(asDeleter).toContain("Call Sam");
-    expect(asDeleter).toContain("Edit");
+    // Main (PR #6) hides Edit from an owner who cannot edit.
+    expect(asDeleter).not.toContain(`/tasks/${deleteTaskRow.id}/edit`);
     expect(asDeleter).not.toContain("Change owner");
     expect(asDeleter).not.toContain(`/tasks/${deleteTaskRow.id}/owner`);
 

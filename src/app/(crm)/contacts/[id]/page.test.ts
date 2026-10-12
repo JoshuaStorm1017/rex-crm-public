@@ -118,7 +118,8 @@ describe("contact detail change owner", () => {
     });
     const asDeleter = await renderContact(deleteContactRow.id);
     expect(asDeleter).toContain("Sam");
-    expect(asDeleter).toContain("Edit");
+    // Main (PR #6) hides Edit from an owner who cannot edit.
+    expect(asDeleter).not.toContain(`/contacts/${deleteContactRow.id}/edit`);
     expect(asDeleter).not.toContain("Change owner");
     expect(asDeleter).not.toContain(`/contacts/${deleteContactRow.id}/owner`);
 
