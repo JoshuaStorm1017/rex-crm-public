@@ -1,5 +1,31 @@
 # Rex log
 
+## 2026-10-12 16:35 EDT
+
+Closed the last round-2 security finding on PR #1 (finding 5). Grok is
+out of credits until Oct 17, so Rex wrote this one directly.
+
+Contact role update and delete now load the role through one check: the
+contact must still be readable (profile read plus record sharing, the same
+rule create uses) and the opportunity must be editable. A role whose
+contact became unreadable is `NOT_FOUND` before any write, and the row is
+unchanged. The cascade paths for opportunity and contact delete are not
+touched. One existing test expected `FORBIDDEN` for a member who lost
+contact read; it now expects `NOT_FOUND`, which is what the finding asks.
+
+Earlier today (round 3, Grok code): live-but-hidden parent and Reports To
+are preserved while deleted ones can be cleared, hierarchy sort is
+null-safe, converted lead ids are no longer printed, and task related
+labels honor the name field permission.
+
+Why: a role id from an earlier page load still edited a junction row whose
+contact the actor could no longer see.
+
+Mutation sanity: dropping the contact read check failed 4 tests; dropping
+the opportunity edit check failed 2. Both restored before verify.
+
+Next: re-run the three reviews on PR #1. Then PR #2 products.
+
 ## 2026-10-12 01:25 EDT
 
 Closed the sharing review instead of starting a feature. A contact move now counts every live opportunity role in the org, so a private deal or a profile with no opportunity read cannot leave the contact and the opportunity on different accounts. The error stays generic. Delete no longer treats a private task, direct report, or opportunity role as proof that a hidden row exists: those rows do not block the delete and are not cleared. A readable row the actor cannot edit or delete still blocks the whole delete. Account Parent is the stored parent only when that account is readable. The hierarchy walks past a hidden account without rendering it, so a visible child stays in the tree. Edit, Delete, and opportunity contact-role controls use the stored row, so a hidden criteria field cannot grant or deny access from a blank. Contact opportunity lists blank a hidden name, stage, and close date. Recently viewed and task related names omit a private record for all five objects.

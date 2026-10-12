@@ -316,14 +316,14 @@ export function createOpportunityContactRole(
   );
 }
 
-function persistUpdate(
-  db: Db,
-  actor: Actor,
-  id: string,
-  input: OpportunityContactRoleUpdateInput,
-): OpportunityContactRole {
+/**
+ * Loads a role for update or delete. The contact must still be readable
+ * (same rule as create), and the opportunity must be editable. A role whose
+ * contact became unreadable is NOT_FOUND before any write.
+ */
+function editableRole(db: Db, actor: Actor, id: string): OpportunityContactRole {
   const existing = getOpportunityContactRole(db, actor, id);
-  if (!existing) {
+  if (!existing || !readableContact(db, actor, existing.contactId)) {
     throw new DomainError("NOT_FOUND", "Opportunity contact role not found");
   }
   assertOpportunityEditable(
@@ -332,6 +332,16 @@ function persistUpdate(
     existing.opportunityId,
     "Opportunity contact role not found",
   );
+  return existing;
+}
+
+function persistUpdate(
+  db: Db,
+  actor: Actor,
+  id: string,
+  input: OpportunityContactRoleUpdateInput,
+): OpportunityContactRole {
+  const existing = editableRole(db, actor, id);
   const parsed = opportunityContactRoleUpdateSchema.parse(input);
   const ts = now();
   const isPrimary = parsed.isPrimary ?? existing.isPrimary;
@@ -379,16 +389,7 @@ export function deleteOpportunityContactRole(
   id: string,
 ): void {
   assertActor(db, actor);
-  const existing = getOpportunityContactRole(db, actor, id);
-  if (!existing) {
-    throw new DomainError("NOT_FOUND", "Opportunity contact role not found");
-  }
-  assertOpportunityEditable(
-    db,
-    actor,
-    existing.opportunityId,
-    "Opportunity contact role not found",
-  );
+  editableRole(db, actor, id);
   db.delete(opportunityContactRoles)
     .where(
       and(

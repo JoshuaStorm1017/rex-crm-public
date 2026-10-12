@@ -239,9 +239,11 @@ describe("opportunity contact roles", () => {
     expect(JSON.stringify(listed)).not.toContain("Wile E. Coyote");
     expectCode(
       () => updateOpportunityContactRole(db, riley, role.id, { role: "Other" }),
-      "FORBIDDEN",
+      "NOT_FOUND",
     );
-    expectCode(() => deleteOpportunityContactRole(db, riley, role.id), "FORBIDDEN");
+    // The contact is unreadable, so the role is not found before the
+    // opportunity edit check runs.
+    expectCode(() => deleteOpportunityContactRole(db, riley, role.id), "NOT_FOUND");
     expect(getOpportunityContactRole(db, LOCAL_ACTOR, role.id)?.role).toBe("Decision Maker");
 
     setOrgWideDefault(db, LOCAL_ACTOR, "opportunity", "private", true);
