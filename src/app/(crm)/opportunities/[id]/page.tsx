@@ -16,7 +16,7 @@ import { getCustomValues } from "@/lib/crm/customFields";
 import { formatUsd } from "@/lib/crm/money";
 import { getOpportunity } from "@/lib/crm/opportunities";
 import { listOpportunityContactRoles } from "@/lib/crm/opportunityContactRoles";
-import { canAccessRecord } from "@/lib/crm/permissions";
+import { canAccessRecord, canPerform } from "@/lib/crm/permissions";
 import { recordView } from "@/lib/crm/recentlyViewed";
 import { listTasksForRecord, withTaskEditAccess } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
@@ -245,12 +245,14 @@ export default async function OpportunityDetailPage({
               {account && accountContacts.length === 0 ? (
                 <>
                   {account.name} has no contacts.{" "}
-                  <Link
-                    href={`/contacts/new?accountId=${opportunity.accountId}`}
-                    className="text-[#c45c26] hover:underline"
-                  >
-                    New Contact
-                  </Link>
+                  {canPerform(db, actor, "contact", "create") ? (
+                    <Link
+                      href={`/contacts/new?accountId=${opportunity.accountId}`}
+                      className="text-[#c45c26] hover:underline"
+                    >
+                      New Contact
+                    </Link>
+                  ) : null}
                 </>
               ) : account ? (
                 <>Every contact on {account.name} is already on this opportunity.</>
@@ -308,6 +310,7 @@ export default async function OpportunityDetailPage({
         objectType="opportunity"
         recordId={opportunity.id}
         tasks={withTaskEditAccess(db, actor, relatedTasks)}
+        canCreate={canPerform(db, actor, "task", "create")}
       />
     </div>
   );

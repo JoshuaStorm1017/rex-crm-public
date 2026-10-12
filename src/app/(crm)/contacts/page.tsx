@@ -3,7 +3,7 @@ import Link from "next/link";
 import { DeleteButton } from "@/components/DeleteButton";
 import { DEFAULT_CONTACT_COLUMNS, listViewCatalog } from "@/lib/crm/constants";
 import { countContacts } from "@/lib/crm/contacts";
-import { canReadField } from "@/lib/crm/permissions";
+import { canPerform, canReadField } from "@/lib/crm/permissions";
 import { listCustomFields } from "@/lib/crm/customFields";
 import {
   describeListViewFilters,
@@ -66,12 +66,14 @@ export default async function ContactsPage({
           >
             New List View
           </Link>
-          <Link
-            href="/contacts/new"
-            className="rounded bg-[#c45c26] px-4 py-2 text-sm font-medium text-white hover:bg-[#a4491b]"
-          >
-            New Contact
-          </Link>
+          {canPerform(db, actor, "contact", "create") ? (
+            <Link
+              href="/contacts/new"
+              className="rounded bg-[#c45c26] px-4 py-2 text-sm font-medium text-white hover:bg-[#a4491b]"
+            >
+              New Contact
+            </Link>
+          ) : null}
         </div>
       </div>
       {notice ? (

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { DeleteButton } from "@/components/DeleteButton";
 import { DEFAULT_TASK_COLUMNS, listViewCatalog } from "@/lib/crm/constants";
 import { listCustomFields } from "@/lib/crm/customFields";
-import { canReadField } from "@/lib/crm/permissions";
+import { canPerform, canReadField } from "@/lib/crm/permissions";
 import {
   describeListViewFilters,
   formatTaskListCell,
@@ -66,12 +66,14 @@ export default async function TasksPage({
           >
             New List View
           </Link>
-          <Link
-            href="/tasks/new"
-            className="rounded bg-[#c45c26] px-4 py-2 text-sm font-medium text-white hover:bg-[#a4491b]"
-          >
-            New Task
-          </Link>
+          {canPerform(db, actor, "task", "create") ? (
+            <Link
+              href="/tasks/new"
+              className="rounded bg-[#c45c26] px-4 py-2 text-sm font-medium text-white hover:bg-[#a4491b]"
+            >
+              New Task
+            </Link>
+          ) : null}
         </div>
       </div>
       {notice ? (
