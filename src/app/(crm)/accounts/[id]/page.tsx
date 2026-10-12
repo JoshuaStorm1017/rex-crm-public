@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { deleteAccountAction } from "../actions";
-import { ChangeOwnerLink } from "@/components/ChangeOwnerLink";
 import { DeleteButton } from "@/components/DeleteButton";
 import { TasksRelatedList } from "@/components/TasksRelatedList";
 import {
   getAccount,
   getAccountHierarchy,
   listAccountAncestors,
+  readAccount,
 } from "@/lib/crm/accounts";
 import { CustomFieldsSection } from "@/components/CustomFieldsSection";
 import { listContactsForAccount } from "@/lib/crm/contacts";
@@ -15,8 +15,7 @@ import { getCustomValues } from "@/lib/crm/customFields";
 import { formatUsd } from "@/lib/crm/money";
 import { listOpportunitiesForAccount } from "@/lib/crm/opportunities";
 import { recordView } from "@/lib/crm/recentlyViewed";
-import { canChangeOwner } from "@/lib/crm/ownership";
-import { canAccessRecord, canReadField } from "@/lib/crm/permissions";
+import { canAccessRecord, canReadField, presentRecord } from "@/lib/crm/permissions";
 import { listTasksForRecord } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
 import { ownerLabel } from "@/lib/crm/users";
@@ -52,19 +51,22 @@ export default async function AccountDetailPage({
   const { notice } = await searchParams;
   const actor = await requireActor();
   const db = getDb();
-  const account = getAccount(db, actor, id);
-  if (!account) notFound();
+  const stored = readAccount(db, actor, id);
+  if (!stored) notFound();
+  const account = presentRecord(db, actor, "account", stored);
   recordView(db, actor, "account", account.id);
 
   const see = (field: string) => canReadField(db, actor, "account", field);
   const seeContactPhone = canReadField(db, actor, "contact", "phone");
-  const canEdit = canAccessRecord(db, actor, "account", "edit", account);
-  const canDelete = canAccessRecord(db, actor, "account", "delete", account);
+  const canEdit = canAccessRecord(db, actor, "account", "edit", stored);
+  const canDelete = canAccessRecord(db, actor, "account", "delete", stored);
   const relatedContacts = listContactsForAccount(db, actor, account.id);
   const relatedOpportunities = listOpportunitiesForAccount(db, actor, account.id);
   const relatedTasks = listTasksForRecord(db, actor, "account", account.id);
   const ancestors = listAccountAncestors(db, actor, account.id);
-  const parent = ancestors.at(-1);
+  const parent = stored.parentAccountId
+    ? getAccount(db, actor, stored.parentAccountId)
+    : undefined;
   const hierarchy = getAccountHierarchy(db, actor, account.id);
   const inHierarchy = (hierarchy?.nodes.length ?? 0) > 1;
 
@@ -98,9 +100,6 @@ export default async function AccountDetailPage({
             </p>
           </div>
           <div className="flex gap-2">
-            {canChangeOwner(db, actor, "account", account) ? (
-              <ChangeOwnerLink objectType="account" recordId={account.id} />
-            ) : null}
             {canEdit ? (
               <Link
                 href={`/accounts/${account.id}/edit`}
