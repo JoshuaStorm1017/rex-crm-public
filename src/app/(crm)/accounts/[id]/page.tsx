@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { deleteAccountAction } from "../actions";
-import { ChangeOwnerLink } from "@/components/ChangeOwnerLink";
 import { DeleteButton } from "@/components/DeleteButton";
 import { TasksRelatedList } from "@/components/TasksRelatedList";
 import {
@@ -16,9 +15,8 @@ import { getCustomValues } from "@/lib/crm/customFields";
 import { formatUsd } from "@/lib/crm/money";
 import { listOpportunitiesForAccount } from "@/lib/crm/opportunities";
 import { recordView } from "@/lib/crm/recentlyViewed";
-import { canChangeOwner } from "@/lib/crm/ownership";
-import { canAccessRecord, canReadField, presentRecord } from "@/lib/crm/permissions";
-import { listTasksForRecord } from "@/lib/crm/tasks";
+import { canAccessRecord, canPerform, canReadField, presentRecord } from "@/lib/crm/permissions";
+import { listTasksForRecord, withTaskEditAccess } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
 import { ownerLabel } from "@/lib/crm/users";
 import { getDb } from "@/lib/db/client";
@@ -102,9 +100,6 @@ export default async function AccountDetailPage({
             </p>
           </div>
           <div className="flex gap-2">
-            {canChangeOwner(db, actor, "account", stored) ? (
-              <ChangeOwnerLink objectType="account" recordId={account.id} />
-            ) : null}
             {canEdit ? (
               <Link
                 href={`/accounts/${account.id}/edit`}
@@ -203,12 +198,14 @@ export default async function AccountDetailPage({
           <h2 className="text-sm font-semibold uppercase tracking-wide text-[#5c564c]">
             Contacts ({relatedContacts.length})
           </h2>
-          <Link
-            href={`/contacts/new?accountId=${account.id}`}
-            className="text-sm text-[#c45c26] hover:underline"
-          >
-            New Contact
-          </Link>
+          {canPerform(db, actor, "contact", "create") ? (
+            <Link
+              href={`/contacts/new?accountId=${account.id}`}
+              className="text-sm text-[#c45c26] hover:underline"
+            >
+              New Contact
+            </Link>
+          ) : null}
         </div>
         {relatedContacts.length === 0 ? (
           <p className="px-4 py-6 text-sm text-[#5c564c]">No contacts yet.</p>
@@ -252,12 +249,14 @@ export default async function AccountDetailPage({
           <h2 className="text-sm font-semibold uppercase tracking-wide text-[#5c564c]">
             Opportunities ({relatedOpportunities.length})
           </h2>
-          <Link
-            href={`/opportunities/new?accountId=${account.id}`}
-            className="text-sm text-[#c45c26] hover:underline"
-          >
-            New Opportunity
-          </Link>
+          {canPerform(db, actor, "opportunity", "create") ? (
+            <Link
+              href={`/opportunities/new?accountId=${account.id}`}
+              className="text-sm text-[#c45c26] hover:underline"
+            >
+              New Opportunity
+            </Link>
+          ) : null}
         </div>
         {relatedOpportunities.length === 0 ? (
           <p className="px-4 py-6 text-sm text-[#5c564c]">
@@ -299,7 +298,8 @@ export default async function AccountDetailPage({
       <TasksRelatedList
         objectType="account"
         recordId={account.id}
-        tasks={relatedTasks}
+        tasks={withTaskEditAccess(db, actor, relatedTasks)}
+        canCreate={canPerform(db, actor, "task", "create")}
       />
 
       {hierarchy && inHierarchy ? (
