@@ -9,8 +9,8 @@ import { getContact, listDirectReports } from "@/lib/crm/contacts";
 import { getCustomValues } from "@/lib/crm/customFields";
 import { listOpportunityContactRolesForContact } from "@/lib/crm/opportunityContactRoles";
 import { recordView } from "@/lib/crm/recentlyViewed";
-import { canAccessRecord, canReadField, canPerform } from "@/lib/crm/permissions";
-import { listTasksForRecord, withTaskEditAccess } from "@/lib/crm/tasks";
+import { canReadField } from "@/lib/crm/permissions";
+import { listTasksForRecord } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
 import { ownerLabel } from "@/lib/crm/users";
 import { getDb } from "@/lib/db/client";
@@ -51,8 +51,6 @@ export default async function ContactDetailPage({
     ? getContact(db, actor, contact.reportsToId)
     : undefined;
   const directReports = listDirectReports(db, actor, contact.id);
-  const canEdit = canAccessRecord(db, actor, "contact", "edit", contact);
-  const canDelete = canAccessRecord(db, actor, "contact", "delete", contact);
 
   return (
     <div className="space-y-6">
@@ -82,25 +80,17 @@ export default async function ContactDetailPage({
             </p>
           </div>
           <div className="flex gap-2">
-            {canEdit ? (
-              <Link
-                href={`/contacts/${contact.id}/edit`}
-                className="rounded border border-[#cfc6b6] bg-white px-3 py-1.5 text-sm hover:bg-[#faf7f1]"
-              >
-                Edit
-              </Link>
-            ) : null}
-            {canDelete ? (
-              <DeleteButton
-                label="Delete"
-                confirmMessage={`Delete contact ${contact.name}?`}
-                action={deleteContactAction.bind(
-                  null,
-                  contact.id,
-                  contact.accountId,
-                )}
-              />
-            ) : null}
+            <Link
+              href={`/contacts/${contact.id}/edit`}
+              className="rounded border border-[#cfc6b6] bg-white px-3 py-1.5 text-sm hover:bg-[#faf7f1]"
+            >
+              Edit
+            </Link>
+            <DeleteButton
+              label="Delete"
+              confirmMessage={`Delete contact ${contact.name}?`}
+              action={deleteContactAction.bind(null, contact.id)}
+            />
           </div>
         </div>
       </div>
@@ -116,10 +106,7 @@ export default async function ContactDetailPage({
           {canReadField(db, actor, "contact", "phone") ? (
             <Field label="Phone" value={contact.phone} />
           ) : null}
-          <Field
-            label="Account"
-            value={account?.name ?? contact.accountId}
-          />
+          <Field label="Account" value={account?.name} />
           <div>
             <dt className="text-xs uppercase tracking-wide text-[#8a8376]">
               Reports To
@@ -238,8 +225,7 @@ export default async function ContactDetailPage({
       <TasksRelatedList
         objectType="contact"
         recordId={contact.id}
-        tasks={withTaskEditAccess(db, actor, relatedTasks)}
-        canCreate={canPerform(db, actor, "task", "create")}
+        tasks={relatedTasks}
       />
     </div>
   );

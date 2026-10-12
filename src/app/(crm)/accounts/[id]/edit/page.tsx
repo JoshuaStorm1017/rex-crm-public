@@ -2,13 +2,11 @@ import { requireActor } from "@/lib/crm/currentUser";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateAccountAction } from "../../actions";
-import { EditDenied } from "@/components/EditDenied";
 import { RecordForm } from "@/components/RecordForm";
-import { getAccount, listEligibleParentAccounts } from "@/lib/crm/accounts";
+import { accountParentEditField, getAccount } from "@/lib/crm/accounts";
 import { ACCOUNT_TYPES } from "@/lib/crm/constants";
 import { withCustomFormFields } from "@/lib/crm/customFieldForm";
 import { centsToInput } from "@/lib/crm/money";
-import { canAccessRecord } from "@/lib/crm/permissions";
 import { getDb } from "@/lib/db/client";
 
 export default async function EditAccountPage({
@@ -21,15 +19,23 @@ export default async function EditAccountPage({
   const db = getDb();
   const account = getAccount(db, actor, id);
   if (!account) notFound();
-  if (!canAccessRecord(db, actor, "account", "edit", account)) {
-    return (
-      <EditDenied
-        href={`/accounts/${account.id}`}
-        recordName={account.name}
-        object="account"
-      />
-    );
-  }
+  // Null only when the stored parent is live but unreadable. The field
+  // helper does not return that id. A deleted parent still shows the select
+  // with an empty value so a blank post can clear it.
+  const parentEdit = accountParentEditField(db, actor, account.id);
+  const parentField = parentEdit
+    ? [
+        {
+          name: "parentAccountId",
+          label: "Parent Account",
+          type: "select" as const,
+          // Excludes this account and everything under it, so the
+          // picker cannot offer a loop. The domain refuses one anyway.
+          options: parentEdit.options,
+          defaultValue: parentEdit.defaultValue,
+        },
+      ]
+    : [];
 
   const action = updateAccountAction.bind(null, account.id);
 
@@ -84,17 +90,7 @@ export default async function EditAccountPage({
               type: "number",
               defaultValue: account.numberOfEmployees,
             },
-            {
-              name: "parentAccountId",
-              label: "Parent Account",
-              type: "select",
-              // Excludes this account and everything under it, so the
-              // picker cannot offer a loop. The domain refuses one anyway.
-              options: listEligibleParentAccounts(db, actor, account.id).map(
-                (candidate) => ({ value: candidate.id, label: candidate.name }),
-              ),
-              defaultValue: account.parentAccountId,
-            },
+            ...parentField,
             {
               name: "billingStreet",
               label: "Billing Street",
