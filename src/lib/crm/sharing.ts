@@ -505,18 +505,29 @@ export function setOrgWideDefault(
   grantHierarchy: boolean,
 ): OrgWideDefault {
   assertCurrentOrgAdmin(db, actor);
+  return writeOrgWideDefault(db, actor.orgId, objectType, access, grantHierarchy);
+}
+
+/** Unchecked write. Callers assert admin first. */
+function writeOrgWideDefault(
+  db: Db,
+  orgId: string,
+  objectType: string,
+  access: string,
+  grantHierarchy: boolean,
+): OrgWideDefault {
   if (!isSharingObject(objectType)) {
     throw new DomainError("INVALID_RULE", "Object is required");
   }
   if (!isOwdAccess(access)) {
     throw new DomainError("INVALID_RULE", "Access level is required");
   }
-  const current = owdFor(db, actor.orgId, objectType);
+  const current = owdFor(db, orgId, objectType);
   db.update(orgWideDefaults)
     .set({ access, grantHierarchy })
     .where(eq(orgWideDefaults.id, current.id))
     .run();
-  return owdFor(db, actor.orgId, objectType);
+  return owdFor(db, orgId, objectType);
 }
 
 export function saveOrgWideDefaults(
@@ -527,10 +538,10 @@ export function saveOrgWideDefaults(
   assertCurrentOrgAdmin(db, actor);
   db.transaction((tx) => {
     for (const row of rows) {
-      setOrgWideDefault(tx, actor, row.objectType, row.access, row.grantHierarchy);
+      writeOrgWideDefault(tx, actor.orgId, row.objectType, row.access, row.grantHierarchy);
     }
   });
-  return listOrgWideDefaults(db, actor);
+  return LIST_VIEW_OBJECT_TYPES.map((objectType) => owdFor(db, actor.orgId, objectType));
 }
 
 function cleanName(name: string, label: string): string {
@@ -585,10 +596,19 @@ export function listRoles(db: Db, actor: Actor): Role[] {
 
 export function getRole(db: Db, actor: Actor, id: string): Role | undefined {
   assertCurrentOrgAdmin(db, actor);
+  return findRole(db, actor.orgId, id);
+}
+
+/**
+ * Unchecked lookup for mutators that have already asserted admin. Each
+ * mutator's own `assertCurrentOrgAdmin` is then the only guard, so a test
+ * that removes it fails instead of being masked by this read.
+ */
+function findRole(db: Db, orgId: string, id: string): Role | undefined {
   const row = db
     .select()
     .from(roles)
-    .where(and(eq(roles.id, id), eq(roles.orgId, actor.orgId), isNull(roles.deletedAt)))
+    .where(and(eq(roles.id, id), eq(roles.orgId, orgId), isNull(roles.deletedAt)))
     .get();
   return row ? toRole(row) : undefined;
 }
@@ -630,7 +650,7 @@ export function updateRole(
   input: { name: string; parentRoleId?: string | null },
 ): Role {
   assertCurrentOrgAdmin(db, actor);
-  const existing = getRole(db, actor, id);
+  const existing = findRole(db, actor.orgId, id);
   if (!existing) throw new DomainError("NOT_FOUND", "Role not found");
   const name = cleanName(input.name, "Role name");
   const parentRoleId = assertParentRole(db, actor.orgId, input.parentRoleId ?? null, id);
@@ -643,14 +663,14 @@ export function updateRole(
     .set({ name, parentRoleId, updatedAt: ts })
     .where(and(eq(roles.id, id), eq(roles.orgId, actor.orgId)))
     .run();
-  const updated = getRole(db, actor, id);
+  const updated = findRole(db, actor.orgId, id);
   if (!updated) throw new DomainError("WRITE_FAILED", "Role update did not persist");
   return updated;
 }
 
 export function deleteRole(db: Db, actor: Actor, id: string): void {
   assertCurrentOrgAdmin(db, actor);
-  const existing = getRole(db, actor, id);
+  const existing = findRole(db, actor.orgId, id);
   if (!existing) throw new DomainError("NOT_FOUND", "Role not found");
   const child = liveRoles(db, actor.orgId).some((role) => role.parentRoleId === id);
   if (child) {
@@ -854,13 +874,18 @@ export function listSharingRules(db: Db, actor: Actor): SharingRule[] {
 
 export function getSharingRule(db: Db, actor: Actor, id: string): SharingRule | undefined {
   assertCurrentOrgAdmin(db, actor);
+  return findSharingRule(db, actor.orgId, id);
+}
+
+/** Unchecked lookup for mutators that have already asserted admin. */
+function findSharingRule(db: Db, orgId: string, id: string): SharingRule | undefined {
   const row = db
     .select()
     .from(sharingRules)
     .where(
       and(
         eq(sharingRules.id, id),
-        eq(sharingRules.orgId, actor.orgId),
+        eq(sharingRules.orgId, orgId),
         isNull(sharingRules.deletedAt),
       ),
     )
@@ -908,7 +933,7 @@ export function updateSharingRule(
   input: SharingRuleInput,
 ): SharingRule {
   assertCurrentOrgAdmin(db, actor);
-  if (!getSharingRule(db, actor, id)) {
+  if (!findSharingRule(db, actor.orgId, id)) {
     throw new DomainError("NOT_FOUND", "Sharing rule not found");
   }
   const parsed = assertRuleInput(db, actor, input, id);
@@ -927,14 +952,14 @@ export function updateSharingRule(
     })
     .where(and(eq(sharingRules.id, id), eq(sharingRules.orgId, actor.orgId)))
     .run();
-  const updated = getSharingRule(db, actor, id);
+  const updated = findSharingRule(db, actor.orgId, id);
   if (!updated) throw new DomainError("WRITE_FAILED", "Sharing rule update did not persist");
   return updated;
 }
 
 export function deleteSharingRule(db: Db, actor: Actor, id: string): void {
   assertCurrentOrgAdmin(db, actor);
-  if (!getSharingRule(db, actor, id)) {
+  if (!findSharingRule(db, actor.orgId, id)) {
     throw new DomainError("NOT_FOUND", "Sharing rule not found");
   }
   const ts = now();
