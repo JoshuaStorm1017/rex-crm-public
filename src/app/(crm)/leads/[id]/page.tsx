@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { convertLeadAction, deleteLeadAction } from "../actions";
 import { ConvertLeadForm } from "@/components/ConvertLeadForm";
 import { CustomFieldsSection } from "@/components/CustomFieldsSection";
+import { ChangeOwnerLink } from "@/components/ChangeOwnerLink";
 import { DeleteButton } from "@/components/DeleteButton";
 import { TasksRelatedList } from "@/components/TasksRelatedList";
 import { getAccount } from "@/lib/crm/accounts";
@@ -12,6 +13,7 @@ import { getCustomValues } from "@/lib/crm/customFields";
 import { getLead } from "@/lib/crm/leads";
 import { getOpportunity } from "@/lib/crm/opportunities";
 import { recordView } from "@/lib/crm/recentlyViewed";
+import { canChangeOwner, getOwnerTarget } from "@/lib/crm/ownership";
 import { canAccessRecord, canReadField, canPerform } from "@/lib/crm/permissions";
 import { listTasksForRecord, withTaskEditAccess } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
@@ -71,6 +73,9 @@ export default async function LeadDetailPage({
   if (!lead) notFound();
   recordView(db, actor, "lead", lead.id);
 
+  // `getLead` nulls a hidden status, so the freeze must read the stored
+  // status. Otherwise a converted lead offers Change owner.
+  const ownerTarget = getOwnerTarget(db, actor, "lead", lead.id);
   const converted = lead.status === "Converted";
   const account = lead.convertedAccountId
     ? getAccount(db, actor, lead.convertedAccountId)
@@ -118,6 +123,9 @@ export default async function LeadDetailPage({
           </div>
           {converted ? null : (
             <div className="flex gap-2">
+              {ownerTarget && canChangeOwner(db, actor, "lead", ownerTarget) ? (
+                <ChangeOwnerLink objectType="lead" recordId={lead.id} />
+              ) : null}
               {canEdit ? (
                 <Link
                   href={`/leads/${lead.id}/edit`}
