@@ -2,13 +2,18 @@ import Link from "next/link";
 import { ProductForm } from "@/components/ProductForm";
 import { createProductAction } from "../actions";
 import { requireActor } from "@/lib/crm/currentUser";
-import { canPerform } from "@/lib/crm/permissions";
+import { canPerform, formFieldAllowed } from "@/lib/crm/permissions";
 import { getDb } from "@/lib/db/client";
 
 export default async function NewProductPage() {
   const actor = await requireActor();
   const db = getDb();
   const canCreate = canPerform(db, actor, "product", "create");
+  const editable = {
+    productCode: formFieldAllowed(db, actor, "product", "productCode"),
+    family: formFieldAllowed(db, actor, "product", "family"),
+    description: formFieldAllowed(db, actor, "product", "description"),
+  };
   return (
     <div className="space-y-4">
       <div>
@@ -19,7 +24,11 @@ export default async function NewProductPage() {
       </div>
       {canCreate ? (
         <div className="rounded-lg border border-[#d9d0c0] bg-white p-6">
-          <ProductForm action={createProductAction} submitLabel="Create Product" />
+          <ProductForm
+            action={createProductAction}
+            submitLabel="Create Product"
+            editable={editable}
+          />
         </div>
       ) : (
         <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">

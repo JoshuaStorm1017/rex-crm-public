@@ -14,18 +14,43 @@ import { getDb } from "@/lib/db/client";
 
 export type { ActionState };
 
-function productFields(formData: FormData) {
+function standardPriceCents(formData: FormData): number {
   const price = blank(formData.get("standardPrice"));
   if (!price) {
     throw new Error("Standard price is required");
   }
+  return parseStandardPrice(price);
+}
+
+/**
+ * Create: a missing or blank optional field is omitted (`undefined`), so a
+ * profile that cannot edit code, family, or description can still save.
+ */
+function createFields(formData: FormData) {
+  const standardPrice = standardPriceCents(formData);
+  return {
+    name: String(formData.get("name") ?? ""),
+    productCode: blank(formData.get("productCode")),
+    family: blank(formData.get("family")),
+    description: blank(formData.get("description")),
+    isActive: formData.get("isActive") === "true",
+    standardPriceCents: standardPrice,
+  };
+}
+
+/**
+ * Update: an input the form did not render keeps the stored value
+ * (`undefined`); a rendered input left blank clears it (`null`).
+ */
+function updateFields(formData: FormData) {
+  const standardPrice = standardPriceCents(formData);
   return {
     name: String(formData.get("name") ?? ""),
     productCode: clearable(formData, "productCode"),
     family: clearable(formData, "family"),
     description: clearable(formData, "description"),
     isActive: formData.get("isActive") === "true",
-    standardPriceCents: parseStandardPrice(price),
+    standardPriceCents: standardPrice,
   };
 }
 
@@ -36,7 +61,7 @@ export async function createProductAction(
   let product;
   try {
     const actor = await requireActor();
-    product = createProduct(getDb(), actor, productFields(formData));
+    product = createProduct(getDb(), actor, createFields(formData));
   } catch (error) {
     return actionError(error);
   }
@@ -52,7 +77,7 @@ export async function updateProductAction(
 ): Promise<ActionState> {
   try {
     const actor = await requireActor();
-    updateProduct(getDb(), actor, id, productFields(formData));
+    updateProduct(getDb(), actor, id, updateFields(formData));
   } catch (error) {
     return actionError(error);
   }

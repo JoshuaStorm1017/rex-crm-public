@@ -4,7 +4,7 @@ import { ProductForm } from "@/components/ProductForm";
 import { updateProductAction } from "../../actions";
 import { requireActor } from "@/lib/crm/currentUser";
 import { centsToInput } from "@/lib/crm/money";
-import { canAccessRecord } from "@/lib/crm/permissions";
+import { canAccessRecord, formFieldAllowed } from "@/lib/crm/permissions";
 import { getProduct } from "@/lib/crm/products";
 import { getDb } from "@/lib/db/client";
 
@@ -19,6 +19,11 @@ export default async function EditProductPage({
   const product = getProduct(db, actor, id);
   if (!product) notFound();
   const canEdit = canAccessRecord(db, actor, "product", "edit", product);
+  const editable = {
+    productCode: formFieldAllowed(db, actor, "product", "productCode"),
+    family: formFieldAllowed(db, actor, "product", "family"),
+    description: formFieldAllowed(db, actor, "product", "description"),
+  };
 
   return (
     <div className="space-y-4">
@@ -42,6 +47,7 @@ export default async function EditProductPage({
             description={product.description ?? ""}
             standardPrice={centsToInput(product.standardPriceCents)}
             isActive={product.isActive}
+            editable={editable}
           />
         </div>
       ) : (

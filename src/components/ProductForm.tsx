@@ -3,6 +3,18 @@
 import { useActionState } from "react";
 import type { ActionState } from "@/lib/crm/form";
 
+export type ProductFormEditable = {
+  productCode: boolean;
+  family: boolean;
+  description: boolean;
+};
+
+const ALL_EDITABLE: ProductFormEditable = {
+  productCode: true,
+  family: true,
+  description: true,
+};
+
 export function ProductForm({
   action,
   submitLabel,
@@ -12,6 +24,7 @@ export function ProductForm({
   description = "",
   standardPrice = "",
   isActive = true,
+  editable = ALL_EDITABLE,
 }: {
   action: (prev: ActionState, formData: FormData) => Promise<ActionState>;
   submitLabel: string;
@@ -21,6 +34,11 @@ export function ProductForm({
   description?: string;
   standardPrice?: string;
   isActive?: boolean;
+  /**
+   * Optional fields the actor can read and edit. A field that is false is
+   * not rendered, so it is absent from FormData and the save keeps it.
+   */
+  editable?: ProductFormEditable;
 }) {
   const [state, formAction, pending] = useActionState(action, null);
   return (
@@ -40,22 +58,26 @@ export function ProductForm({
         />
       </label>
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium">Product Code</span>
-          <input
-            name="productCode"
-            defaultValue={productCode}
-            className="w-full rounded border border-[#cfc6b6] bg-white px-3 py-2 text-sm"
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium">Product Family</span>
-          <input
-            name="family"
-            defaultValue={family}
-            className="w-full rounded border border-[#cfc6b6] bg-white px-3 py-2 text-sm"
-          />
-        </label>
+        {editable.productCode ? (
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium">Product Code</span>
+            <input
+              name="productCode"
+              defaultValue={productCode}
+              className="w-full rounded border border-[#cfc6b6] bg-white px-3 py-2 text-sm"
+            />
+          </label>
+        ) : null}
+        {editable.family ? (
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium">Product Family</span>
+            <input
+              name="family"
+              defaultValue={family}
+              className="w-full rounded border border-[#cfc6b6] bg-white px-3 py-2 text-sm"
+            />
+          </label>
+        ) : null}
       </div>
       <label className="block">
         <span className="mb-1 block text-sm font-medium">Standard Price *</span>
@@ -71,15 +93,17 @@ export function ProductForm({
           USD on the standard price book. Stored as cents.
         </span>
       </label>
-      <label className="block">
-        <span className="mb-1 block text-sm font-medium">Description</span>
-        <textarea
-          name="description"
-          rows={4}
-          defaultValue={description}
-          className="w-full rounded border border-[#cfc6b6] bg-white px-3 py-2 text-sm"
-        />
-      </label>
+      {editable.description ? (
+        <label className="block">
+          <span className="mb-1 block text-sm font-medium">Description</span>
+          <textarea
+            name="description"
+            rows={4}
+            defaultValue={description}
+            className="w-full rounded border border-[#cfc6b6] bg-white px-3 py-2 text-sm"
+          />
+        </label>
+      ) : null}
       <label className="flex items-center gap-2 text-sm">
         <input
           name="isActive"
