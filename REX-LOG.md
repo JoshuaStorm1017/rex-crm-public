@@ -1,5 +1,33 @@
 # Rex log
 
+## 2026-10-12 17:00 EDT
+
+Killed the four round-4 mutation survivors on the record-controls
+branch. Test-only change. Grok is out of credits until Oct 17, so Rex
+wrote it directly.
+
+New `src/app/(crm)/recordControls.pr6r5.test.ts`:
+- The lead edit page returns 404 for a converted lead even though its
+  owner can edit it, and still renders the form for an open lead.
+- Lead detail hides Edit and Delete on a converted lead and shows both
+  on an open one.
+- On the task page and in the related task list, Complete posts to
+  `completeTaskAction` and Reopen posts to `reopenTaskAction`. The test
+  mocks the two actions so each bound form renders a distinct URL, then
+  checks which form each button sits in.
+
+Why: these four mutants stayed green across the whole suite, so a swap
+or a dropped converted check could ship unnoticed.
+
+Mutation sanity, each restored: dropping the converted 404, ignoring the
+converted flag on detail, and swapping the two actions in either
+direction on the task page and the related list each failed a test.
+
+Next: re-run the three reviews on PR #6. Convert, New Contact, New
+Opportunity, and New Task are still shown without a create or edit
+check, and parent deletes still cascade tasks without checking the task
+owner.
+
 ## 2026-10-11 23:34 EDT
 
 Closed the two authorization mutations that survived the last pass.
