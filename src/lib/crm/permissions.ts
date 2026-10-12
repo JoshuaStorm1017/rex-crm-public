@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { orgMemberships } from "../db/schema";
 import type { Actor } from "./actor";
+import type { ProfileObjectType } from "./constants";
 import { DomainError } from "./errors";
 import {
   domainFieldKey,
@@ -11,7 +12,7 @@ import {
 } from "./profiles";
 import { getUser } from "./users";
 
-export type CrmObject = "account" | "contact" | "lead" | "opportunity" | "task";
+export type CrmObject = ProfileObjectType;
 export type ObjectAction = "read" | "create" | "edit" | "delete";
 export type Role = "admin" | "user";
 
@@ -27,6 +28,7 @@ export const OBJECT_PERMISSIONS: Readonly<
     lead: ["read", "create", "edit", "delete"],
     opportunity: ["read", "create", "edit", "delete"],
     task: ["read", "create", "edit", "delete"],
+    product: ["read", "create", "edit", "delete"],
   },
   user: {
     account: ["read", "create", "edit", "delete"],
@@ -34,6 +36,7 @@ export const OBJECT_PERMISSIONS: Readonly<
     lead: ["read", "create", "edit", "delete"],
     opportunity: ["read", "create", "edit", "delete"],
     task: ["read", "create", "edit", "delete"],
+    product: ["read", "create", "edit", "delete"],
   },
 } as const;
 

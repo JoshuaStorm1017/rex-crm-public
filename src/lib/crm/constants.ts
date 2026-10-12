@@ -104,6 +104,9 @@ export const LIST_VIEW_OBJECT_TYPES = [
   "task",
 ] as const;
 
+/** Profile CRUD rows. Product is catalog data, not a list-view or report object. */
+export const PROFILE_OBJECT_TYPES = [...LIST_VIEW_OBJECT_TYPES, "product"] as const;
+
 export const LIST_VIEW_OPERATORS = [
   "equals",
   "not_equals",
@@ -560,6 +563,7 @@ export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 export type TaskRelatedObjectType = (typeof TASK_RELATED_OBJECT_TYPES)[number];
 export type RecordObjectType = (typeof RECORD_OBJECT_TYPES)[number];
 export type ListViewObjectType = (typeof LIST_VIEW_OBJECT_TYPES)[number];
+export type ProfileObjectType = (typeof PROFILE_OBJECT_TYPES)[number];
 export type ListViewOperator = (typeof LIST_VIEW_OPERATORS)[number];
 export type ListViewSortDirection = (typeof LIST_VIEW_SORT_DIRECTIONS)[number];
 export type CustomFieldObjectType = (typeof CUSTOM_FIELD_OBJECT_TYPES)[number];
