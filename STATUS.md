@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-11, related-task Complete and Reopen follow task edit on every parent.
+Last updated: 2026-10-11, a completed related task stays closed without edit, and modify-all still gets Complete and Reopen on someone else's task.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -33,6 +33,40 @@ Last updated: 2026-10-11, related-task Complete and Reopen follow task edit on e
 ## WORKS
 
 Things actually run, with evidence.
+
+### Completed related tasks and modify-all (2026-10-11)
+
+No enforcement change. The related list already shows Complete or Reopen
+only when that task's `canEdit` is true. `withTaskEditAccess` already
+calls `canAccessRecord` for task edit, which allows the owner or
+modify-all. The previous render's completed task belonged to someone
+who could edit it. The locked and foreign tasks were open. The
+modify-all renders never included a related task owned by someone else.
+
+The same four parent pages now also render Sealed Task, completed by
+the parent editor after task update is revoked, and Operator Finished,
+completed by someone else on a parent the viewer can edit. Both rows
+show status Completed and neither Complete nor Reopen. A modify-all
+admin who can update tasks and cannot update the parent opens someone
+else's account, contact, lead, and opportunity. Foreign Open shows
+Complete. Foreign Finished shows Reopen and not Complete.
+
+- **`npm run verify` (2026-10-11 23:07 EDT):** exit 0. 36 files, 409
+  tests (was 36 files, 405). TypeScript, ESLint, and Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation re-check, each change restored before that verify.**
+  Showing Reopen for every completed related task, even when `canEdit`
+  is false, failed all four parent tests: Sealed Task contained
+  Reopen. The other tests in the file passed, including the modify-all
+  renders, because those actors can edit the task. Replacing
+  `canAccessRecord` in `withTaskEditAccess` with an owner check plus
+  object edit failed the four new tests: Foreign Open had an empty
+  action cell and did not contain Complete. The older related-task
+  tests still passed under that mutation. Source again requires
+  `canEdit` in the related list and calls `canAccessRecord` for the
+  flag.
+- **No browser pass.** The check is `renderToStaticMarkup` on a memory
+  database. Chrome DevTools was not connected. The pages did not change.
 
 ### Related-task Complete and Reopen (2026-10-11)
 

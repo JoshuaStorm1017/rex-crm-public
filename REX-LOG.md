@@ -1,5 +1,30 @@
 # Rex log
 
+## 2026-10-11 23:07 EDT
+
+Closed the two related-task mutations that survived the last pass. The
+checks were already right. The completed row belonged to someone who
+could edit it, and modify-all never opened a parent that listed someone
+else's task.
+
+Account, contact, lead, and opportunity now render a completed task the
+parent editor cannot edit, and a completed task owned by someone else
+on a parent the viewer can edit. Neither row shows Complete or Reopen.
+A modify-all admin who can update tasks and cannot update the parent
+sees Complete on an open foreign task and Reopen on a completed one.
+Showing Reopen for every completed row failed all four parents. Keeping
+only the owner in `withTaskEditAccess` hid Complete on all four foreign
+rows. The older related-task tests still passed under that owner check.
+
+`npm run verify` exited 0 at 23:07 EDT: 36 files, 409 tests, Next.js
+16.3.5 build. Each mutation was restored before that run. No browser
+pass. Chrome DevTools was not connected. The pages did not change.
+
+Next: Change Owner. Then cascade task deletes, which still skip the
+task owner. Convert and the New record links are still shown when the
+domain may refuse them. Do not retry the whole sharing model or the
+product catalog in one change.
+
 ## 2026-10-11 22:42 EDT
 
 Closed the three related-list authorization mutations that survived the

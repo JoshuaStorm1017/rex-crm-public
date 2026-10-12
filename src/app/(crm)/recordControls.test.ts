@@ -463,11 +463,22 @@ describe("record Edit and Delete controls", () => {
         canUpdate: false,
         canDelete: true,
       });
+      const sealedTask = relateTask(
+        db,
+        parentEditor.actor,
+        object,
+        parent.id,
+        "Sealed Task",
+        "Completed",
+      );
       expect(canAccessRecord(db, parentEditor.actor, object, "edit", parent)).toBe(
         true,
       );
       expect(
         canAccessRecord(db, parentEditor.actor, "task", "edit", lockedTask),
+      ).toBe(false);
+      expect(
+        canAccessRecord(db, parentEditor.actor, "task", "edit", sealedTask),
       ).toBe(false);
 
       const taskEditor = member(db, {
@@ -526,10 +537,22 @@ describe("record Edit and Delete controls", () => {
         viewerParent.id,
         "Operator Task",
       );
+      const foreignDone = relateTask(
+        db,
+        LOCAL_ACTOR,
+        object,
+        viewerParent.id,
+        "Operator Finished",
+        "Completed",
+      );
+      expect(foreignDone.ownerId).not.toBe(viewer.user.id);
       expect(canAccessRecord(db, viewer.actor, object, "edit", viewerParent)).toBe(
         true,
       );
       expect(canAccessRecord(db, viewer.actor, "task", "edit", foreignTask)).toBe(
+        false,
+      );
+      expect(canAccessRecord(db, viewer.actor, "task", "edit", foreignDone)).toBe(
         false,
       );
 
@@ -539,6 +562,10 @@ describe("record Edit and Delete controls", () => {
       const lockedRow = taskRow(locked, "Locked Task");
       expect(lockedRow).not.toContain(">Complete</button>");
       expect(lockedRow).not.toContain(">Reopen</button>");
+      const sealedRow = taskRow(locked, "Sealed Task");
+      expect(sealedRow).toContain(">Completed<");
+      expect(sealedRow).not.toContain(">Complete</button>");
+      expect(sealedRow).not.toContain(">Reopen</button>");
 
       asUser(taskEditor.user);
       const editable = await renderDetail(object, taskParent.id);
@@ -557,6 +584,69 @@ describe("record Edit and Delete controls", () => {
       const foreignRow = taskRow(foreign, "Operator Task");
       expect(foreignRow).not.toContain(">Complete</button>");
       expect(foreignRow).not.toContain(">Reopen</button>");
+      const foreignDoneRow = taskRow(foreign, "Operator Finished");
+      expect(foreignDoneRow).toContain(">Completed<");
+      expect(foreignDoneRow).not.toContain(">Complete</button>");
+      expect(foreignDoneRow).not.toContain(">Reopen</button>");
+    },
+  );
+
+  it.each(RELATED_PARENTS)(
+    "shows related Complete and Reopen to modify-all on someone else's task (%s)",
+    async (object) => {
+      const db = openMemoryDb().db;
+      vi.mocked(getDb).mockReturnValue(db);
+      const admin = member(db, {
+        name: `${object} task modify all`,
+        membership: "admin",
+        globalAdmin: true,
+        focus: "task",
+        canUpdate: true,
+        canDelete: false,
+        opposite: true,
+      });
+      const parent = createRelatedParent(
+        db,
+        LOCAL_ACTOR,
+        object,
+        `${object} foreign quarry`,
+      );
+      const openTask = relateTask(
+        db,
+        LOCAL_ACTOR,
+        object,
+        parent.id,
+        "Foreign Open",
+      );
+      const doneTask = relateTask(
+        db,
+        LOCAL_ACTOR,
+        object,
+        parent.id,
+        "Foreign Finished",
+        "Completed",
+      );
+      expect(openTask.ownerId).not.toBe(admin.user.id);
+      expect(doneTask.ownerId).not.toBe(admin.user.id);
+      expect(canAccessRecord(db, admin.actor, "task", "edit", openTask)).toBe(
+        true,
+      );
+      expect(canAccessRecord(db, admin.actor, "task", "edit", doneTask)).toBe(
+        true,
+      );
+      expect(canAccessRecord(db, admin.actor, object, "edit", parent)).toBe(
+        false,
+      );
+
+      asUser(admin.user);
+      const html = await renderDetail(object, parent.id);
+      const openRow = taskRow(html, "Foreign Open");
+      expect(openRow).toContain(">Complete</button>");
+      expect(openRow).not.toContain(">Reopen</button>");
+      const doneRow = taskRow(html, "Foreign Finished");
+      expect(doneRow).toContain(">Completed<");
+      expect(doneRow).toContain(">Reopen</button>");
+      expect(doneRow).not.toContain(">Complete</button>");
     },
   );
 });
