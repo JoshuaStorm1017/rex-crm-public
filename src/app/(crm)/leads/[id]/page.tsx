@@ -7,6 +7,7 @@ import { DeleteButton } from "@/components/DeleteButton";
 import { TasksRelatedList } from "@/components/TasksRelatedList";
 import { getAccount } from "@/lib/crm/accounts";
 import { getContact } from "@/lib/crm/contacts";
+import { leadConvertedView } from "@/lib/crm/convertedLabels";
 import { getCustomValues } from "@/lib/crm/customFields";
 import { getLead } from "@/lib/crm/leads";
 import { getOpportunity } from "@/lib/crm/opportunities";
@@ -39,6 +40,22 @@ function formatWhen(ms: number | null | undefined): string {
   return new Date(ms).toISOString().replace("T", " ").slice(0, 19) + " UTC";
 }
 
+function ConvertedRef({
+  link,
+}: {
+  link: { label: string; href: string | null };
+}) {
+  if (!link.href) return link.label;
+  return (
+    <Link
+      href={link.href}
+      className="font-medium text-[#c45c26] hover:underline"
+    >
+      {link.label}
+    </Link>
+  );
+}
+
 export default async function LeadDetailPage({
   params,
   searchParams,
@@ -64,6 +81,14 @@ export default async function LeadDetailPage({
   const opportunity = lead.convertedOpportunityId
     ? getOpportunity(db, actor, lead.convertedOpportunityId)
     : undefined;
+  const convertedLinks = leadConvertedView(
+    { account, contact, opportunity },
+    {
+      accountId: lead.convertedAccountId,
+      contactId: lead.convertedContactId,
+      opportunityId: lead.convertedOpportunityId,
+    },
+  );
   const convertAction = convertLeadAction.bind(null, lead.id);
   const relatedTasks = listTasksForRecord(db, actor, "lead", lead.id);
 
@@ -172,43 +197,13 @@ export default async function LeadDetailPage({
           </p>
           <ul className="space-y-2 text-sm">
             <li>
-              Account:{" "}
-              {account ? (
-                <Link
-                  href={`/accounts/${account.id}`}
-                  className="font-medium text-[#c45c26] hover:underline"
-                >
-                  {account.name}
-                </Link>
-              ) : (
-                (lead.convertedAccountId ?? "—")
-              )}
+              Account: <ConvertedRef link={convertedLinks.account} />
             </li>
             <li>
-              Contact:{" "}
-              {contact ? (
-                <Link
-                  href={`/contacts/${contact.id}`}
-                  className="font-medium text-[#c45c26] hover:underline"
-                >
-                  {contact.name}
-                </Link>
-              ) : (
-                (lead.convertedContactId ?? "—")
-              )}
+              Contact: <ConvertedRef link={convertedLinks.contact} />
             </li>
             <li>
-              Opportunity:{" "}
-              {opportunity ? (
-                <Link
-                  href={`/opportunities/${opportunity.id}`}
-                  className="font-medium text-[#c45c26] hover:underline"
-                >
-                  {opportunity.name}
-                </Link>
-              ) : (
-                "None created"
-              )}
+              Opportunity: <ConvertedRef link={convertedLinks.opportunity} />
             </li>
           </ul>
         </section>

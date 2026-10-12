@@ -219,6 +219,22 @@ export function createContact(
   return presentRecord(db, actor, "contact", created);
 }
 
+/**
+ * True only when the manager row is still live in this org and this actor
+ * cannot read it. A missing or soft-deleted manager is not concealed: a
+ * blank Reports To select must be able to clear the dangling id.
+ */
+function concealedLiveManager(
+  db: Db,
+  actor: Actor,
+  managerId: string,
+): boolean {
+  const manager = storedContact(db, actor, managerId);
+  if (!manager) return false;
+  if (!canPerform(db, actor, "contact", "read")) return true;
+  return !canReadRecord(db, actor, "contact", manager);
+}
+
 export function updateContact(
   db: Db,
   actor: Actor,
@@ -248,14 +264,17 @@ export function updateContact(
       );
     }
   }
-  // A blank Reports To select posts null. Keep the stored manager when
-  // this actor cannot read that contact, so the save does not clear the link.
-  const reportsToId =
-    parsed.reportsToId === null &&
+  // A blank Reports To select posts null. Keep the stored manager only when
+  // that row is still live but unreadable. A missing or deleted manager is
+  // dangling: null clears reportsToId.
+  let reportsToId = parsed.reportsToId;
+  if (
+    reportsToId === null &&
     existing.reportsToId &&
-    !getContact(db, actor, existing.reportsToId)
-      ? undefined
-      : parsed.reportsToId;
+    concealedLiveManager(db, actor, existing.reportsToId)
+  ) {
+    reportsToId = undefined;
+  }
   assertReportsTo(db, actor, reportsToId, id);
   const firstName =
     parsed.firstName !== undefined ? parsed.firstName : existing.firstName;
@@ -371,4 +390,41 @@ export function listEligibleManagers(
   );
   blocked.add(contactId);
   return all.filter((contact) => !blocked.has(contact.id));
+}
+
+export type ContactReportsToEditField = {
+  managers: Contact[];
+  defaultValue: string | null;
+};
+
+/**
+ * Reports To picker for the contact edit form.
+ *
+ * Returns null only when the stored manager is still live but unreadable.
+ * That id is not included. A missing or deleted manager returns the select
+ * with an empty value so a blank post can clear reportsToId, without copying
+ * the dangling id into the field.
+ */
+export function contactReportsToEditField(
+  db: Db,
+  actor: Actor,
+  contactId: string,
+): ContactReportsToEditField | null {
+  assertActor(db, actor);
+  const existing = loadContact(db, actor, contactId);
+  if (!existing) return null;
+  if (
+    existing.reportsToId &&
+    concealedLiveManager(db, actor, existing.reportsToId)
+  ) {
+    return null;
+  }
+  const readableManager =
+    existing.reportsToId != null
+      ? getContact(db, actor, existing.reportsToId)
+      : undefined;
+  return {
+    managers: listEligibleManagers(db, actor, contactId),
+    defaultValue: readableManager ? existing.reportsToId : null,
+  };
 }

@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { updateContactAction } from "../../actions";
 import { RecordForm } from "@/components/RecordForm";
 import { getAccount, listAccounts } from "@/lib/crm/accounts";
-import { getContact, listEligibleManagers } from "@/lib/crm/contacts";
+import { contactReportsToEditField, getContact } from "@/lib/crm/contacts";
 import { accountPickerOptions, contactPickerOptions } from "@/lib/crm/pickers";
 import { withCustomFormFields } from "@/lib/crm/customFieldForm";
 import { getDb } from "@/lib/db/client";
@@ -21,21 +21,19 @@ export default async function EditContactPage({
   if (!contact) notFound();
   const action = updateContactAction.bind(null, contact.id);
   const account = getAccount(db, actor, contact.accountId);
-  const managerVisible =
-    contact.reportsToId == null || getContact(db, actor, contact.reportsToId) != null;
-  const managerField = managerVisible
+  // Null only when the stored manager is live but unreadable. The helper
+  // does not return that id. A deleted manager still shows the select with
+  // an empty value so a blank post can clear reportsToId.
+  const reportsToEdit = contactReportsToEditField(db, actor, contact.id);
+  const managerField = reportsToEdit
     ? [
         {
           name: "reportsToId",
           label: "Reports To",
           type: "select" as const,
           // Excludes this contact and everyone who reports up to them.
-          options: contactPickerOptions(
-            db,
-            actor,
-            listEligibleManagers(db, actor, contact.id),
-          ),
-          defaultValue: contact.reportsToId,
+          options: contactPickerOptions(db, actor, reportsToEdit.managers),
+          defaultValue: reportsToEdit.defaultValue,
         },
       ]
     : [];
