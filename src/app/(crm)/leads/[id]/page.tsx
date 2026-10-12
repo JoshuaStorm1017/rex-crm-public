@@ -12,8 +12,8 @@ import { getCustomValues } from "@/lib/crm/customFields";
 import { getLead } from "@/lib/crm/leads";
 import { getOpportunity } from "@/lib/crm/opportunities";
 import { recordView } from "@/lib/crm/recentlyViewed";
-import { canReadField } from "@/lib/crm/permissions";
-import { listTasksForRecord } from "@/lib/crm/tasks";
+import { canAccessRecord, canReadField, canPerform } from "@/lib/crm/permissions";
+import { listTasksForRecord, withTaskEditAccess } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
 import { ownerLabel } from "@/lib/crm/users";
 import { getDb } from "@/lib/db/client";
@@ -91,6 +91,13 @@ export default async function LeadDetailPage({
   );
   const convertAction = convertLeadAction.bind(null, lead.id);
   const relatedTasks = listTasksForRecord(db, actor, "lead", lead.id);
+  const canEdit = canAccessRecord(db, actor, "lead", "edit", lead);
+  const canDelete = canAccessRecord(db, actor, "lead", "delete", lead);
+  // Convert edits the lead and creates an account and a contact.
+  const canConvert =
+    canEdit &&
+    canPerform(db, actor, "account", "create") &&
+    canPerform(db, actor, "contact", "create");
 
   return (
     <div className="space-y-6">
@@ -111,17 +118,21 @@ export default async function LeadDetailPage({
           </div>
           {converted ? null : (
             <div className="flex gap-2">
-              <Link
-                href={`/leads/${lead.id}/edit`}
-                className="rounded border border-[#cfc6b6] bg-white px-3 py-1.5 text-sm hover:bg-[#faf7f1]"
-              >
-                Edit
-              </Link>
-              <DeleteButton
-                label="Delete"
-                confirmMessage={`Delete lead ${lead.name}?`}
-                action={deleteLeadAction.bind(null, lead.id)}
-              />
+              {canEdit ? (
+                <Link
+                  href={`/leads/${lead.id}/edit`}
+                  className="rounded border border-[#cfc6b6] bg-white px-3 py-1.5 text-sm hover:bg-[#faf7f1]"
+                >
+                  Edit
+                </Link>
+              ) : null}
+              {canDelete ? (
+                <DeleteButton
+                  label="Delete"
+                  confirmMessage={`Delete lead ${lead.name}?`}
+                  action={deleteLeadAction.bind(null, lead.id)}
+                />
+              ) : null}
             </div>
           )}
         </div>
@@ -184,7 +195,8 @@ export default async function LeadDetailPage({
       <TasksRelatedList
         objectType="lead"
         recordId={lead.id}
-        tasks={relatedTasks}
+        tasks={withTaskEditAccess(db, actor, relatedTasks)}
+        canCreate={canPerform(db, actor, "task", "create")}
       />
 
       {converted ? (
@@ -217,10 +229,16 @@ export default async function LeadDetailPage({
             {lead.name}. v1 always creates a new account; it does not attach to
             an existing one.
           </p>
-          <ConvertLeadForm
-            action={convertAction}
-            defaultOpportunityName={lead.company}
-          />
+          {canConvert ? (
+            <ConvertLeadForm
+              action={convertAction}
+              defaultOpportunityName={lead.company}
+            />
+          ) : (
+            <p className="text-sm text-[#5c564c]">
+              You do not have permission to convert this lead.
+            </p>
+          )}
         </section>
       )}
     </div>

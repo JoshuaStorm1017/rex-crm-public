@@ -10,6 +10,7 @@ import { DeleteButton } from "@/components/DeleteButton";
 import type { TaskRelatedObjectType } from "@/lib/crm/constants";
 import { recordLabel } from "@/lib/crm/objects";
 import { getCustomValues } from "@/lib/crm/customFields";
+import { canAccessRecord } from "@/lib/crm/permissions";
 import { getTask, liveRelatedRecord } from "@/lib/crm/tasks";
 import { recordView } from "@/lib/crm/recentlyViewed";
 import { requireActor } from "@/lib/crm/currentUser";
@@ -56,6 +57,8 @@ export default async function TaskDetailPage({
   const related = liveRelatedRecord(db, actor, relatedType, task.relatedRecordId);
   const done = task.status === "Completed";
   const returnTo = `/tasks/${task.id}`;
+  const canEdit = canAccessRecord(db, actor, "task", "edit", task);
+  const canDelete = canAccessRecord(db, actor, "task", "delete", task);
 
   return (
     <div className="space-y-6">
@@ -83,36 +86,42 @@ export default async function TaskDetailPage({
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {done ? (
-              <form action={reopenTaskAction.bind(null, task.id, returnTo)}>
-                <button
-                  type="submit"
-                  className="rounded border border-[#cfc6b6] bg-white px-3 py-1.5 text-sm hover:bg-[#faf7f1]"
-                >
-                  Reopen
-                </button>
-              </form>
-            ) : (
-              <form action={completeTaskAction.bind(null, task.id, returnTo)}>
-                <button
-                  type="submit"
-                  className="rounded bg-[#c45c26] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#a4491b]"
-                >
-                  Complete
-                </button>
-              </form>
-            )}
-            <Link
-              href={`/tasks/${task.id}/edit`}
-              className="rounded border border-[#cfc6b6] bg-white px-3 py-1.5 text-sm hover:bg-[#faf7f1]"
-            >
-              Edit
-            </Link>
-            <DeleteButton
-              label="Delete"
-              confirmMessage={`Delete task ${task.name}?`}
-              action={deleteTaskAction.bind(null, task.id)}
-            />
+            {canEdit ? (
+              done ? (
+                <form action={reopenTaskAction.bind(null, task.id, returnTo)}>
+                  <button
+                    type="submit"
+                    className="rounded border border-[#cfc6b6] bg-white px-3 py-1.5 text-sm hover:bg-[#faf7f1]"
+                  >
+                    Reopen
+                  </button>
+                </form>
+              ) : (
+                <form action={completeTaskAction.bind(null, task.id, returnTo)}>
+                  <button
+                    type="submit"
+                    className="rounded bg-[#c45c26] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#a4491b]"
+                  >
+                    Complete
+                  </button>
+                </form>
+              )
+            ) : null}
+            {canEdit ? (
+              <Link
+                href={`/tasks/${task.id}/edit`}
+                className="rounded border border-[#cfc6b6] bg-white px-3 py-1.5 text-sm hover:bg-[#faf7f1]"
+              >
+                Edit
+              </Link>
+            ) : null}
+            {canDelete ? (
+              <DeleteButton
+                label="Delete"
+                confirmMessage={`Delete task ${task.name}?`}
+                action={deleteTaskAction.bind(null, task.id)}
+              />
+            ) : null}
           </div>
         </div>
       </div>

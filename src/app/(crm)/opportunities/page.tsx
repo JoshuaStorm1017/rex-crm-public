@@ -6,7 +6,7 @@ import {
   listViewCatalog,
 } from "@/lib/crm/constants";
 import { listCustomFields } from "@/lib/crm/customFields";
-import { canReadField } from "@/lib/crm/permissions";
+import { canPerform, canReadField } from "@/lib/crm/permissions";
 import {
   describeListViewFilters,
   formatOpportunityListCell,
@@ -69,12 +69,14 @@ export default async function OpportunitiesPage({
           >
             New List View
           </Link>
-          <Link
-            href="/opportunities/new"
-            className="rounded bg-[#c45c26] px-4 py-2 text-sm font-medium text-white hover:bg-[#a4491b]"
-          >
-            New Opportunity
-          </Link>
+          {canPerform(db, actor, "opportunity", "create") ? (
+            <Link
+              href="/opportunities/new"
+              className="rounded bg-[#c45c26] px-4 py-2 text-sm font-medium text-white hover:bg-[#a4491b]"
+            >
+              New Opportunity
+            </Link>
+          ) : null}
         </div>
       </div>
       {notice ? (

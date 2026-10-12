@@ -2,6 +2,7 @@ import { requireActor } from "@/lib/crm/currentUser";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateTaskAction } from "../../actions";
+import { EditDenied } from "@/components/EditDenied";
 import { RecordForm } from "@/components/RecordForm";
 import {
   TASK_PRIORITIES,
@@ -10,6 +11,7 @@ import {
   type TaskRelatedObjectType,
 } from "@/lib/crm/constants";
 import { withCustomFormFields } from "@/lib/crm/customFieldForm";
+import { canAccessRecord } from "@/lib/crm/permissions";
 import { getTask, liveRelatedRecord } from "@/lib/crm/tasks";
 import { getDb } from "@/lib/db/client";
 
@@ -23,6 +25,15 @@ export default async function EditTaskPage({
   const db = getDb();
   const task = getTask(db, actor, id);
   if (!task) notFound();
+  if (!canAccessRecord(db, actor, "task", "edit", task)) {
+    return (
+      <EditDenied
+        href={`/tasks/${task.id}`}
+        recordName={task.name}
+        object="task"
+      />
+    );
+  }
   const action = updateTaskAction.bind(null, task.id);
   const related = liveRelatedRecord(
     db,
