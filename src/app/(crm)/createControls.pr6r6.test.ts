@@ -287,8 +287,10 @@ describe("cascade task delete checks each task", () => {
       });
       const before = liveCount(db);
       const del = { account: deleteAccount, contact: deleteContact, lead: deleteLead, opportunity: deleteOpportunity }[parent];
+      // The sharing model reports a blocking child as a generic
+      // dependent-records error that does not name the task.
       expect(() => del(db, actor, parentId)).toThrow(
-        expect.objectContaining({ code: "FORBIDDEN" }),
+        expect.objectContaining({ code: "HAS_CHILDREN" }),
       );
       expect(liveCount(db)).toEqual(before);
       const kept = db
