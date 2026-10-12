@@ -21,6 +21,9 @@ import {
   presentRecord,
   type CrmObject,
 } from "./permissions";
+
+/** Objects with an owner that Change Owner can reassign. Products are not transferred. */
+export type OwnableObject = Exclude<CrmObject, "product">;
 import { prepareWrite, withoutId } from "./prepareWrite";
 import { getUser, type PublicUser } from "./users";
 
@@ -39,7 +42,7 @@ export type ChangeOwnerInput = {
 };
 
 export type ChangeOwnerResult = {
-  objectType: CrmObject;
+  objectType: OwnableObject;
   recordId: string;
   previousOwnerId: string;
   ownerId: string;
@@ -51,7 +54,7 @@ export type ChangeOwnerResult = {
 };
 
 export type OwnerTarget = {
-  objectType: CrmObject;
+  objectType: OwnableObject;
   id: string;
   /** Display only. Null when field security hides `name`. */
   name: string | null;
@@ -84,7 +87,7 @@ function isActiveUser(db: Db, userId: string): boolean {
 export function canChangeOwner(
   db: Db,
   actor: Actor,
-  objectType: CrmObject,
+  objectType: OwnableObject,
   record: { ownerId: string; status?: string | null },
 ): boolean {
   if (objectType === "lead" && record.status === "Converted") return false;
@@ -94,7 +97,7 @@ export function canChangeOwner(
 export function getOwnerTarget(
   db: Db,
   actor: Actor,
-  objectType: CrmObject,
+  objectType: OwnableObject,
   id: string,
 ): OwnerTarget | undefined {
   assertActor(db, actor);
@@ -114,7 +117,7 @@ export function getOwnerTarget(
 export function listEligibleOwners(
   db: Db,
   actor: Actor,
-  objectType: CrmObject,
+  objectType: OwnableObject,
 ): PublicUser[] {
   assertActor(db, actor);
   if (!canPerform(db, actor, objectType, "read")) return [];
@@ -141,7 +144,7 @@ export function listEligibleOwners(
 export function changeOwner(
   db: Db,
   actor: Actor,
-  objectType: CrmObject,
+  objectType: OwnableObject,
   recordId: string,
   input: ChangeOwnerInput,
 ): ChangeOwnerResult {
@@ -201,15 +204,15 @@ export function changeOwner(
   return db.transaction((tx) => {
     const database = tx as unknown as Db;
     for (const row of contactRows) {
-      writeOwner(database, "contact", row, newOwnerId, actor.userId, ts);
+      writeOwner(database, actor, "contact", row, newOwnerId, ts);
     }
     for (const row of opportunityRows) {
-      writeOwner(database, "opportunity", row, newOwnerId, actor.userId, ts);
+      writeOwner(database, actor, "opportunity", row, newOwnerId, ts);
     }
     for (const row of taskRows) {
-      writeOwner(database, "task", row, newOwnerId, actor.userId, ts);
+      writeOwner(database, actor, "task", row, newOwnerId, ts);
     }
-    writeOwner(database, objectType, primary.row, newOwnerId, actor.userId, ts);
+    writeOwner(database, actor, objectType, primary.row, newOwnerId, ts);
     return {
       objectType,
       recordId: primary.id,
@@ -231,7 +234,7 @@ type TransferFlags = {
   tasks: boolean;
 };
 
-function readTransfer(objectType: CrmObject, input: ChangeOwnerInput): TransferFlags {
+function readTransfer(objectType: OwnableObject, input: ChangeOwnerInput): TransferFlags {
   const contacts = input.transferContacts === true;
   const openOpportunities = input.transferOpenOpportunities === true;
   const closedOpportunities = input.transferClosedOpportunities === true;
@@ -262,7 +265,7 @@ function assertTransferPermission(db: Db, actor: Actor, transfer: TransferFlags)
 function resolveNewOwner(
   db: Db,
   orgId: string,
-  objectType: CrmObject,
+  objectType: OwnableObject,
   requested: string,
   currentOwnerId: string,
 ): string {
@@ -303,7 +306,7 @@ type LiveRecord = OwnedRow & {
 function loadLive(
   db: Db,
   orgId: string,
-  objectType: CrmObject,
+  objectType: OwnableObject,
   id: string,
 ): LiveRecord | undefined {
   switch (objectType) {
@@ -372,7 +375,7 @@ function listOwnedOpportunities(db: Db, orgId: string, accountId: string, ownerI
 function listTasksToTransfer(
   db: Db,
   orgId: string,
-  objectType: CrmObject,
+  objectType: OwnableObject,
   primary: LiveRecord,
   contactRows: { id: string }[],
   opportunityRows: { id: string }[],
@@ -415,19 +418,20 @@ function listTasksToTransfer(
 
 function writeOwner(
   db: Db,
-  objectType: CrmObject,
+  actor: Actor,
+  objectType: OwnableObject,
   row: Record<string, unknown> & OwnedRow,
   ownerId: string,
-  actorId: string,
   ts: number,
 ): void {
+  const actorId = actor.userId;
   const next = {
     ...row,
     ownerId,
     updatedAt: ts,
     updatedBy: actorId,
   };
-  const prepared = prepareWrite(db, objectType, next, "update");
+  const prepared = prepareWrite(db, actor, objectType, next, "update");
   const values = withoutId(prepared as { id: string });
   const whereId = row.id;
   const whereOrg = row.orgId;

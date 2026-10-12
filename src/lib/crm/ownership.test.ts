@@ -20,6 +20,7 @@ import {
   getOwnerTarget,
   listEligibleOwners,
   type ChangeOwnerInput,
+  type OwnableObject,
 } from "./ownership";
 import { createOpportunity, deleteOpportunity, getOpportunity } from "./opportunities";
 import { createOpportunityContactRole, listOpportunityContactRoles } from "./opportunityContactRoles";
@@ -93,7 +94,7 @@ function createMember(
 function transfer(
   db: Db,
   actor: Actor,
-  objectType: CrmObject,
+  objectType: OwnableObject,
   recordId: string,
   input: Partial<ChangeOwnerInput> & { newOwnerId?: string } = {},
 ) {

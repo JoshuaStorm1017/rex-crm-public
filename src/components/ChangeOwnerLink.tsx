@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { recordHref } from "@/lib/crm/objects";
-import type { CrmObject } from "@/lib/crm/permissions";
+import type { OwnableObject } from "@/lib/crm/ownership";
 
 export function ChangeOwnerLink({
   objectType,
   recordId,
 }: {
-  objectType: CrmObject;
+  objectType: OwnableObject;
   recordId: string;
 }) {
   return (

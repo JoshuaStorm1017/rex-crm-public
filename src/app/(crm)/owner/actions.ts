@@ -5,11 +5,15 @@ import { redirect } from "next/navigation";
 import { requireActor } from "@/lib/crm/currentUser";
 import { formatError } from "@/lib/crm/form";
 import { recordHref } from "@/lib/crm/objects";
-import { changeOwner, type ChangeOwnerInput } from "@/lib/crm/ownership";
-import { canReadField, type CrmObject } from "@/lib/crm/permissions";
+import {
+  changeOwner,
+  type ChangeOwnerInput,
+  type OwnableObject,
+} from "@/lib/crm/ownership";
+import { canReadField } from "@/lib/crm/permissions";
 import { getDb, type Db } from "@/lib/db/client";
 
-const OBJECTS: readonly CrmObject[] = [
+const OBJECTS: readonly OwnableObject[] = [
   "account",
   "contact",
   "lead",
@@ -17,7 +21,7 @@ const OBJECTS: readonly CrmObject[] = [
   "task",
 ];
 
-function isObject(value: string): value is CrmObject {
+function isObject(value: string): value is OwnableObject {
   return (OBJECTS as readonly string[]).includes(value);
 }
 
@@ -32,7 +36,7 @@ function checked(formData: FormData, name: string): boolean {
 function ownerFailureNotice(
   db: Db,
   actor: { userId: string; orgId: string },
-  objectType: CrmObject,
+  objectType: OwnableObject,
   error: unknown,
 ): string {
   const message = formatError(error);
