@@ -273,7 +273,7 @@ tracks the gap. It does not block other rows.
 - **Status:** NOT STARTED. `owner_id` is stored and displayed. It does not filter reads. An editor can reassign that one record (2026-10-11). That is not private OWD.
 - **Implementation:** `owner_id` columns. `src/lib/crm/ownership.ts` changes one record's owner when the actor can edit it.
 - **Acceptance:** Private account OWD: user B does not list user A's account, cannot open it by id, and a report run as B omits it. A criteria rule for Billing State = AZ grants it, and removing the rule revokes it.
-- **Latest:** 2026-10-11. Change-owner tests passed inside `npm run verify`. See STATUS.md. Private OWD was not run.
+- **Latest:** 2026-10-11. Change-owner tests passed inside `npm run verify` (vitest start 21:20:09, 38 files, 416 tests). The detail-page test renders each of the five objects as a non-owner updater and as modify-all. See STATUS.md. Private OWD was not run.
 - **Gaps:** No private OWD, role hierarchy, sharing rules, teams, queues, or territories. Transfer does not move related records.
 
 ### IAM-SHARE-003 External and guest access

@@ -1,5 +1,28 @@
 # Rex log
 
+## 2026-10-11 21:20 EDT
+
+Locked the Change Owner page mutation that survived review. The five
+detail pages already pass the loaded record into `canAccessRecord`.
+The page test only rendered a row the viewer owns, so
+`{ ownerId: actor.userId }` still showed the control.
+
+The page test now plants the operator's account, contact, lead,
+opportunity, and task. A same-org updater who does not own the row
+and is not modify-all sees the record and does not see Change owner
+or `name="ownerId"`. A modify-all user on that same row does.
+
+`npm run verify` exited 0. Vitest started at 21:20:09: 38 files, 416
+tests, Next.js 16.3.5 build. Swapping the record for
+`{ ownerId: actor.userId }` on each of the five pages failed the new
+test and was restored before that run. No browser pass. Chrome
+DevTools was not connected.
+
+Next: hide Edit and Delete wherever the domain will refuse the save,
+including the edit page. Cascade task deletes still skip the task
+owner. Do not retry the whole sharing model or the product catalog in
+one change.
+
 ## 2026-10-11 20:41 EDT
 
 Locked the four Change Owner mutations that survived review. The

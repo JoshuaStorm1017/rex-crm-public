@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -39,6 +40,7 @@ import { createProfile, setObjectPermission } from "@/lib/crm/profiles";
 import { createTask } from "@/lib/crm/tasks";
 import { createUser, getUser, type PublicUser } from "@/lib/crm/users";
 import { getDb, openMemoryDb, type Db } from "@/lib/db/client";
+import { users } from "@/lib/db/schema";
 import AccountDetailPage from "../accounts/[id]/page";
 import ContactDetailPage from "../contacts/[id]/page";
 import LeadDetailPage from "../leads/[id]/page";
@@ -56,9 +58,10 @@ function enroll(
     target: CrmObject;
     canUpdate: boolean;
     canDelete: boolean;
+    modifyAll?: boolean;
   },
 ): { user: PublicUser; actor: Actor } {
-  const user = createUser(db, {
+  const created = createUser(db, {
     name: spec.name,
     email: spec.email,
     username: spec.username,
@@ -74,7 +77,18 @@ function enroll(
       canDelete: onTarget ? spec.canDelete : !spec.canDelete,
     });
   }
-  addMember(db, LOCAL_ORG_ID, user.id, "member", profileId);
+  if (spec.modifyAll) {
+    db.update(users).set({ role: "admin" }).where(eq(users.id, created.id)).run();
+  }
+  addMember(
+    db,
+    LOCAL_ORG_ID,
+    created.id,
+    spec.modifyAll ? "admin" : "member",
+    profileId,
+  );
+  const user = getUser(db, created.id);
+  if (!user) throw new Error("enrolled user missing");
   return { user, actor: actorFor(user.id) };
 }
 
@@ -190,6 +204,74 @@ describe("change owner control", () => {
       const asDeleter = await render(object, deletable);
       expect(asDeleter, object).not.toContain("Change owner");
       expect(asDeleter, object).not.toContain('name="ownerId"');
+    }
+  });
+
+  it("hides Change owner from an updater who does not own the row and shows it to modify-all", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+
+    for (const object of OBJECTS) {
+      const stranger = enroll(db, {
+        name: `View ${object}`,
+        email: `page.view.${object}@example.com`,
+        username: `pview${object}`,
+        target: object,
+        canUpdate: true,
+        canDelete: false,
+      });
+      const admin = enroll(db, {
+        name: `Modify ${object}`,
+        email: `page.mod.${object}@example.com`,
+        username: `pmod${object}`,
+        target: object,
+        canUpdate: true,
+        canDelete: false,
+        modifyAll: true,
+      });
+      const id = plant(db, LOCAL_ACTOR, object);
+      expect(stranger.user.role, object).toBe("user");
+      expect(admin.user.role, object).toBe("admin");
+      // Update permission on the viewer's own id is what a swapped owner
+      // argument would see. The planted row belongs to the operator.
+      expect(
+        canAccessRecord(db, stranger.actor, object, "edit", {
+          ownerId: stranger.user.id,
+        }),
+        object,
+      ).toBe(true);
+      expect(
+        canAccessRecord(db, stranger.actor, object, "edit", {
+          ownerId: LOCAL_USER_ID,
+        }),
+        object,
+      ).toBe(false);
+      expect(
+        canAccessRecord(db, admin.actor, object, "edit", {
+          ownerId: LOCAL_USER_ID,
+        }),
+        object,
+      ).toBe(true);
+
+      vi.mocked(requireActor).mockResolvedValue({
+        userId: stranger.user.id,
+        orgId: LOCAL_ORG_ID,
+        user: stranger.user,
+      });
+      const asStranger = await render(object, id);
+      expect(asStranger, object).toContain(id);
+      expect(asStranger, object).not.toContain("Change owner");
+      expect(asStranger, object).not.toContain('name="ownerId"');
+
+      vi.mocked(requireActor).mockResolvedValue({
+        userId: admin.user.id,
+        orgId: LOCAL_ORG_ID,
+        user: admin.user,
+      });
+      const asAdmin = await render(object, id);
+      expect(asAdmin, object).toContain(id);
+      expect(asAdmin, object).toContain("Change owner");
+      expect(asAdmin, object).toContain('name="ownerId"');
     }
   });
 

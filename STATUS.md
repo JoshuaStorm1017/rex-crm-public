@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-11, Change Owner mutation lock.
+Last updated: 2026-10-11, Change Owner page gate for a non-owner.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -33,6 +33,44 @@ Last updated: 2026-10-11, Change Owner mutation lock.
 ## WORKS
 
 Things actually run, with evidence.
+
+### Change Owner page gate for a non-owner (2026-10-11)
+
+No enforcement change. Account, contact, lead, opportunity, and task
+detail still call `canAccessRecord` with the loaded record. The page
+test used to render only a row the viewer owns, so a page that passed
+`{ ownerId: actor.userId }` still showed Change owner and every test
+passed.
+
+`src/app/(crm)/ownership/page.test.ts` now plants the operator's row
+for each of those five objects and renders it twice. The first viewer
+is a same-org member who can update that object, cannot delete it,
+has `users.role` `user`, and is not an org admin. That viewer is not
+the owner. `canAccessRecord` for edit is true when the owner id is
+their own and false when it is the operator. The rendered page
+contains the record id and does not contain `Change owner` or
+`name="ownerId"`. The second viewer has `users.role` `admin`, an
+admin membership, and update on that object. The same page contains
+`Change owner` and `name="ownerId"`.
+
+Contact, lead, opportunity, and task detail still show Edit and
+Delete before the domain would refuse them. This pass did not re-check
+that in the browser.
+
+- **`npm run verify` (2026-10-11, vitest `Start at  21:20:09`):** exit 0.
+  38 files, 416 tests (was 38 files, 415). TypeScript, ESLint, and
+  Next.js 16.3.5 production build passed. `NO_COLOR`/`FORCE_COLOR`
+  warnings only.
+- **Mutation re-check, each change restored before that verify.**
+  Replacing the record argument with `{ ownerId: actor.userId }` on
+  the account, contact, lead, opportunity, and task detail page made
+  the new test fail for that object: the non-owner HTML contained
+  `Change owner`. Each page was written back before the next mutation
+  and before verify. After the restore, `git diff --stat` showed only
+  `src/app/(crm)/ownership/page.test.ts`.
+- **No browser pass.** These tests render static markup against a
+  memory database. Chrome DevTools was not connected. The detail pages
+  were not opened.
 
 ### Change Owner, tests that kill the review survivors (2026-10-11)
 
