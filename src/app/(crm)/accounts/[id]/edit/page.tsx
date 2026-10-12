@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateAccountAction } from "../../actions";
 import { RecordForm } from "@/components/RecordForm";
-import { getAccount, listEligibleParentAccounts } from "@/lib/crm/accounts";
+import { accountParentEditField, getAccount } from "@/lib/crm/accounts";
 import { ACCOUNT_TYPES } from "@/lib/crm/constants";
 import { withCustomFormFields } from "@/lib/crm/customFieldForm";
 import { centsToInput } from "@/lib/crm/money";
@@ -19,10 +19,11 @@ export default async function EditAccountPage({
   const db = getDb();
   const account = getAccount(db, actor, id);
   if (!account) notFound();
-  const parentVisible =
-    account.parentAccountId == null ||
-    getAccount(db, actor, account.parentAccountId) != null;
-  const parentField = parentVisible
+  // Null only when the stored parent is live but unreadable. The field
+  // helper does not return that id. A deleted parent still shows the select
+  // with an empty value so a blank post can clear it.
+  const parentEdit = accountParentEditField(db, actor, account.id);
+  const parentField = parentEdit
     ? [
         {
           name: "parentAccountId",
@@ -30,10 +31,8 @@ export default async function EditAccountPage({
           type: "select" as const,
           // Excludes this account and everything under it, so the
           // picker cannot offer a loop. The domain refuses one anyway.
-          options: listEligibleParentAccounts(db, actor, account.id).map(
-            (candidate) => ({ value: candidate.id, label: candidate.name }),
-          ),
-          defaultValue: account.parentAccountId,
+          options: parentEdit.options,
+          defaultValue: parentEdit.defaultValue,
         },
       ]
     : [];

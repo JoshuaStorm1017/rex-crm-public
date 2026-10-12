@@ -206,6 +206,22 @@ export function createAccount(
   return presentRecord(db, actor, "account", created);
 }
 
+/**
+ * True only when the parent row is still live in this org and this actor
+ * cannot read it. A missing or soft-deleted parent is not concealed: a
+ * blank select must be able to clear the dangling id.
+ */
+function concealedLiveParent(
+  db: Db,
+  actor: Actor,
+  parentId: string,
+): boolean {
+  const parent = storedAccount(db, actor, parentId);
+  if (!parent) return false;
+  if (!canPerform(db, actor, "account", "read")) return true;
+  return !canReadRecord(db, actor, "account", parent);
+}
+
 export function updateAccount(
   db: Db,
   actor: Actor,
@@ -220,14 +236,17 @@ export function updateAccount(
   assertCanAccessRecord(db, actor, "account", "edit", existing);
   const parsed = accountUpdateSchema.parse(input);
   assertEditableFields(db, actor, "account", touchedFields(parsed));
-  // A blank parent select posts null. Keep the stored parent when this
-  // actor cannot read that account, so the save does not clear the link.
-  const parentAccountId =
-    parsed.parentAccountId === null &&
+  // A blank parent select posts null. Keep the stored parent only when that
+  // row is still live but unreadable, so the save does not clear a link the
+  // actor cannot see. A missing or deleted parent is dangling: null clears it.
+  let parentAccountId = parsed.parentAccountId;
+  if (
+    parentAccountId === null &&
     existing.parentAccountId &&
-    !getAccount(db, actor, existing.parentAccountId)
-      ? undefined
-      : parsed.parentAccountId;
+    concealedLiveParent(db, actor, existing.parentAccountId)
+  ) {
+    parentAccountId = undefined;
+  }
   assertParent(db, actor, parentAccountId, id);
   const ts = now();
   const next = mergeDefined(existing, {
@@ -341,6 +360,38 @@ function accountsById(
   );
 }
 
+/**
+ * Stored account names for rows this actor can read, taken before
+ * `presentRecord` redacts fields. Hierarchy sorts with these so a hidden
+ * Account Name cannot throw, and siblings stay in real name order.
+ */
+function storedVisibleNames(
+  db: Db,
+  actor: Actor,
+  ids: readonly string[],
+): Map<string, string | null> {
+  const nameOf = new Map<string, string | null>();
+  if (ids.length === 0) return nameOf;
+  const rows = db
+    .select()
+    .from(accounts)
+    .where(and(inArray(accounts.id, [...ids]), live(actor)))
+    .all();
+  for (const row of rows) {
+    if (!canReadRecord(db, actor, "account", row)) continue;
+    nameOf.set(row.id, row.name);
+  }
+  return nameOf;
+}
+
+function hierarchySortKey(
+  nameOf: Map<string, string | null>,
+  account: { id: string; name: string | null },
+): string {
+  if (nameOf.has(account.id)) return nameOf.get(account.id) ?? "";
+  return account.name ?? "";
+}
+
 /** Parent, grandparent … root, ordered root first. Excludes the account. */
 export function listAccountAncestors(
   db: Db,
@@ -381,11 +432,9 @@ export function getAccountHierarchy(
   if (ancestors.length === 0) return undefined;
   const ultimateId = ancestors[ancestors.length - 1]!;
   const tree = descendantNodes(db, ACCOUNT_HIERARCHY, ultimateId, actor.orgId);
-  const byId = accountsById(
-    db,
-    actor,
-    tree.map((node) => node.id),
-  );
+  const treeIds = tree.map((node) => node.id);
+  const nameOf = storedVisibleNames(db, actor, treeIds);
+  const byId = accountsById(db, actor, treeIds);
   const parentOf = new Map(tree.map((node) => [node.id, node.parentId]));
   const nearestVisible = (parentId: string | null): string | null => {
     const seen = new Set<string>();
@@ -423,7 +472,7 @@ export function getAccountHierarchy(
     if (nodes.some((node) => node.account.id === account.id)) return;
     nodes.push({ account, depth, isCurrent: account.id === id });
     const kids = [...(children.get(account.id) ?? [])].sort((a, b) =>
-      a.name.localeCompare(b.name),
+      hierarchySortKey(nameOf, a).localeCompare(hierarchySortKey(nameOf, b)),
     );
     for (const kid of kids) visit(kid, depth + 1);
   };
@@ -449,6 +498,45 @@ export function listEligibleParentAccounts(
   const blocked = descendantIds(db, ACCOUNT_HIERARCHY, id, actor.orgId, allowed);
   blocked.add(id);
   return all.filter((account) => !blocked.has(account.id));
+}
+
+export type AccountParentEditField = {
+  options: { value: string; label: string }[];
+  defaultValue: string | null;
+};
+
+/**
+ * Parent picker for the account edit form.
+ *
+ * Returns null only when the stored parent is still live but unreadable.
+ * The hidden id is not included. A missing or deleted parent returns the
+ * select with an empty value so a blank post can clear the dangling id,
+ * and that id is not copied into the field.
+ */
+export function accountParentEditField(
+  db: Db,
+  actor: Actor,
+  accountId: string,
+): AccountParentEditField | null {
+  assertActor(db, actor);
+  const existing = loadAccount(db, actor, accountId);
+  if (!existing) return null;
+  if (
+    existing.parentAccountId &&
+    concealedLiveParent(db, actor, existing.parentAccountId)
+  ) {
+    return null;
+  }
+  const readableParent =
+    existing.parentAccountId != null
+      ? getAccount(db, actor, existing.parentAccountId)
+      : undefined;
+  return {
+    options: listEligibleParentAccounts(db, actor, accountId).map(
+      (candidate) => ({ value: candidate.id, label: candidate.name }),
+    ),
+    defaultValue: readableParent ? existing.parentAccountId : null,
+  };
 }
 
 export function listChildAccounts(
