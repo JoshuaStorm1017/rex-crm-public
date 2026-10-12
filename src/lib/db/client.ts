@@ -5,7 +5,9 @@ import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3"
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { ensureSystemListViews } from "../crm/listViews";
 import { ensureDefaultOrganization } from "../crm/orgs";
+import { ensureStandardPriceBooks } from "../crm/products";
 import { ensureProfiles } from "../crm/profiles";
+import { ensureOrgWideDefaults } from "../crm/sharing";
 import { ensureLocalUsers } from "../crm/users";
 import { ensureSystemValidationRules } from "../crm/validationRules";
 import * as schema from "./schema";
@@ -45,6 +47,8 @@ export function openDb(filename: string): OpenedDb {
   ensureLocalUsers(db);
   ensureDefaultOrganization(db);
   ensureProfiles(db);
+  ensureStandardPriceBooks(db);
+  ensureOrgWideDefaults(db);
   ensureSystemListViews(db);
   ensureSystemValidationRules(db);
   return {

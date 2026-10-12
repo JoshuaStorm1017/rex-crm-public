@@ -2,15 +2,20 @@ import { LOCAL_ACTOR, actorFor } from "./actor";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb } from "../db/client";
 import { createAccount, deleteAccount } from "./accounts";
+import { LOCAL_ORG_ID, RILEY_USER_ID } from "./constants";
 import { createContact } from "./contacts";
 import { createLead } from "./leads";
+import { addMember } from "./orgs";
 import { createOpportunity } from "./opportunities";
+import { createProfile, setFieldPermission, setObjectPermission } from "./profiles";
 import {
   countRecentlyViewedRows,
   listRecentlyViewed,
   recordView,
 } from "./recentlyViewed";
+import { setOrgWideDefault } from "./sharing";
 import { createTask } from "./tasks";
+import { createUser } from "./users";
 
 describe("recently viewed", () => {
   it("records a view and lists newest first with a live name", () => {
@@ -106,5 +111,126 @@ describe("recently viewed", () => {
     expect(listRecentlyViewed(db, actorFor("usr_riley"), 8).map((row) => row.name)).toEqual([
       "Globex Corporation",
     ]);
+  });
+
+  it("redacts email and company, and omits a row whose name is hidden", () => {
+    const db = openMemoryDb().db;
+    const user = createUser(db, {
+      name: "Recent Reader",
+      email: "recent.reader@example.com",
+      username: "recentreader",
+      password: "long-enough",
+    });
+    const profileId = createProfile(db, LOCAL_ACTOR, "Hide Recent Fields");
+    const full = {
+      canCreate: true,
+      canRead: true,
+      canUpdate: true,
+      canDelete: true,
+    };
+    for (const objectType of ["account", "contact", "lead", "opportunity", "task"] as const) {
+      setObjectPermission(db, LOCAL_ACTOR, profileId, objectType, full);
+    }
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "contact", "email", {
+      canRead: false,
+      canEdit: false,
+    });
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "lead", "company", {
+      canRead: false,
+      canEdit: false,
+    });
+    addMember(db, LOCAL_ORG_ID, user.id, "member", profileId);
+    const actor = actorFor(user.id);
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Vandelay Industries" });
+    const contact = createContact(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      lastName: "Vandelay",
+      firstName: "Art",
+      email: "art@vandelay.test",
+    });
+    const lead = createLead(db, LOCAL_ACTOR, {
+      lastName: "Kramer",
+      company: "Kramerica Industries",
+    });
+    recordView(db, actor, "contact", contact.id);
+    recordView(db, actor, "lead", lead.id);
+    const listed = listRecentlyViewed(db, actor);
+    expect(listed.map((row) => row.name).sort()).toEqual(["Art Vandelay", "Kramer"]);
+    expect(JSON.stringify(listed)).not.toContain("art@vandelay.test");
+    expect(JSON.stringify(listed)).not.toContain("Kramerica Industries");
+    expect(listed.find((row) => row.objectType === "contact")?.subtitle).toBe("Contact");
+    expect(listed.find((row) => row.objectType === "lead")?.subtitle).toBe("Lead");
+
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "contact", "name", {
+      canRead: false,
+      canEdit: false,
+    });
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "lead", "name", {
+      canRead: false,
+      canEdit: false,
+    });
+    const hidden = listRecentlyViewed(db, actor);
+    expect(hidden).toEqual([]);
+    expect(JSON.stringify(hidden)).not.toContain("Art Vandelay");
+    expect(JSON.stringify(hidden)).not.toContain("Kramerica");
+  });
+
+  it("omits a record the other member viewed once that object default is private", () => {
+    const db = openMemoryDb().db;
+    const riley = actorFor(RILEY_USER_ID);
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Hidden Quarry" });
+    const contact = createContact(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      lastName: "Hiddenperson",
+    });
+    const lead = createLead(db, LOCAL_ACTOR, {
+      lastName: "Hiddenlead",
+      company: "Hidden Company",
+    });
+    const opportunity = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Hiddendeal",
+      stage: "Prospecting",
+      closeDate: "2026-12-01",
+    });
+    const task = createTask(db, LOCAL_ACTOR, {
+      name: "Hiddentask",
+      relatedObjectType: "account",
+      relatedRecordId: account.id,
+    });
+    recordView(db, riley, "account", account.id);
+    recordView(db, riley, "contact", contact.id);
+    recordView(db, riley, "lead", lead.id);
+    recordView(db, riley, "opportunity", opportunity.id);
+    recordView(db, riley, "task", task.id);
+    expect(listRecentlyViewed(db, riley).map((row) => row.name).sort()).toEqual([
+      "Hidden Quarry",
+      "Hiddendeal",
+      "Hiddenlead",
+      "Hiddenperson",
+      "Hiddentask",
+    ]);
+
+    setOrgWideDefault(db, LOCAL_ACTOR, "account", "private", true);
+    setOrgWideDefault(db, LOCAL_ACTOR, "contact", "private", true);
+    setOrgWideDefault(db, LOCAL_ACTOR, "lead", "private", true);
+    setOrgWideDefault(db, LOCAL_ACTOR, "opportunity", "private", true);
+    setOrgWideDefault(db, LOCAL_ACTOR, "task", "private", true);
+
+    const listed = listRecentlyViewed(db, riley);
+    expect(listed).toEqual([]);
+    const payload = JSON.stringify(listed);
+    expect(payload).not.toContain("Hidden Quarry");
+    expect(payload).not.toContain("Hiddenperson");
+    expect(payload).not.toContain("Hiddenlead");
+    expect(payload).not.toContain("Hiddendeal");
+    expect(payload).not.toContain("Hiddentask");
+    expect(payload).not.toContain("Hidden Company");
+    expect(countRecentlyViewedRows(db, riley)).toBe(5);
+
+    recordView(db, LOCAL_ACTOR, "account", account.id);
+    expect(listRecentlyViewed(db, LOCAL_ACTOR).map((row) => row.name)).toContain(
+      "Hidden Quarry",
+    );
   });
 });

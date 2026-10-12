@@ -99,6 +99,20 @@
       "when": 1791658955731,
       "tag": "0013_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1791738168333,
+      "tag": "0014_products",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1791838649829,
+      "tag": "0015_sharing",
+      "breakpoints": true
     }
   ]
 }

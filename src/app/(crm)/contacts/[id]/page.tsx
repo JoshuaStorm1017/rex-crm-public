@@ -94,11 +94,7 @@ export default async function ContactDetailPage({
             <DeleteButton
               label="Delete"
               confirmMessage={`Delete contact ${contact.name}?`}
-              action={deleteContactAction.bind(
-                null,
-                contact.id,
-                contact.accountId,
-              )}
+              action={deleteContactAction.bind(null, contact.id)}
             />
           </div>
         </div>
@@ -115,10 +111,7 @@ export default async function ContactDetailPage({
           {canReadField(db, actor, "contact", "phone") ? (
             <Field label="Phone" value={contact.phone} />
           ) : null}
-          <Field
-            label="Account"
-            value={account?.name ?? contact.accountId}
-          />
+          <Field label="Account" value={account?.name} />
           <div>
             <dt className="text-xs uppercase tracking-wide text-[#8a8376]">
               Reports To

@@ -136,9 +136,7 @@ export default async function TaskDetailPage({
           <Field
             label="Related To"
             value={
-              related
-                ? `${recordLabel(relatedType)} · ${related.name}`
-                : `${recordLabel(relatedType)} · ${task.relatedRecordId}`
+              related ? `${recordLabel(relatedType)} · ${related.name}` : undefined
             }
           />
           <Field label="Status" value={task.status} />

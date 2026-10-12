@@ -19,13 +19,16 @@ import {
   assertCanAccessRecord,
   assertCanPerform,
   assertEditableFields,
+  canAccessRecord,
   canPerform,
+  canReadField,
   presentRecord,
   touchedFields,
 } from "./permissions";
 import { ID_PREFIX, newId } from "./ids";
 import { deleteCustomValuesForRecord, deleteCustomValuesForRecords } from "./customFields";
 import { recordHref, recordLabel } from "./objects";
+import { canReadRecord, readRestrictionSql } from "./sharing";
 import {
   taskCreateSchema,
   taskUpdateSchema,
@@ -59,6 +62,10 @@ function liveTask(actor: Actor) {
   return and(eq(tasks.orgId, actor.orgId), isNull(tasks.deletedAt));
 }
 
+function visibleTask(db: Db, actor: Actor) {
+  return and(liveTask(actor), readRestrictionSql(db, actor, "task", tasks.ownerId));
+}
+
 function compareTasks(a: Task, b: Task): number {
   const aDone = isCompleted(a.status) ? 1 : 0;
   const bDone = isCompleted(b.status) ? 1 : 0;
@@ -71,13 +78,29 @@ function compareTasks(a: Task, b: Task): number {
   return a.name.localeCompare(b.name);
 }
 
-export function liveRelatedRecord(
+/**
+ * Contact and lead `name` is the stored display name built from first and
+ * last name. The label is hidden when that name field is not readable, and
+ * also when either part it is built from is not readable.
+ */
+function canReadRelatedName(
+  db: Db,
+  actor: Actor,
+  objectType: TaskRelatedObjectType,
+): boolean {
+  const fields =
+    objectType === "contact" || objectType === "lead"
+      ? (["name", "firstName", "lastName"] as const)
+      : (["name"] as const);
+  return fields.every((field) => canReadField(db, actor, objectType, field));
+}
+
+function storedRelated(
   db: Db,
   actor: Actor,
   objectType: TaskRelatedObjectType,
   recordId: string,
-): RelatedRecordLive | undefined {
-  assertActor(db, actor);
+): { id: string; name: string } | undefined {
   switch (objectType) {
     case "account": {
       const row = db
@@ -91,9 +114,8 @@ export function liveRelatedRecord(
           ),
         )
         .get();
-      return row
-        ? { name: row.name, href: recordHref("account", row.id) }
-        : undefined;
+      if (!row || !canReadRecord(db, actor, "account", row)) return undefined;
+      return { id: row.id, name: row.name };
     }
     case "contact": {
       const row = db
@@ -107,9 +129,8 @@ export function liveRelatedRecord(
           ),
         )
         .get();
-      return row
-        ? { name: row.name, href: recordHref("contact", row.id) }
-        : undefined;
+      if (!row || !canReadRecord(db, actor, "contact", row)) return undefined;
+      return { id: row.id, name: row.name };
     }
     case "lead": {
       const row = db
@@ -123,9 +144,8 @@ export function liveRelatedRecord(
           ),
         )
         .get();
-      return row
-        ? { name: row.name, href: recordHref("lead", row.id) }
-        : undefined;
+      if (!row || !canReadRecord(db, actor, "lead", row)) return undefined;
+      return { id: row.id, name: row.name };
     }
     case "opportunity": {
       const row = db
@@ -139,11 +159,23 @@ export function liveRelatedRecord(
           ),
         )
         .get();
-      return row
-        ? { name: row.name, href: recordHref("opportunity", row.id) }
-        : undefined;
+      if (!row || !canReadRecord(db, actor, "opportunity", row)) return undefined;
+      return { id: row.id, name: row.name };
     }
   }
+}
+
+export function liveRelatedRecord(
+  db: Db,
+  actor: Actor,
+  objectType: TaskRelatedObjectType,
+  recordId: string,
+): RelatedRecordLive | undefined {
+  assertActor(db, actor);
+  const row = storedRelated(db, actor, objectType, recordId);
+  if (!row) return undefined;
+  if (!canReadRelatedName(db, actor, objectType)) return undefined;
+  return { name: row.name, href: recordHref(objectType, row.id) };
 }
 
 function assertRelated(
@@ -152,7 +184,9 @@ function assertRelated(
   objectType: TaskRelatedObjectType,
   recordId: string,
 ): void {
-  if (!liveRelatedRecord(db, actor, objectType, recordId)) {
+  // Existence and sharing only. A hidden name still leaves a real record
+  // the task can point at; the label is omitted by liveRelatedRecord.
+  if (!storedRelated(db, actor, objectType, recordId)) {
     throw new DomainError(
       "INVALID_RELATED",
       `Related ${recordLabel(objectType).toLowerCase()} does not exist`,
@@ -169,17 +203,23 @@ function withRelated(db: Db, actor: Actor, row: Task): TaskListItem {
   );
   return {
     ...row,
-    relatedName: related?.name ?? row.relatedRecordId,
+    relatedName: related?.name ?? "—",
     relatedHref: related?.href ?? "#",
   };
 }
 
-function loadTask(db: Db, actor: Actor, id: string): Task | undefined {
+function storedTask(db: Db, actor: Actor, id: string): Task | undefined {
   return db
     .select()
     .from(tasks)
     .where(and(eq(tasks.id, id), liveTask(actor)))
     .get();
+}
+
+function loadTask(db: Db, actor: Actor, id: string): Task | undefined {
+  const row = storedTask(db, actor, id);
+  if (!row || !canReadRecord(db, actor, "task", row)) return undefined;
+  return row;
 }
 
 export function getTask(db: Db, actor: Actor, id: string): Task | undefined {
@@ -196,7 +236,7 @@ export function listTasks(db: Db, actor: Actor): TaskListItem[] {
   return db
     .select()
     .from(tasks)
-    .where(liveTask(actor))
+    .where(visibleTask(db, actor))
     .all()
     .sort(compareTasks)
     .map((row) => withRelated(db, actor, access(row)));
@@ -217,7 +257,7 @@ export function listTasksForRecord(
       and(
         eq(tasks.relatedObjectType, objectType),
         eq(tasks.relatedRecordId, recordId),
-        liveTask(actor),
+        visibleTask(db, actor),
       ),
     )
     .all()
@@ -231,7 +271,7 @@ export function countTasks(db: Db, actor: Actor): number {
   const row = db
     .select({ n: count() })
     .from(tasks)
-    .where(liveTask(actor))
+    .where(visibleTask(db, actor))
     .get();
   return row?.n ?? 0;
 }
@@ -267,9 +307,9 @@ export function createTask(
     createdBy: actor.userId,
     updatedBy: actor.userId,
   };
-  const prepared = prepareWrite(db, "task", row, "create");
+  const prepared = prepareWrite(db, actor, "task", row, "create");
   db.insert(tasks).values(prepared).run();
-  const created = loadTask(db, actor, id);
+  const created = storedTask(db, actor, id);
   if (!created) {
     throw new DomainError("WRITE_FAILED", "Task was not persisted");
   }
@@ -313,12 +353,12 @@ export function updateTask(
     updatedAt: ts,
     updatedBy: actor.userId,
   });
-  const prepared = prepareWrite(db, "task", next, "update") as Task;
+  const prepared = prepareWrite(db, actor, "task", next, "update") as Task;
   db.update(tasks)
     .set(withoutId(prepared))
     .where(and(eq(tasks.id, id), eq(tasks.orgId, actor.orgId)))
     .run();
-  const updated = loadTask(db, actor, id);
+  const updated = storedTask(db, actor, id);
   if (!updated) {
     throw new DomainError("WRITE_FAILED", "Task update did not persist");
   }
@@ -372,18 +412,31 @@ export function deleteTasksForRecord(
 ): void {
   assertActor(db, actor);
   const related = db
-    .select({ id: tasks.id })
+    .select()
     .from(tasks)
-    .where(
-      and(eq(tasks.relatedRecordId, relatedRecordId), liveTask(actor)),
-    )
-    .all();
-  deleteCustomValuesForRecords(
-    db,
-    related.map((row) => row.id),
-  );
-  db.update(tasks)
-    .set({ deletedAt: now(), updatedAt: now() })
     .where(and(eq(tasks.relatedRecordId, relatedRecordId), liveTask(actor)))
-    .run();
+    .all();
+  // A task this actor can read but cannot delete blocks the parent delete.
+  // A task they cannot read does not block and is not deleted. The message
+  // does not name the task.
+  const deletable: string[] = [];
+  for (const task of related) {
+    if (!canReadRecord(db, actor, "task", task)) continue;
+    if (!canAccessRecord(db, actor, "task", "delete", task)) {
+      throw new DomainError(
+        "HAS_CHILDREN",
+        "Cannot delete this record while other records still depend on it",
+      );
+    }
+    deletable.push(task.id);
+  }
+  if (deletable.length === 0) return;
+  deleteCustomValuesForRecords(db, deletable);
+  const ts = now();
+  for (const id of deletable) {
+    db.update(tasks)
+      .set({ deletedAt: ts, updatedAt: ts })
+      .where(and(eq(tasks.id, id), eq(tasks.orgId, actor.orgId)))
+      .run();
+  }
 }

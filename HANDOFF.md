@@ -3,9 +3,17 @@
 > **Publication note.** Commit hashes and branch names below refer to the earlier
 > private repository this one began as a snapshot of. They do not resolve here.
 
-Updated 2026-10-11 after undelete and opportunity contact-role authorization.
+Updated 2026-10-12 after merging main (product catalog, migration
+`0014_products`) into the sharing branch. Sharing is now migration
+`0015_sharing`.
 `STATUS.md` is the evidence ledger. This file is the baton for the next
 slice. Do not delete it until that slice has absorbed it.
+
+Products, one standard price book per organization, and standard prices
+in integer cents are in `src/lib/crm/products.ts` and migration
+`0014_products`. Opportunity line items and custom price books are not
+built. Undelete and opportunity contact-role writes are gated (from main).
+The remaining permission gaps in section 3 are still open.
 
 The long-term experiment is a unified CRM with Salesforce-level feature
 breadth and strong correctness. The recurring build automation is paused
@@ -89,16 +97,20 @@ regressed. Evidence is the STATUS entry for this branch.
 
 Closed in the 2026-10-11 slice. Evidence is the STATUS entry.
 
-2. **Undelete uses the live delete rule.** `undeleteRecord` calls
-   `assertCanAccessRecord` for `delete`. `listDeletedRecords` uses the
-   same check, so the page does not offer a restore the domain will
-   refuse. Modify-all is still `users.role` admin plus an admin
-   membership, not membership admin alone.
+2. **Undelete uses read plus the live delete rule.** A row the actor
+   cannot read is not found. A readable row is listed and restored only
+   when `canAccessRecord` allows `delete`. Under Public Read Only the
+   bin omits another user's row and undelete is forbidden. Under
+   Private the bin omits it and undelete is not found. Modify-all is
+   still `users.role` admin plus an admin membership, not membership
+   admin alone.
 3. **Opportunity contact-role writes require edit on the opportunity.**
    Create (including lead convert), update, and delete of one role call
-   `assertCanEditOpportunityRoles`. The opportunity page hides Add role,
-   Make primary, and Remove when that check is false. Cascades from
-   deleting the opportunity or the contact do not use that check.
+   `assertOpportunityEditable`. An unreadable opportunity is not found.
+   The opportunity page hides Add role, Make primary, and Remove when
+   that check is false. Deleting the opportunity still clears junction
+   rows without the edit check. Deleting the contact refuses, and
+   changes nothing, when a related opportunity is not editable.
 
 Closed in the 2026-10-11 Change Owner slice. Evidence is the STATUS entry.
 
@@ -130,9 +142,9 @@ Still open:
    edit. Contact and lead
    detail omit only phone when it is unreadable; other hidden values
    become an em dash because `presentRecord` nulls them.
-8. **Cascade deletes bypass child task permissions.** Deleting a
-   contact, opportunity, or lead soft-deletes its tasks without checking
-   those tasks' owners.
+8. **Parent task delete refuses when a related task is not deletable.**
+   `deleteTasksForRecord` throws the generic dependent-records error
+   and deletes nothing. It does not skip the task owner.
 
 ## 4. Direction
 
@@ -141,7 +153,7 @@ Suggested order when work resumes:
 0. CI. A GitHub Actions workflow running `npm ci && npm run verify`.
 1. Close the rest of section 3. Hide Edit and Delete
    wherever `canAccessRecord` is false, including the edit page.
-   Cascade task deletes still skip the task owner. Mutation-test it.
+   Mutation-test it.
    Browser-test it on a throwaway `DATABASE_PATH`. Setup admin, Riley's
    membership, the seeded Read Only profile, undelete, opportunity
    contact-role writes, and Change Owner are done. Do not retry organization-wide

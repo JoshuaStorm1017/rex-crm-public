@@ -177,7 +177,7 @@ describe("drizzle journal", () => {
   it("applies the newest migration onto a database that already has the previous one", () => {
     const journal = readJournal();
     const prior = journal.entries.slice(0, -1);
-    expect(prior.at(-1)?.tag).toBe("0012_orgs");
+    expect(prior.at(-1)?.tag).toBe("0014_products");
     const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-"));
     const sqlite = new Database(path.join(dir, "rex.sqlite"));
     try {
@@ -188,10 +188,14 @@ describe("drizzle journal", () => {
       expect(
         sqlite
           .prepare(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'profiles'",
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'org_wide_defaults'",
           )
           .get(),
       ).toBeUndefined();
+      const columnsBefore = sqlite
+        .prepare("PRAGMA table_info(org_memberships)")
+        .all() as { name: string }[];
+      expect(columnsBefore.map((column) => column.name)).not.toContain("role_id");
       const orgBefore = sqlite
         .prepare("SELECT id, name FROM organizations")
         .get() as { id: string; name: string };
@@ -199,18 +203,25 @@ describe("drizzle journal", () => {
 
       migrate(drizzle(sqlite), { migrationsFolder });
 
-      const profile = sqlite
-        .prepare(
-          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'profiles'",
-        )
-        .get() as { name: string };
-      expect(profile.name).toBe("profiles");
+      for (const table of [
+        "products",
+        "price_books",
+        "price_book_entries",
+        "org_wide_defaults",
+        "roles",
+        "sharing_rules",
+      ]) {
+        const row = sqlite
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+          )
+          .get(table) as { name: string } | undefined;
+        expect(row?.name).toBe(table);
+      }
       const membershipColumns = sqlite
         .prepare("PRAGMA table_info(org_memberships)")
         .all() as { name: string }[];
-      expect(membershipColumns.map((column) => column.name)).toContain(
-        "profile_id",
-      );
+      expect(membershipColumns.map((column) => column.name)).toContain("role_id");
       const backfilled = sqlite
         .prepare("SELECT org_id FROM accounts WHERE id = ?")
         .get("001MIGRATE") as { org_id: string };

@@ -6,6 +6,9 @@ export const ID_PREFIX = {
   lead: "00Q",
   opportunity: "006",
   opportunityContactRole: "00K",
+  product: "01t",
+  priceBook: "01s",
+  priceBookEntry: "01u",
   task: "00T",
   listView: "00B",
   report: "00O",
@@ -22,6 +25,9 @@ export const ID_PREFIX = {
   profile: "00e",
   objectPermission: "obp",
   fieldPermission: "fls",
+  orgWideDefault: "owd",
+  role: "00E",
+  sharingRule: "0sr",
 } as const;
 
 export type IdPrefix = (typeof ID_PREFIX)[keyof typeof ID_PREFIX];

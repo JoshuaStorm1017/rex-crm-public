@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
@@ -45,12 +46,14 @@ export const orgMemberships = sqliteTable(
       .references(() => users.id),
     role: text("role").notNull(),
     profileId: text("profile_id"),
+    roleId: text("role_id"),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [
     uniqueIndex("org_memberships_org_user_uidx").on(table.orgId, table.userId),
     index("org_memberships_user_idx").on(table.userId),
     index("org_memberships_profile_idx").on(table.profileId),
+    index("org_memberships_role_idx").on(table.roleId),
   ],
 );
 
@@ -542,5 +545,148 @@ export const customFieldValues = sqliteTable(
       table.recordId,
     ),
     index("custom_field_values_org_idx").on(table.orgId),
+  ],
+);
+
+export const orgWideDefaults = sqliteTable(
+  "org_wide_defaults",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id),
+    objectType: text("object_type").notNull(),
+    access: text("access").notNull(),
+    grantHierarchy: integer("grant_hierarchy", { mode: "boolean" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("org_wide_defaults_org_object_uidx").on(table.orgId, table.objectType),
+  ],
+);
+
+export const roles = sqliteTable(
+  "roles",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id),
+    name: text("name").notNull(),
+    parentRoleId: text("parent_role_id"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    deletedAt: integer("deleted_at"),
+  },
+  (table) => [
+    index("roles_org_idx").on(table.orgId),
+    uniqueIndex("roles_org_name_uidx")
+      .on(table.orgId, table.name)
+      .where(sql`${table.deletedAt} is null`),
+  ],
+);
+
+export const sharingRules = sqliteTable(
+  "sharing_rules",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id),
+    name: text("name").notNull(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id),
+    objectType: text("object_type").notNull(),
+    access: text("access").notNull(),
+    shareWithRoleId: text("share_with_role_id").notNull(),
+    includeSubordinates: integer("include_subordinates", { mode: "boolean" }).notNull(),
+    active: integer("active", { mode: "boolean" }).notNull(),
+    criteria: text("criteria").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    updatedBy: text("updated_by")
+      .notNull()
+      .references(() => users.id),
+    deletedAt: integer("deleted_at"),
+  },
+  (table) => [index("sharing_rules_org_idx").on(table.orgId)],
+);
+
+export const products = sqliteTable(
+  "products",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull().default(LOCAL_ORG_ID),
+    name: text("name").notNull(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id),
+    productCode: text("product_code"),
+    family: text("family"),
+    description: text("description"),
+    isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    deletedAt: integer("deleted_at"),
+  },
+  (table) => [
+    index("products_org_idx").on(table.orgId),
+    uniqueIndex("products_org_code_live_uidx")
+      .on(table.orgId, table.productCode)
+      .where(sql`deleted_at is null and product_code is not null`),
+  ],
+);
+
+export const priceBooks = sqliteTable(
+  "price_books",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull().default(LOCAL_ORG_ID),
+    name: text("name").notNull(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id),
+    isStandard: integer("is_standard", { mode: "boolean" }).notNull().default(false),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+  },
+  (table) => [
+    index("price_books_org_idx").on(table.orgId),
+    uniqueIndex("price_books_one_standard_uidx")
+      .on(table.orgId)
+      .where(sql`is_standard = 1`),
+  ],
+);
+
+export const priceBookEntries = sqliteTable(
+  "price_book_entries",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull().default(LOCAL_ORG_ID),
+    priceBookId: text("price_book_id")
+      .notNull()
+      .references(() => priceBooks.id),
+    productId: text("product_id")
+      .notNull()
+      .references(() => products.id),
+    unitPriceCents: integer("unit_price_cents").notNull(),
+    isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("price_book_entries_book_product_uidx").on(
+      table.priceBookId,
+      table.productId,
+    ),
+    index("price_book_entries_org_idx").on(table.orgId),
+    index("price_book_entries_product_idx").on(table.productId),
   ],
 );

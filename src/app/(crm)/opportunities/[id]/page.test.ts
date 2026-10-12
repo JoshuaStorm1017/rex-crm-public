@@ -30,11 +30,12 @@ import { LOCAL_ACTOR, actorFor, type Actor } from "@/lib/crm/actor";
 import { createAccount } from "@/lib/crm/accounts";
 import { LOCAL_ORG_ID, LOCAL_USER_ID, RILEY_USER_ID } from "@/lib/crm/constants";
 import { createContact } from "@/lib/crm/contacts";
-import { createOpportunity } from "@/lib/crm/opportunities";
+import { createOpportunity, getOpportunity } from "@/lib/crm/opportunities";
 import { createOpportunityContactRole } from "@/lib/crm/opportunityContactRoles";
 import { addMember } from "@/lib/crm/orgs";
 import { canAccessRecord } from "@/lib/crm/permissions";
-import { createProfile, setObjectPermission } from "@/lib/crm/profiles";
+import { createProfile, setFieldPermission, setObjectPermission } from "@/lib/crm/profiles";
+import { assignUserRole, createRole, createSharingRule, setOrgWideDefault } from "@/lib/crm/sharing";
 import { createUser, getUser, type PublicUser } from "@/lib/crm/users";
 import { getDb, openMemoryDb, type Db } from "@/lib/db/client";
 import OpportunityDetailPage from "./page";
@@ -256,5 +257,100 @@ describe("opportunity detail contact roles", () => {
     expect(asEditor).toContain(`/opportunities/${editDeal.id}/owner`);
     expect(asEditor).toContain("Speedy Gonzales");
     expect(asEditor).not.toContain(DENIED);
+  });
+
+  it("uses the stored opportunity, not the redacted copy, for contact-role edit", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const user = createUser(db, {
+      name: "Stage Reader",
+      email: "stage.reader@example.com",
+      username: "stagereader",
+      password: "long-enough",
+    });
+    const profileId = createProfile(db, LOCAL_ACTOR, "Hide Stage");
+    for (const objectType of ["account", "contact", "opportunity"] as const) {
+      setObjectPermission(db, LOCAL_ACTOR, profileId, objectType, FULL);
+    }
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "opportunity", "stage", {
+      canRead: false,
+      canEdit: false,
+    });
+    addMember(db, LOCAL_ORG_ID, user.id, "member", profileId);
+    const actor = actorFor(user.id);
+    const role = createRole(db, LOCAL_ACTOR, { name: "Stage Role" });
+    assignUserRole(db, LOCAL_ACTOR, user.id, role.id);
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Stage Co" });
+    const onDeal = createContact(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      lastName: "Coyote",
+    });
+    createContact(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      lastName: "Runner",
+    });
+    const opportunity = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Stage Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-20",
+    });
+    createOpportunityContactRole(db, LOCAL_ACTOR, {
+      opportunityId: opportunity.id,
+      contactId: onDeal.id,
+      role: "Influencer",
+    });
+    setOrgWideDefault(db, LOCAL_ACTOR, "opportunity", "private", true);
+    createSharingRule(db, LOCAL_ACTOR, {
+      name: "Prospecting deals",
+      objectType: "opportunity",
+      access: "read_write",
+      shareWithRoleId: role.id,
+      criteria: [{ field: "stage", operator: "equals", value: "Prospecting" }],
+    });
+    const presented = getOpportunity(db, actor, opportunity.id);
+    expect(presented?.stage).toBeNull();
+    expect(canAccessRecord(db, actor, "opportunity", "edit", presented!)).toBe(false);
+    expect(canAccessRecord(db, actor, "opportunity", "edit", opportunity)).toBe(true);
+
+    vi.mocked(requireActor).mockResolvedValue({
+      userId: user.id,
+      orgId: LOCAL_ORG_ID,
+      user,
+    });
+    const granted = await renderOpportunity(opportunity.id);
+    expect(granted).toContain("Make primary");
+    expect(granted).toContain("Remove");
+    expect(granted).toContain("Add role");
+    expect(granted).not.toContain(DENIED);
+
+    const blank = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Blank Stage Deal",
+      stage: "Qualification",
+      closeDate: "2026-12-21",
+    });
+    createOpportunityContactRole(db, LOCAL_ACTOR, {
+      opportunityId: blank.id,
+      contactId: onDeal.id,
+      role: "Other",
+    });
+    setOrgWideDefault(db, LOCAL_ACTOR, "opportunity", "public_read", true);
+    createSharingRule(db, LOCAL_ACTOR, {
+      name: "Blank stage",
+      objectType: "opportunity",
+      access: "read_write",
+      shareWithRoleId: role.id,
+      criteria: [{ field: "stage", operator: "is_blank" }],
+    });
+    const blankPresented = getOpportunity(db, actor, blank.id);
+    expect(blankPresented?.stage).toBeNull();
+    expect(canAccessRecord(db, actor, "opportunity", "edit", blankPresented!)).toBe(true);
+    expect(canAccessRecord(db, actor, "opportunity", "edit", blank)).toBe(false);
+    const denied = await renderOpportunity(blank.id);
+    expect(denied).toContain(DENIED);
+    expect(denied).not.toContain("Make primary");
+    expect(denied).not.toContain("Remove");
+    expect(denied).not.toContain("Add role");
   });
 });

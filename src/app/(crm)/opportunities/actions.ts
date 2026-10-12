@@ -2,9 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { getAccount } from "@/lib/crm/accounts";
 import {
   createOpportunity,
   deleteOpportunity,
+  getOpportunity,
   updateOpportunity,
 } from "@/lib/crm/opportunities";
 import { withCustomFieldWrite } from "@/lib/crm/customFields";
@@ -25,6 +27,7 @@ import {
   blank,
   formatError,
   optionalInt,
+  SAVED_HIDDEN_NOTICE,
   type ActionState,
 } from "@/lib/crm/form";
 import { requireActor } from "@/lib/crm/currentUser";
@@ -70,22 +73,40 @@ function opportunityFields(formData: FormData) {
   };
 }
 
+function opportunityDestination(
+  actor: Awaited<ReturnType<typeof requireActor>>,
+  id: string,
+): string {
+  if (!getOpportunity(getDb(), actor, id)) {
+    return `/opportunities?notice=${encodeURIComponent(SAVED_HIDDEN_NOTICE)}`;
+  }
+  return `/opportunities/${id}`;
+}
+
 export async function createOpportunityAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  let opportunity;
+  let accountId = "";
+  let destination: string;
   try {
     const actor = await requireActor();
-    opportunity = withCustomFieldWrite(
-      getDb(), actor, "opportunity", formData, (tx) => createOpportunity(tx, actor, opportunityFields(formData))    );
+    const opportunity = withCustomFieldWrite(
+      getDb(),
+      actor,
+      "opportunity",
+      formData,
+      (tx) => createOpportunity(tx, actor, opportunityFields(formData)),
+    );
+    accountId = opportunity.accountId;
+    destination = opportunityDestination(actor, opportunity.id);
   } catch (error) {
     return { error: formatError(error) };
   }
   revalidatePath("/opportunities");
-  revalidatePath(`/accounts/${opportunity.accountId}`);
+  revalidatePath(`/accounts/${accountId}`);
   revalidatePath("/");
-  redirect(`/opportunities/${opportunity.id}`);
+  redirect(destination);
 }
 
 export async function updateOpportunityAction(
@@ -93,10 +114,11 @@ export async function updateOpportunityAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  let opportunity;
+  let accountId = "";
+  let destination: string;
   try {
     const actor = await requireActor();
-    opportunity = withCustomFieldWrite(
+    const opportunity = withCustomFieldWrite(
       getDb(),
       actor,
       "opportunity",
@@ -104,30 +126,38 @@ export async function updateOpportunityAction(
       (tx) =>
         updateOpportunity(tx, actor, id, parseOpportunityUpdateFormData(formData)),
     );
+    accountId = opportunity.accountId;
+    destination = opportunityDestination(actor, opportunity.id);
   } catch (error) {
     return { error: formatError(error) };
   }
   revalidatePath("/opportunities");
-  revalidatePath(`/opportunities/${opportunity.id}`);
-  revalidatePath(`/accounts/${opportunity.accountId}`);
+  revalidatePath(`/opportunities/${id}`);
+  revalidatePath(`/accounts/${accountId}`);
   revalidatePath("/");
-  redirect(`/opportunities/${opportunity.id}`);
+  redirect(destination);
 }
 
-export async function deleteOpportunityAction(
-  id: string,
-  accountId: string,
-): Promise<void> {
+export async function deleteOpportunityAction(id: string): Promise<void> {
+  let destination = "/opportunities";
   try {
     const actor = await requireActor();
-    deleteOpportunity(getDb(), actor, id);
+    const db = getDb();
+    const opportunity = getOpportunity(db, actor, id);
+    const account = opportunity
+      ? getAccount(db, actor, opportunity.accountId)
+      : undefined;
+    deleteOpportunity(db, actor, id);
+    if (account) {
+      destination = `/accounts/${account.id}`;
+      revalidatePath(destination);
+    }
   } catch (error) {
     redirect(`/opportunities/${id}?notice=${encodeURIComponent(formatError(error))}`);
   }
   revalidatePath("/opportunities");
-  revalidatePath(`/accounts/${accountId}`);
   revalidatePath("/");
-  redirect(`/accounts/${accountId}`);
+  redirect(destination);
 }
 
 export async function addOpportunityContactRoleAction(
