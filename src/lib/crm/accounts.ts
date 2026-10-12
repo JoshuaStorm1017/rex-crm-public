@@ -67,14 +67,26 @@ function loadAccount(
   return row;
 }
 
-export function getAccount(
+/**
+ * Stored row when this actor can read it. Sharing checks need the real
+ * criteria fields. `getAccount` is the copy with hidden fields removed.
+ */
+export function readAccount(
   db: Db,
   actor: Actor,
   id: string,
 ): Account | undefined {
   assertActor(db, actor);
   if (!canPerform(db, actor, "account", "read")) return undefined;
-  const row = loadAccount(db, actor, id);
+  return loadAccount(db, actor, id);
+}
+
+export function getAccount(
+  db: Db,
+  actor: Actor,
+  id: string,
+): Account | undefined {
+  const row = readAccount(db, actor, id);
   return row ? presentRecord(db, actor, "account", row) : undefined;
 }
 
@@ -354,6 +366,10 @@ export type AccountHierarchyNode = {
  * The whole tree the account belongs to, from its ultimate parent down,
  * in display order: each account followed by its children, siblings by
  * name. Salesforce's "View Account Hierarchy".
+ *
+ * An account the actor cannot read is not rendered. The walk continues
+ * through that node, so a visible descendant stays under the nearest
+ * visible ancestor instead of dropping out of the tree.
  */
 export function getAccountHierarchy(
   db: Db,
@@ -370,14 +386,26 @@ export function getAccountHierarchy(
     actor,
     tree.map((node) => node.id),
   );
+  const parentOf = new Map(tree.map((node) => [node.id, node.parentId]));
+  const nearestVisible = (parentId: string | null): string | null => {
+    const seen = new Set<string>();
+    let current = parentId;
+    while (current && !seen.has(current)) {
+      if (byId.has(current)) return current;
+      seen.add(current);
+      current = parentOf.get(current) ?? null;
+    }
+    return null;
+  };
   const children = new Map<string, Account[]>();
   for (const node of tree) {
-    if (node.parentId == null) continue;
     const account = byId.get(node.id);
     if (!account) continue;
-    const siblings = children.get(node.parentId) ?? [];
+    const parentId = nearestVisible(node.parentId);
+    if (!parentId) continue;
+    const siblings = children.get(parentId) ?? [];
     siblings.push(account);
-    children.set(node.parentId, siblings);
+    children.set(parentId, siblings);
   }
   if (!byId.has(id)) return undefined;
   let rootId = ultimateId;

@@ -299,9 +299,15 @@ export function deleteContact(db: Db, actor: Actor, id: string): void {
       ),
     )
     .all();
-  // A direct report this actor cannot edit blocks the delete. Nothing is
-  // cleared, including reports they can edit.
-  if (reports.some((row) => !canAccessRecord(db, actor, "contact", "edit", row))) {
+  // A direct report this actor can read but cannot edit blocks the delete.
+  // A report they cannot read does not block and is not cleared.
+  if (
+    reports.some(
+      (row) =>
+        canReadRecord(db, actor, "contact", row) &&
+        !canAccessRecord(db, actor, "contact", "edit", row),
+    )
+  ) {
     throw new DomainError(
       "HAS_CHILDREN",
       "Cannot delete this record while other records still depend on it",
@@ -313,6 +319,7 @@ export function deleteContact(db: Db, actor: Actor, id: string): void {
   deleteCustomValuesForRecord(db, id);
   const ts = now();
   for (const row of reports) {
+    if (!canReadRecord(db, actor, "contact", row)) continue;
     if (!canAccessRecord(db, actor, "contact", "edit", row)) continue;
     db.update(contacts)
       .set({ reportsToId: null, updatedAt: ts })

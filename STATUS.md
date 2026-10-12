@@ -10,12 +10,14 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-12, relationship writes, field redaction, and the merged undelete gate.
+Last updated: 2026-10-12, private related rows, hierarchy, and stored-field access checks.
 
 The sections dated 2026-10-11 describe the tree verified that day.
 Contact delete no longer clears every junction row or every Reports To
 link. Under Public Read Only the recycle bin no longer lists another
-user's row. The current rules are the 2026-10-12 entry below.
+user's row. The current rules are the latest 2026-10-12 entry. The
+earlier 2026-10-12 entry still describes undelete and two-condition
+sharing rules.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -38,6 +40,72 @@ user's row. The current rules are the 2026-10-12 entry below.
 ## WORKS
 
 Things actually run, with evidence.
+
+### Private related rows, hierarchy, and stored-field checks (2026-10-12)
+
+Closed the review on sharing leaks and relationship writes. A contact
+move counts every live opportunity role in the org, including a private
+opportunity and one the actor's profile cannot read. The error stays
+"Cannot move a contact that is on an opportunity" and does not name the
+deal. The account id is unchanged and the role remains.
+
+Deleting a record the actor can see no longer confirms a hidden
+dependent. A private task, direct report, or opportunity role does not
+block the delete and is not cleared or deleted. A task, direct report,
+or opportunity the actor can read but cannot delete or edit still
+blocks the whole delete. Nothing else is changed, and the message does
+not name the row. When the delete is allowed, a role on an opportunity
+the actor owns is removed and a role on a private opportunity stays.
+
+Account detail shows Parent only when the stored parent account is
+readable. A hidden direct parent is an em dash, not the nearest visible
+ancestor. The hierarchy walk skips a hidden account and keeps a visible
+descendant under the nearest visible ancestor. The operator, with
+modify-all, still sees the hidden account in the tree.
+
+Edit and Delete on the account page, and the opportunity contact-role
+controls, call the access check with the stored row. A profile that
+hides billing state or stage cannot grant or deny that check from the
+blank the redacted copy would show. A read/write rule on billing state
+equals AZ shows Edit and does not show Delete. A read/write rule on
+billing state is blank does not show Edit when the stored state is WA.
+The same split holds for opportunity stage equals Prospecting versus
+stage is blank.
+
+A contact's opportunity list blanks name, stage, and close date unless
+the profile can read that field. Recently viewed for the other member
+is empty after each of the five objects is set to private, and the
+payload does not contain the record name. The five view rows stay
+stored. Task lists show "—" for a private account, contact, lead, or
+opportunity, and those names are absent. The owner still sees them.
+
+- **`npm run verify` (2026-10-12, 01:25 EDT):** exit 0. 39 test files,
+  436 tests (was 38 files, 426). TypeScript, ESLint, and the Next.js
+  16.3.5 production build passed. `NO_COLOR`/`FORCE_COLOR` warnings
+  only.
+- **Mutation re-check, each change restored before that verify.**
+  Dropping the recently viewed read check for account, contact, lead,
+  opportunity, or task put that record back in the other member's
+  list. Dropping the task related-name check for account, contact,
+  lead, or opportunity put the private name back in `listTasks`.
+  Blocking parent delete on an unreadable task, and skipping the task
+  delete check, both failed. Counting only readable opportunity roles
+  let the contact move. Blocking contact delete on an unreadable
+  opportunity, and deleting that role anyway, both failed. Blocking
+  on an unreadable direct report, and clearing that report, both
+  failed. Attaching hierarchy children to a hidden parent dropped the
+  visible account. Labeling the nearest visible ancestor as Parent
+  put that ancestor in the Parent Account field. Checking Edit or
+  contact-role controls on the redacted row disagreed with the stored
+  sharing fields. Returning the raw opportunity name, stage, or close
+  date leaked it. All 23 source edits were put back.
+- **UI.** `renderToStaticMarkup` of the account and opportunity detail
+  pages on a memory database. Riley's page for an account whose direct
+  parent is private contained neither the hidden name nor its id. The
+  Parent Account value was an em dash, and the hierarchy still listed
+  the visible ancestor, the account, and its child. A readable direct
+  parent was a link. Chrome DevTools did not connect, so this was not
+  a viewport or click pass. No dev server was started.
 
 ### Relationship writes, field redaction, and the merged undelete gate (2026-10-12)
 
@@ -911,8 +979,9 @@ on the existing file (1 list view, 0 of everything else).
   No empty-bin. Undelete does not restore tasks or other children that
   were soft-deleted with the parent. No hard purge. Junction roles are
   still hard-deleted with the parent opportunity. Contact delete refuses
-  when a related opportunity is not editable, or when a direct report
-  is not editable, and changes nothing.
+  when a related opportunity or direct report is readable but not
+  editable, and changes nothing. An unreadable task, direct report, or
+  opportunity role does not block that delete and is left in place.
 - **Sharing** — login is real. Another org's records are hidden
   (`0012_orgs`). Inside one org, Public Read Only is the default, so
   a member whose profile can read the object still sees every record
@@ -943,8 +1012,11 @@ on the existing file (1 list view, 0 of everything else).
   rows beyond "read 40, show 8 live". Search does not write a view.
 - **Account hierarchy** (session 13, Claude) — Parent Account is a
   picker that excludes the account and its descendants; the domain
-  refuses cycles of any depth. Detail shows an ancestor breadcrumb and
-  the whole tree from the ultimate parent. No rollups up the tree
+  refuses cycles of any depth. Detail shows an ancestor breadcrumb of
+  accounts the actor can read. The Parent field is the stored parent
+  only when that account is readable; otherwise it is an em dash. The
+  hierarchy skips an unreadable account and keeps a visible descendant
+  under the nearest visible ancestor. No rollups up the tree
   (e.g. total pipeline for Acme including children). Depth is capped at
   50 levels in the walk.
 - **Lead convert** — optional `accountId` attaches to a live account and

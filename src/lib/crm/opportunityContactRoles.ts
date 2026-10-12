@@ -184,13 +184,16 @@ export function listOpportunityContactRolesForContact(
     )
     .orderBy(opportunities.closeDate, opportunities.name)
     .all();
+  const nameReadable = canReadField(db, actor, "opportunity", "name");
+  const stageReadable = canReadField(db, actor, "opportunity", "stage");
+  const closeReadable = canReadField(db, actor, "opportunity", "closeDate");
   return rows
     .filter((row) => canReadRecord(db, actor, "opportunity", row.opportunity))
     .map((row) => ({
       ...row.role,
-      opportunityName: row.opportunity.name,
-      opportunityStage: row.opportunity.stage,
-      opportunityCloseDate: row.opportunity.closeDate,
+      opportunityName: nameReadable ? row.opportunity.name : "—",
+      opportunityStage: stageReadable ? row.opportunity.stage : "—",
+      opportunityCloseDate: closeReadable ? row.opportunity.closeDate : "—",
     }));
 }
 
@@ -419,16 +422,8 @@ export function deleteOpportunityContactRolesForOpportunity(
 const DEPENDENT_RECORDS =
   "Cannot delete this record while other records still depend on it";
 
-/**
- * A live opportunity the actor cannot edit blocks contact delete. The
- * error does not name the opportunity. Orphan roles are not a block.
- */
-export function assertOpportunityContactRolesAllowContactDelete(
-  db: Db,
-  actor: Actor,
-  contactId: string,
-): void {
-  const roles = db
+function rolesForContact(db: Db, actor: Actor, contactId: string) {
+  return db
     .select()
     .from(opportunityContactRoles)
     .where(
@@ -438,9 +433,23 @@ export function assertOpportunityContactRolesAllowContactDelete(
       ),
     )
     .all();
-  for (const role of roles) {
+}
+
+/**
+ * A live opportunity the actor can read but cannot edit blocks contact
+ * delete. An opportunity they cannot read does not block and is left in
+ * place. The error does not name the opportunity. Orphan roles are not
+ * a block.
+ */
+export function assertOpportunityContactRolesAllowContactDelete(
+  db: Db,
+  actor: Actor,
+  contactId: string,
+): void {
+  for (const role of rolesForContact(db, actor, contactId)) {
     const opportunity = getLiveOpportunity(db, actor, role.opportunityId);
     if (!opportunity) continue;
+    if (!canReadRecord(db, actor, "opportunity", opportunity)) continue;
     if (!canAccessRecord(db, actor, "opportunity", "edit", opportunity)) {
       throw new DomainError("HAS_CHILDREN", DEPENDENT_RECORDS);
     }
@@ -454,20 +463,35 @@ export function deleteOpportunityContactRolesForContact(
 ): void {
   assertActor(db, actor);
   assertOpportunityContactRolesAllowContactDelete(db, actor, contactId);
-  db.delete(opportunityContactRoles)
-    .where(
-      and(
-        eq(opportunityContactRoles.contactId, contactId),
-        eq(opportunityContactRoles.orgId, actor.orgId),
-      ),
-    )
-    .run();
+  for (const role of rolesForContact(db, actor, contactId)) {
+    const opportunity = getLiveOpportunity(db, actor, role.opportunityId);
+    if (opportunity && !canReadRecord(db, actor, "opportunity", opportunity)) {
+      continue;
+    }
+    db.delete(opportunityContactRoles)
+      .where(
+        and(
+          eq(opportunityContactRoles.id, role.id),
+          eq(opportunityContactRoles.orgId, actor.orgId),
+        ),
+      )
+      .run();
+  }
 }
 
+/**
+ * Every live opportunity role in this org, including one the actor cannot
+ * read. Moving the contact would leave that opportunity on the old account.
+ */
 export function countOpportunityContactRolesForContact(
   db: Db,
   actor: Actor,
   contactId: string,
 ): number {
-  return listOpportunityContactRolesForContact(db, actor, contactId).length;
+  assertActor(db, actor);
+  let n = 0;
+  for (const role of rolesForContact(db, actor, contactId)) {
+    if (getLiveOpportunity(db, actor, role.opportunityId)) n += 1;
+  }
+  return n;
 }

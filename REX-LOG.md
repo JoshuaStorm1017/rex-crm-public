@@ -1,5 +1,13 @@
 # Rex log
 
+## 2026-10-12 01:25 EDT
+
+Closed the sharing review instead of starting a feature. A contact move now counts every live opportunity role in the org, so a private deal or a profile with no opportunity read cannot leave the contact and the opportunity on different accounts. The error stays generic. Delete no longer treats a private task, direct report, or opportunity role as proof that a hidden row exists: those rows do not block the delete and are not cleared. A readable row the actor cannot edit or delete still blocks the whole delete. Account Parent is the stored parent only when that account is readable. The hierarchy walks past a hidden account without rendering it, so a visible child stays in the tree. Edit, Delete, and opportunity contact-role controls use the stored row, so a hidden criteria field cannot grant or deny access from a blank. Contact opportunity lists blank a hidden name, stage, and close date. Recently viewed and task related names omit a private record for all five objects.
+
+`npm run verify` exited 0 at 01:25 EDT: 39 files, 436 tests, Next.js 16.3.5 build. Twenty-three mutations were re-applied, each failed the new test, and each was restored before that run. Account and opportunity detail markup was checked with `renderToStaticMarkup`. Chrome DevTools did not connect, so there was no viewport pass.
+
+Next: manual shares and owner-based rules, then teams, queues, and territories. Permission sets and a profile setup screen are still open. Change Owner, and hiding Edit and Delete on detail pages other than accounts, are still open. Opportunity detail still shows Edit and Delete before the domain refuses the save.
+
 ## 2026-10-12 00:31 EDT
 
 Finished the open sharing review instead of starting a feature. Merged `origin/main` and kept both behaviors: undelete now requires a readable row and the delete check, and opportunity contact-role writes still require edit on a readable opportunity. Contact delete refuses, and writes nothing, when a related opportunity or a direct report is not editable. A hidden parent or manager is left off the edit form, and a null save keeps the stored id. Cycle checks walk only readable rows and use a generic error, so a cycle through a hidden record can be saved. Recently viewed and contact-role lists redact fields the profile cannot read. A two-condition sharing rule must match both conditions in list, search, and report. Creating an account without object read does not throw a duplicate error.

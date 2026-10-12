@@ -14,9 +14,9 @@ import { CONTACT_ROLES } from "@/lib/crm/constants";
 import { listContactsForAccount } from "@/lib/crm/contacts";
 import { getCustomValues } from "@/lib/crm/customFields";
 import { formatUsd } from "@/lib/crm/money";
-import { getOpportunity } from "@/lib/crm/opportunities";
+import { readOpportunity } from "@/lib/crm/opportunities";
 import { listOpportunityContactRoles } from "@/lib/crm/opportunityContactRoles";
-import { canAccessRecord } from "@/lib/crm/permissions";
+import { canAccessRecord, presentRecord } from "@/lib/crm/permissions";
 import { recordView } from "@/lib/crm/recentlyViewed";
 import { listTasksForRecord } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
@@ -55,12 +55,13 @@ export default async function OpportunityDetailPage({
   const { notice } = await searchParams;
   const actor = await requireActor();
   const db = getDb();
-  const opportunity = getOpportunity(db, actor, id);
-  if (!opportunity) notFound();
+  const stored = readOpportunity(db, actor, id);
+  if (!stored) notFound();
+  const opportunity = presentRecord(db, actor, "opportunity", stored);
   recordView(db, actor, "opportunity", opportunity.id);
   const account = getAccount(db, actor, opportunity.accountId);
   const roles = listOpportunityContactRoles(db, actor, opportunity.id);
-  const canEditRoles = canAccessRecord(db, actor, "opportunity", "edit", opportunity);
+  const canEditRoles = canAccessRecord(db, actor, "opportunity", "edit", stored);
   const taken = new Set(roles.map((role) => role.contactId));
   const accountContacts = listContactsForAccount(db, actor, opportunity.accountId);
   const eligibleContacts = accountContacts.filter(

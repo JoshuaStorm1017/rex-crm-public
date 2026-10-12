@@ -6,6 +6,7 @@ import {
   createAccount,
   deleteAccount,
   getAccount,
+  getAccountHierarchy,
   listAccounts,
   listChildAccounts,
   listEligibleParentAccounts,
@@ -650,9 +651,80 @@ describe("organization-wide defaults, roles, and sharing rules", () => {
     const keptManager = updateContact(db, riley, visibleReport.id, { reportsToId: null });
     expect(keptManager.reportsToId).toBe(hiddenReport.id);
 
-    expectCode(() => deleteContact(db, riley, manager.id), "HAS_CHILDREN");
-    expect(getContact(db, riley, manager.id)?.lastName).toBe("Boss");
+    deleteContact(db, riley, manager.id);
+    expect(getContact(db, riley, manager.id)).toBeUndefined();
     expect(getContact(db, LOCAL_ACTOR, hiddenReport.id)?.reportsToId).toBe(manager.id);
     expect(getContact(db, riley, visibleReport.id)?.reportsToId).toBe(hiddenReport.id);
+  });
+
+  it("keeps a visible account in the hierarchy when its parent is hidden", () => {
+    const db = memory();
+    const top = createAccount(db, riley, { name: "Top Co" });
+    const hidden = createAccount(db, LOCAL_ACTOR, { name: "Hidden Mid" });
+    const leaf = createAccount(db, riley, { name: "Visible Leaf" });
+    const child = createAccount(db, riley, {
+      name: "Visible Child",
+      parentAccountId: leaf.id,
+    });
+    updateAccount(db, LOCAL_ACTOR, hidden.id, { parentAccountId: top.id });
+    updateAccount(db, LOCAL_ACTOR, leaf.id, { parentAccountId: hidden.id });
+    privateAccounts(db);
+
+    const hierarchy = getAccountHierarchy(db, riley, leaf.id)!;
+    expect(
+      hierarchy.nodes.map((node) => [node.account.name, node.depth, node.isCurrent]),
+    ).toEqual([
+      ["Top Co", 0, false],
+      ["Visible Leaf", 1, true],
+      ["Visible Child", 2, false],
+    ]);
+    expect(hierarchy.nodes.some((node) => node.account.id === hidden.id)).toBe(false);
+    expect(hierarchy.nodes.some((node) => node.account.name === "Hidden Mid")).toBe(false);
+
+    const fromTop = getAccountHierarchy(db, riley, top.id)!;
+    expect(fromTop.nodes.map((node) => node.account.name)).toEqual([
+      "Top Co",
+      "Visible Leaf",
+      "Visible Child",
+    ]);
+    expect(getAccountHierarchy(db, LOCAL_ACTOR, leaf.id)!.nodes.map((node) => node.account.name)).toEqual([
+      "Top Co",
+      "Hidden Mid",
+      "Visible Leaf",
+      "Visible Child",
+    ]);
+    expect(child.parentAccountId).toBe(leaf.id);
+  });
+
+  it("refuses contact delete when a readable direct report cannot be edited", () => {
+    const db = memory();
+    const account = createAccount(db, riley, { name: "Report Co" });
+    const manager = createContact(db, riley, {
+      accountId: account.id,
+      lastName: "Boss",
+    });
+    const seen = createContact(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      lastName: "Seen Report",
+      reportsToId: manager.id,
+    });
+    const own = createContact(db, riley, {
+      accountId: account.id,
+      lastName: "Own Report",
+      reportsToId: manager.id,
+    });
+    expect(getContact(db, riley, seen.id)?.lastName).toBe("Seen Report");
+    try {
+      deleteContact(db, riley, manager.id);
+      throw new Error("expected refusal");
+    } catch (error) {
+      expect(error).toBeInstanceOf(DomainError);
+      expect((error as DomainError).code).toBe("HAS_CHILDREN");
+      expect((error as DomainError).message).toMatch(/other records still depend/i);
+      expect((error as DomainError).message).not.toMatch(/Seen Report/);
+    }
+    expect(getContact(db, riley, manager.id)?.lastName).toBe("Boss");
+    expect(getContact(db, riley, own.id)?.reportsToId).toBe(manager.id);
+    expect(getContact(db, LOCAL_ACTOR, seen.id)?.reportsToId).toBe(manager.id);
   });
 });

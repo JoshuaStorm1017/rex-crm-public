@@ -384,20 +384,27 @@ export function deleteTasksForRecord(
     .from(tasks)
     .where(and(eq(tasks.relatedRecordId, relatedRecordId), liveTask(actor)))
     .all();
-  // Refuse the whole parent delete rather than soft-delete a task this actor
-  // cannot delete. The message does not name the task.
-  if (related.some((task) => !canAccessRecord(db, actor, "task", "delete", task))) {
-    throw new DomainError(
-      "HAS_CHILDREN",
-      "Cannot delete this record while other records still depend on it",
-    );
+  // A task this actor can read but cannot delete blocks the parent delete.
+  // A task they cannot read does not block and is not deleted. The message
+  // does not name the task.
+  const deletable: string[] = [];
+  for (const task of related) {
+    if (!canReadRecord(db, actor, "task", task)) continue;
+    if (!canAccessRecord(db, actor, "task", "delete", task)) {
+      throw new DomainError(
+        "HAS_CHILDREN",
+        "Cannot delete this record while other records still depend on it",
+      );
+    }
+    deletable.push(task.id);
   }
-  deleteCustomValuesForRecords(
-    db,
-    related.map((row) => row.id),
-  );
-  db.update(tasks)
-    .set({ deletedAt: now(), updatedAt: now() })
-    .where(and(eq(tasks.relatedRecordId, relatedRecordId), liveTask(actor)))
-    .run();
+  if (deletable.length === 0) return;
+  deleteCustomValuesForRecords(db, deletable);
+  const ts = now();
+  for (const id of deletable) {
+    db.update(tasks)
+      .set({ deletedAt: ts, updatedAt: ts })
+      .where(and(eq(tasks.id, id), eq(tasks.orgId, actor.orgId)))
+      .run();
+  }
 }

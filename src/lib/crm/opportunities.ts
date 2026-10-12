@@ -87,14 +87,26 @@ function loadOpportunity(
   return row;
 }
 
-export function getOpportunity(
+/**
+ * Stored row when this actor can read it. Sharing checks need the real
+ * criteria fields. `getOpportunity` is the copy with hidden fields removed.
+ */
+export function readOpportunity(
   db: Db,
   actor: Actor,
   id: string,
 ): Opportunity | undefined {
   assertActor(db, actor);
   if (!canPerform(db, actor, "opportunity", "read")) return undefined;
-  const row = loadOpportunity(db, actor, id);
+  return loadOpportunity(db, actor, id);
+}
+
+export function getOpportunity(
+  db: Db,
+  actor: Actor,
+  id: string,
+): Opportunity | undefined {
+  const row = readOpportunity(db, actor, id);
   return row ? presentRecord(db, actor, "opportunity", row) : undefined;
 }
 
