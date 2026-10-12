@@ -4,6 +4,7 @@ import { countContacts } from "@/lib/crm/contacts";
 import { countLeads } from "@/lib/crm/leads";
 import { recordLabel } from "@/lib/crm/objects";
 import { countOpportunities } from "@/lib/crm/opportunities";
+import { countProducts } from "@/lib/crm/products";
 import { listRecentlyViewed } from "@/lib/crm/recentlyViewed";
 import { countTasks } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
@@ -17,6 +18,7 @@ export default async function HomePage() {
   const contacts = countContacts(db, actor);
   const leads = countLeads(db, actor);
   const opportunities = countOpportunities(db, actor);
+  const products = countProducts(db, actor);
   const tasks = countTasks(db, actor);
   const recent = listRecentlyViewed(db, actor, 8);
 
@@ -26,16 +28,17 @@ export default async function HomePage() {
         <h1 className="text-2xl font-semibold">Home</h1>
         <p className="mt-1 text-sm text-[#5c564c]">
           Signed in as {user.name}. Accounts, Contacts, Leads, Opportunities,
-          and Tasks persist to local SQLite. Organization admins define custom
-          fields under Setup; those fields appear on new, edit, detail, and list
-          views. Opening a record writes recently viewed for this user.
-          Search matches name and email. Members of this organization see
-          its records. Other organizations are isolated.
-          Inside an organization there is still no organization-wide
-          default or role sharing.
+          Products, and Tasks persist to local SQLite. A product&apos;s price is
+          its standard price book entry, stored in cents. Organization admins
+          define custom fields under Setup; those fields appear on new, edit,
+          detail, and list views of the five original objects. Opening a
+          record writes recently viewed for this user. Search matches name and
+          email. Members of this organization see its records. Other
+          organizations are isolated. Inside an organization there is still no
+          organization-wide default or role sharing.
         </p>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Link
           href="/accounts"
           className="rounded-lg border border-[#d9d0c0] bg-white p-4 hover:border-[#c45c26]"
@@ -63,6 +66,13 @@ export default async function HomePage() {
         >
           <div className="text-sm text-[#5c564c]">Opportunities</div>
           <div className="mt-1 text-3xl font-semibold">{opportunities}</div>
+        </Link>
+        <Link
+          href="/products"
+          className="rounded-lg border border-[#d9d0c0] bg-white p-4 hover:border-[#c45c26]"
+        >
+          <div className="text-sm text-[#5c564c]">Products</div>
+          <div className="mt-1 text-3xl font-semibold">{products}</div>
         </Link>
         <Link
           href="/tasks"

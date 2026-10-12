@@ -177,7 +177,7 @@ describe("drizzle journal", () => {
   it("applies the newest migration onto a database that already has the previous one", () => {
     const journal = readJournal();
     const prior = journal.entries.slice(0, -1);
-    expect(prior.at(-1)?.tag).toBe("0012_orgs");
+    expect(prior.at(-1)?.tag).toBe("0013_profiles");
     const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-"));
     const sqlite = new Database(path.join(dir, "rex.sqlite"));
     try {
@@ -188,7 +188,7 @@ describe("drizzle journal", () => {
       expect(
         sqlite
           .prepare(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'profiles'",
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'products'",
           )
           .get(),
       ).toBeUndefined();
@@ -199,18 +199,14 @@ describe("drizzle journal", () => {
 
       migrate(drizzle(sqlite), { migrationsFolder });
 
-      const profile = sqlite
-        .prepare(
-          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'profiles'",
-        )
-        .get() as { name: string };
-      expect(profile.name).toBe("profiles");
-      const membershipColumns = sqlite
-        .prepare("PRAGMA table_info(org_memberships)")
-        .all() as { name: string }[];
-      expect(membershipColumns.map((column) => column.name)).toContain(
-        "profile_id",
-      );
+      for (const table of ["products", "price_books", "price_book_entries"]) {
+        const row = sqlite
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+          )
+          .get(table) as { name: string } | undefined;
+        expect(row?.name).toBe(table);
+      }
       const backfilled = sqlite
         .prepare("SELECT org_id FROM accounts WHERE id = ?")
         .get("001MIGRATE") as { org_id: string };

@@ -3,9 +3,16 @@
 > **Publication note.** Commit hashes and branch names below refer to the earlier
 > private repository this one began as a snapshot of. They do not resolve here.
 
-Updated 2026-10-11 after undelete and opportunity contact-role authorization.
+Updated 2026-10-12 after merging main (undelete and opportunity
+contact-role authorization) into the product catalog branch.
 `STATUS.md` is the evidence ledger. This file is the baton for the next
 slice. Do not delete it until that slice has absorbed it.
+
+Products, one standard price book per organization, and standard prices
+in integer cents are in `src/lib/crm/products.ts` and migration
+`0014_products`. Opportunity line items and custom price books are not
+built. Undelete and opportunity contact-role writes are gated (from main).
+The remaining permission gaps in section 3 are still open.
 
 The long-term experiment is a unified CRM with Salesforce-level feature
 breadth and strong correctness. The recurring build automation is paused
