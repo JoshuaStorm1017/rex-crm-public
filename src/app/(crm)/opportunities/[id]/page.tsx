@@ -14,11 +14,11 @@ import { CONTACT_ROLES } from "@/lib/crm/constants";
 import { listContactsForAccount } from "@/lib/crm/contacts";
 import { getCustomValues } from "@/lib/crm/customFields";
 import { formatUsd } from "@/lib/crm/money";
-import { getOpportunity } from "@/lib/crm/opportunities";
+import { readOpportunity } from "@/lib/crm/opportunities";
 import { listOpportunityContactRoles } from "@/lib/crm/opportunityContactRoles";
-import { canAccessRecord, canPerform } from "@/lib/crm/permissions";
+import { canAccessRecord, presentRecord } from "@/lib/crm/permissions";
 import { recordView } from "@/lib/crm/recentlyViewed";
-import { listTasksForRecord, withTaskEditAccess } from "@/lib/crm/tasks";
+import { listTasksForRecord } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
 import { ownerLabel } from "@/lib/crm/users";
 import { getDb } from "@/lib/db/client";
@@ -55,13 +55,13 @@ export default async function OpportunityDetailPage({
   const { notice } = await searchParams;
   const actor = await requireActor();
   const db = getDb();
-  const opportunity = getOpportunity(db, actor, id);
-  if (!opportunity) notFound();
+  const stored = readOpportunity(db, actor, id);
+  if (!stored) notFound();
+  const opportunity = presentRecord(db, actor, "opportunity", stored);
   recordView(db, actor, "opportunity", opportunity.id);
   const account = getAccount(db, actor, opportunity.accountId);
   const roles = listOpportunityContactRoles(db, actor, opportunity.id);
-  const canEdit = canAccessRecord(db, actor, "opportunity", "edit", opportunity);
-  const canDelete = canAccessRecord(db, actor, "opportunity", "delete", opportunity);
+  const canEditRoles = canAccessRecord(db, actor, "opportunity", "edit", stored);
   const taken = new Set(roles.map((role) => role.contactId));
   const accountContacts = listContactsForAccount(db, actor, opportunity.accountId);
   const eligibleContacts = accountContacts.filter(
@@ -102,25 +102,17 @@ export default async function OpportunityDetailPage({
             </p>
           </div>
           <div className="flex gap-2">
-            {canEdit ? (
-              <Link
-                href={`/opportunities/${opportunity.id}/edit`}
-                className="rounded border border-[#cfc6b6] bg-white px-3 py-1.5 text-sm hover:bg-[#faf7f1]"
-              >
-                Edit
-              </Link>
-            ) : null}
-            {canDelete ? (
-              <DeleteButton
-                label="Delete"
-                confirmMessage={`Delete opportunity ${opportunity.name}?`}
-                action={deleteOpportunityAction.bind(
-                  null,
-                  opportunity.id,
-                  opportunity.accountId,
-                )}
-              />
-            ) : null}
+            <Link
+              href={`/opportunities/${opportunity.id}/edit`}
+              className="rounded border border-[#cfc6b6] bg-white px-3 py-1.5 text-sm hover:bg-[#faf7f1]"
+            >
+              Edit
+            </Link>
+            <DeleteButton
+              label="Delete"
+              confirmMessage={`Delete opportunity ${opportunity.name}?`}
+              action={deleteOpportunityAction.bind(null, opportunity.id)}
+            />
           </div>
         </div>
       </div>
@@ -136,10 +128,7 @@ export default async function OpportunityDetailPage({
           Details
         </h2>
         <dl className="grid gap-4 sm:grid-cols-3">
-          <Field
-            label="Account"
-            value={account?.name ?? opportunity.accountId}
-          />
+          <Field label="Account" value={account?.name} />
           <Field label="Amount" value={formatUsd(opportunity.amountCents)} />
           <Field label="Stage" value={opportunity.stage} />
           <Field label="Probability" value={`${opportunity.probability}%`} />
@@ -177,7 +166,7 @@ export default async function OpportunityDetailPage({
                 <th className="px-4 py-2 font-medium">Contact</th>
                 <th className="px-4 py-2 font-medium">Role</th>
                 <th className="px-4 py-2 font-medium">Primary</th>
-                {canEdit ? <th className="px-4 py-2 font-medium"></th> : null}
+                {canEditRoles ? <th className="px-4 py-2 font-medium"></th> : null}
               </tr>
             </thead>
             <tbody>
@@ -198,7 +187,7 @@ export default async function OpportunityDetailPage({
                   <td className="px-4 py-2">
                     {role.isPrimary ? (
                       "Primary"
-                    ) : canEdit ? (
+                    ) : canEditRoles ? (
                       <form
                         action={setPrimaryOpportunityContactRoleAction.bind(
                           null,
@@ -217,7 +206,7 @@ export default async function OpportunityDetailPage({
                       "—"
                     )}
                   </td>
-                  {canEdit ? (
+                  {canEditRoles ? (
                     <td className="px-4 py-2 text-right">
                       <DeleteButton
                         label="Remove"
@@ -236,7 +225,7 @@ export default async function OpportunityDetailPage({
           </table>
         )}
         <div className="border-t border-[#d9d0c0] px-4 py-4">
-          {!canEdit ? (
+          {!canEditRoles ? (
             <p className="text-sm text-[#5c564c]">
               You do not have permission to change contact roles on this opportunity.
             </p>
@@ -245,14 +234,12 @@ export default async function OpportunityDetailPage({
               {account && accountContacts.length === 0 ? (
                 <>
                   {account.name} has no contacts.{" "}
-                  {canPerform(db, actor, "contact", "create") ? (
-                    <Link
-                      href={`/contacts/new?accountId=${opportunity.accountId}`}
-                      className="text-[#c45c26] hover:underline"
-                    >
-                      New Contact
-                    </Link>
-                  ) : null}
+                  <Link
+                    href={`/contacts/new?accountId=${opportunity.accountId}`}
+                    className="text-[#c45c26] hover:underline"
+                  >
+                    New Contact
+                  </Link>
                 </>
               ) : account ? (
                 <>Every contact on {account.name} is already on this opportunity.</>
@@ -309,8 +296,7 @@ export default async function OpportunityDetailPage({
       <TasksRelatedList
         objectType="opportunity"
         recordId={opportunity.id}
-        tasks={withTaskEditAccess(db, actor, relatedTasks)}
-        canCreate={canPerform(db, actor, "task", "create")}
+        tasks={relatedTasks}
       />
     </div>
   );

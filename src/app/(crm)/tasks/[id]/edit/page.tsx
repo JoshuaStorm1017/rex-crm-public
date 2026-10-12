@@ -2,16 +2,15 @@ import { requireActor } from "@/lib/crm/currentUser";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateTaskAction } from "../../actions";
-import { EditDenied } from "@/components/EditDenied";
 import { RecordForm } from "@/components/RecordForm";
 import {
   TASK_PRIORITIES,
   TASK_RELATED_OBJECT_TYPES,
   TASK_STATUSES,
+  type TaskRelatedObjectType,
 } from "@/lib/crm/constants";
 import { withCustomFormFields } from "@/lib/crm/customFieldForm";
-import { canAccessRecord } from "@/lib/crm/permissions";
-import { getTask } from "@/lib/crm/tasks";
+import { getTask, liveRelatedRecord } from "@/lib/crm/tasks";
 import { getDb } from "@/lib/db/client";
 
 export default async function EditTaskPage({
@@ -24,16 +23,31 @@ export default async function EditTaskPage({
   const db = getDb();
   const task = getTask(db, actor, id);
   if (!task) notFound();
-  if (!canAccessRecord(db, actor, "task", "edit", task)) {
-    return (
-      <EditDenied
-        href={`/tasks/${task.id}`}
-        recordName={task.name}
-        object="task"
-      />
-    );
-  }
   const action = updateTaskAction.bind(null, task.id);
+  const related = liveRelatedRecord(
+    db,
+    actor,
+    task.relatedObjectType as TaskRelatedObjectType,
+    task.relatedRecordId,
+  );
+  const relatedFields = related
+    ? [
+        {
+          name: "relatedObjectType",
+          label: "Related To",
+          type: "select" as const,
+          options: TASK_RELATED_OBJECT_TYPES,
+          required: true,
+          defaultValue: task.relatedObjectType,
+        },
+        {
+          name: "relatedRecordId",
+          label: "Related Record Id",
+          required: true,
+          defaultValue: task.relatedRecordId,
+        },
+      ]
+    : [];
 
   return (
     <div className="space-y-4">
@@ -57,20 +71,7 @@ export default async function EditTaskPage({
               required: true,
               defaultValue: task.name,
             },
-            {
-              name: "relatedObjectType",
-              label: "Related To",
-              type: "select",
-              options: TASK_RELATED_OBJECT_TYPES,
-              required: true,
-              defaultValue: task.relatedObjectType,
-            },
-            {
-              name: "relatedRecordId",
-              label: "Related Record Id",
-              required: true,
-              defaultValue: task.relatedRecordId,
-            },
+            ...relatedFields,
             {
               name: "status",
               label: "Status",

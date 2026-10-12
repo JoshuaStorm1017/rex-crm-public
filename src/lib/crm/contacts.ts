@@ -8,6 +8,7 @@ import {
   assertCanAccessRecord,
   assertCanPerform,
   assertEditableFields,
+  canAccessRecord,
   canPerform,
   presentRecord,
   touchedFields,
@@ -20,6 +21,7 @@ import {
 } from "./hierarchy";
 import { ID_PREFIX, newId } from "./ids";
 import {
+  assertOpportunityContactRolesAllowContactDelete,
   countOpportunityContactRolesForContact,
   deleteOpportunityContactRolesForContact,
 } from "./opportunityContactRoles";
@@ -32,6 +34,7 @@ import {
   type ContactUpdateInput,
 } from "./validation";
 import { prepareWrite, withoutId } from "./prepareWrite";
+import { canReadRecord, readRestrictionSql } from "./sharing";
 import { mergeDefined } from "./validationRules";
 
 export type Contact = typeof contacts.$inferSelect;
@@ -48,16 +51,26 @@ function live(actor: Actor) {
   return and(eq(contacts.orgId, actor.orgId), isNull(contacts.deletedAt));
 }
 
-function loadContact(
-  db: Db,
-  actor: Actor,
-  id: string,
-): Contact | undefined {
+function visible(db: Db, actor: Actor) {
+  return and(live(actor), readRestrictionSql(db, actor, "contact", contacts.ownerId));
+}
+
+function storedContact(db: Db, actor: Actor, id: string): Contact | undefined {
   return db
     .select()
     .from(contacts)
     .where(and(eq(contacts.id, id), live(actor)))
     .get();
+}
+
+function loadContact(
+  db: Db,
+  actor: Actor,
+  id: string,
+): Contact | undefined {
+  const row = storedContact(db, actor, id);
+  if (!row || !canReadRecord(db, actor, "contact", row)) return undefined;
+  return row;
 }
 
 export function getContact(
@@ -69,6 +82,16 @@ export function getContact(
   if (!canPerform(db, actor, "contact", "read")) return undefined;
   const row = loadContact(db, actor, id);
   return row ? presentRecord(db, actor, "contact", row) : undefined;
+}
+
+function readableContactIds(db: Db, actor: Actor): Set<string> {
+  if (!canPerform(db, actor, "contact", "read")) return new Set();
+  const ids = new Set<string>();
+  const rows = db.select().from(contacts).where(live(actor)).all();
+  for (const row of rows) {
+    if (canReadRecord(db, actor, "contact", row)) ids.add(row.id);
+  }
+  return ids;
 }
 
 function assertReportsTo(
@@ -91,14 +114,20 @@ function assertReportsTo(
       "Reports To contact does not exist",
     );
   }
+  const allowed = readableContactIds(db, actor);
+  if (selfId) allowed.add(selfId);
   if (
     selfId &&
-    wouldCreateCycle(db, CONTACT_HIERARCHY, selfId, reportsToId, actor.orgId)
+    wouldCreateCycle(
+      db,
+      CONTACT_HIERARCHY,
+      selfId,
+      reportsToId,
+      actor.orgId,
+      allowed,
+    )
   ) {
-    throw new DomainError(
-      "INVALID_REPORTS_TO",
-      `${manager.name} already reports up to this contact, so they cannot be their manager`,
-    );
+    throw new DomainError("INVALID_REPORTS_TO", "Reports To contact is not valid");
   }
 }
 
@@ -108,7 +137,7 @@ export function listContacts(db: Db, actor: Actor): Contact[] {
   return db
     .select()
     .from(contacts)
-    .where(live(actor))
+    .where(visible(db, actor))
     .orderBy(contacts.lastName, contacts.firstName)
     .all()
     .map((row) => presentRecord(db, actor, "contact", row));
@@ -124,7 +153,7 @@ export function listContactsForAccount(
   return db
     .select()
     .from(contacts)
-    .where(and(eq(contacts.accountId, accountId), live(actor)))
+    .where(and(eq(contacts.accountId, accountId), visible(db, actor)))
     .orderBy(contacts.lastName, contacts.firstName)
     .all()
     .map((row) => presentRecord(db, actor, "contact", row));
@@ -136,7 +165,7 @@ export function countContacts(db: Db, actor: Actor): number {
   const row = db
     .select({ n: count() })
     .from(contacts)
-    .where(live(actor))
+    .where(visible(db, actor))
     .get();
   return row?.n ?? 0;
 }
@@ -181,13 +210,29 @@ export function createContact(
     createdBy: actor.userId,
     updatedBy: actor.userId,
   };
-  const prepared = prepareWrite(db, "contact", row, "create");
+  const prepared = prepareWrite(db, actor, "contact", row, "create");
   db.insert(contacts).values(prepared).run();
-  const created = loadContact(db, actor, id);
+  const created = storedContact(db, actor, id);
   if (!created) {
     throw new DomainError("WRITE_FAILED", "Contact was not persisted");
   }
   return presentRecord(db, actor, "contact", created);
+}
+
+/**
+ * True only when the manager row is still live in this org and this actor
+ * cannot read it. A missing or soft-deleted manager is not concealed: a
+ * blank Reports To select must be able to clear the dangling id.
+ */
+function concealedLiveManager(
+  db: Db,
+  actor: Actor,
+  managerId: string,
+): boolean {
+  const manager = storedContact(db, actor, managerId);
+  if (!manager) return false;
+  if (!canPerform(db, actor, "contact", "read")) return true;
+  return !canReadRecord(db, actor, "contact", manager);
 }
 
 export function updateContact(
@@ -219,7 +264,18 @@ export function updateContact(
       );
     }
   }
-  assertReportsTo(db, actor, parsed.reportsToId, id);
+  // A blank Reports To select posts null. Keep the stored manager only when
+  // that row is still live but unreadable. A missing or deleted manager is
+  // dangling: null clears reportsToId.
+  let reportsToId = parsed.reportsToId;
+  if (
+    reportsToId === null &&
+    existing.reportsToId &&
+    concealedLiveManager(db, actor, existing.reportsToId)
+  ) {
+    reportsToId = undefined;
+  }
+  assertReportsTo(db, actor, reportsToId, id);
   const firstName =
     parsed.firstName !== undefined ? parsed.firstName : existing.firstName;
   const lastName =
@@ -227,16 +283,17 @@ export function updateContact(
   const ts = now();
   const next = mergeDefined(existing, {
     ...parsed,
+    reportsToId,
     name: displayName(firstName ?? undefined, lastName),
     updatedAt: ts,
     updatedBy: actor.userId,
   });
-  const prepared = prepareWrite(db, "contact", next, "update") as Contact;
+  const prepared = prepareWrite(db, actor, "contact", next, "update") as Contact;
   db.update(contacts)
     .set(withoutId(prepared))
     .where(and(eq(contacts.id, id), eq(contacts.orgId, actor.orgId)))
     .run();
-  const updated = loadContact(db, actor, id);
+  const updated = storedContact(db, actor, id);
   if (!updated) {
     throw new DomainError("WRITE_FAILED", "Contact update did not persist");
   }
@@ -250,14 +307,9 @@ export function deleteContact(db: Db, actor: Actor, id: string): void {
     throw new DomainError("NOT_FOUND", "Contact not found");
   }
   assertCanAccessRecord(db, actor, "contact", "delete", existing);
-  // Tasks first: the cascade refuses before anything is written.
-  deleteTasksForRecord(db, actor, id);
-  deleteOpportunityContactRolesForContact(db, actor, id);
-  deleteCustomValuesForRecord(db, id);
-  // Like Salesforce: the people who reported to a deleted contact keep
-  // existing, with Reports To cleared — not pointing at a deleted row.
-  db.update(contacts)
-    .set({ reportsToId: null, updatedAt: now() })
+  const reports = db
+    .select()
+    .from(contacts)
     .where(
       and(
         eq(contacts.reportsToId, id),
@@ -265,7 +317,34 @@ export function deleteContact(db: Db, actor: Actor, id: string): void {
         isNull(contacts.deletedAt),
       ),
     )
-    .run();
+    .all();
+  // A direct report this actor can read but cannot edit blocks the delete.
+  // A report they cannot read does not block and is not cleared.
+  if (
+    reports.some(
+      (row) =>
+        canReadRecord(db, actor, "contact", row) &&
+        !canAccessRecord(db, actor, "contact", "edit", row),
+    )
+  ) {
+    throw new DomainError(
+      "HAS_CHILDREN",
+      "Cannot delete this record while other records still depend on it",
+    );
+  }
+  assertOpportunityContactRolesAllowContactDelete(db, actor, id);
+  deleteTasksForRecord(db, actor, id);
+  deleteOpportunityContactRolesForContact(db, actor, id);
+  deleteCustomValuesForRecord(db, id);
+  const ts = now();
+  for (const row of reports) {
+    if (!canReadRecord(db, actor, "contact", row)) continue;
+    if (!canAccessRecord(db, actor, "contact", "edit", row)) continue;
+    db.update(contacts)
+      .set({ reportsToId: null, updatedAt: ts })
+      .where(and(eq(contacts.id, row.id), eq(contacts.orgId, actor.orgId)))
+      .run();
+  }
   db.update(contacts)
     .set({ deletedAt: now(), updatedAt: now() })
     .where(and(eq(contacts.id, id), eq(contacts.orgId, actor.orgId)))
@@ -278,12 +357,14 @@ export function listDirectReports(
   contactId: string,
 ): Contact[] {
   assertActor(db, actor);
+  if (!canPerform(db, actor, "contact", "read")) return [];
   return db
     .select()
     .from(contacts)
-    .where(and(eq(contacts.reportsToId, contactId), live(actor)))
+    .where(and(eq(contacts.reportsToId, contactId), visible(db, actor)))
     .orderBy(contacts.lastName, contacts.firstName)
-    .all();
+    .all()
+    .map((row) => presentRecord(db, actor, "contact", row));
 }
 
 /**
@@ -298,7 +379,52 @@ export function listEligibleManagers(
   assertActor(db, actor);
   const all = listContacts(db, actor);
   if (!contactId) return all;
-  const blocked = descendantIds(db, CONTACT_HIERARCHY, contactId, actor.orgId);
+  const allowed = readableContactIds(db, actor);
+  allowed.add(contactId);
+  const blocked = descendantIds(
+    db,
+    CONTACT_HIERARCHY,
+    contactId,
+    actor.orgId,
+    allowed,
+  );
   blocked.add(contactId);
   return all.filter((contact) => !blocked.has(contact.id));
+}
+
+export type ContactReportsToEditField = {
+  managers: Contact[];
+  defaultValue: string | null;
+};
+
+/**
+ * Reports To picker for the contact edit form.
+ *
+ * Returns null only when the stored manager is still live but unreadable.
+ * That id is not included. A missing or deleted manager returns the select
+ * with an empty value so a blank post can clear reportsToId, without copying
+ * the dangling id into the field.
+ */
+export function contactReportsToEditField(
+  db: Db,
+  actor: Actor,
+  contactId: string,
+): ContactReportsToEditField | null {
+  assertActor(db, actor);
+  const existing = loadContact(db, actor, contactId);
+  if (!existing) return null;
+  if (
+    existing.reportsToId &&
+    concealedLiveManager(db, actor, existing.reportsToId)
+  ) {
+    return null;
+  }
+  const readableManager =
+    existing.reportsToId != null
+      ? getContact(db, actor, existing.reportsToId)
+      : undefined;
+  return {
+    managers: listEligibleManagers(db, actor, contactId),
+    defaultValue: readableManager ? existing.reportsToId : null,
+  };
 }
