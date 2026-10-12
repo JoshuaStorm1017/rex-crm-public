@@ -1,5 +1,24 @@
 # Rex log
 
+## 2026-10-12 18:15 EDT
+
+Rex Reviewer: adding "product" to `OBJECTS` in `owner/actions.ts` left
+every test green, because only the type kept products out of Change
+Owner. `changeOwner` and `getOwnerTarget` now call
+`assertOwnableObject` first and refuse anything outside the five owned
+objects with `INVALID_OBJECT`, before any read or write.
+
+Tests: `ownership.pr4r6.test.ts` (a product transfer is refused and the
+products table is unchanged; an unknown object is refused;
+`getOwnerTarget` refuses a product) and an action test (posting
+"product" redirects with "Object is required", never reaches
+`requireActor`, and leaves the owner).
+
+Mutation: adding "product" to `OBJECTS` fails 1 test. Removing the
+guard from `getOwnerTarget` fails 1, from `changeOwner` 2, both 3.
+
+Next: re-review PR #4. Rex does not merge.
+
 ## 2026-10-12 17:55 EDT
 
 Merged main (f1227c2, PR #1's sharing model) into the Change Owner

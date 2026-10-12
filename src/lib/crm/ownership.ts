@@ -24,6 +24,25 @@ import {
 
 /** Objects with an owner that Change Owner can reassign. Products are not transferred. */
 export type OwnableObject = Exclude<CrmObject, "product">;
+
+/** The five objects Change Owner can reassign, checked at runtime too. */
+export const OWNABLE_OBJECTS: readonly OwnableObject[] = [
+  "account",
+  "contact",
+  "lead",
+  "opportunity",
+  "task",
+];
+
+/**
+ * The type alone does not stop a caller that casts or parses a string.
+ * Products and anything else are refused before any read or write.
+ */
+function assertOwnableObject(objectType: string): asserts objectType is OwnableObject {
+  if (!(OWNABLE_OBJECTS as readonly string[]).includes(objectType)) {
+    throw new DomainError("INVALID_OBJECT", "Change Owner does not support this object");
+  }
+}
 import { prepareWrite, withoutId } from "./prepareWrite";
 import { getUser, type PublicUser } from "./users";
 
@@ -101,6 +120,7 @@ export function getOwnerTarget(
   id: string,
 ): OwnerTarget | undefined {
   assertActor(db, actor);
+  assertOwnableObject(objectType);
   if (!canPerform(db, actor, objectType, "read")) return undefined;
   const row = loadLive(db, actor.orgId, objectType, id);
   if (!row) return undefined;
@@ -149,6 +169,7 @@ export function changeOwner(
   input: ChangeOwnerInput,
 ): ChangeOwnerResult {
   assertActor(db, actor);
+  assertOwnableObject(objectType);
   // Object edit first, before the row is loaded, so a caller without edit
   // gets one generic refusal for a converted, open, or missing record.
   assertCanPerform(db, actor, objectType, "edit");

@@ -35,6 +35,8 @@ import { createProfile, setFieldPermission, setObjectPermission } from "@/lib/cr
 import { createTask, getTask } from "@/lib/crm/tasks";
 import { createUser, getUser } from "@/lib/crm/users";
 import { getDb, openMemoryDb } from "@/lib/db/client";
+import { createProduct } from "@/lib/crm/products";
+import { products } from "@/lib/db/schema";
 import { changeOwnerAction } from "./actions";
 
 describe("changeOwnerAction", () => {
@@ -70,6 +72,32 @@ describe("changeOwnerAction", () => {
     expect(getContact(db, LOCAL_ACTOR, contact.id)?.ownerId).toBe(RILEY_USER_ID);
     expect(redirect).toHaveBeenCalledWith(`/accounts/${account.id}`);
     expect(revalidatePath).toHaveBeenCalledWith(`/contacts/${contact.id}`);
+  });
+
+  it("refuses a product before calling the domain and leaves its owner", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const operator = getUser(db, LOCAL_USER_ID);
+    if (!operator) throw new Error("seeded user was missing");
+    vi.mocked(requireActor).mockResolvedValue({
+      userId: LOCAL_USER_ID,
+      orgId: LOCAL_ORG_ID,
+      user: operator,
+    });
+    const product = createProduct(db, LOCAL_ACTOR, { name: "Anvil", standardPriceCents: 1999 });
+    const formData = new FormData();
+    formData.set("newOwnerId", RILEY_USER_ID);
+
+    await expect(changeOwnerAction("product", product.id, formData)).rejects.toThrow(
+      "REDIRECT",
+    );
+
+    expect(redirect).toHaveBeenCalledTimes(1);
+    expect(redirect).toHaveBeenCalledWith(
+      `/?notice=${encodeURIComponent("Object is required")}`,
+    );
+    expect(requireActor).not.toHaveBeenCalled();
+    expect(db.select().from(products).all()[0]?.ownerId).toBe(LOCAL_USER_ID);
   });
 
   it("returns FORBIDDEN and does not write when the actor cannot edit", async () => {
