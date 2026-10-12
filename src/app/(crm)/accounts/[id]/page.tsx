@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { deleteAccountAction } from "../actions";
+import { ChangeOwnerLink } from "@/components/ChangeOwnerLink";
 import { DeleteButton } from "@/components/DeleteButton";
 import { TasksRelatedList } from "@/components/TasksRelatedList";
 import {
@@ -15,6 +16,7 @@ import { getCustomValues } from "@/lib/crm/customFields";
 import { formatUsd } from "@/lib/crm/money";
 import { listOpportunitiesForAccount } from "@/lib/crm/opportunities";
 import { recordView } from "@/lib/crm/recentlyViewed";
+import { canChangeOwner } from "@/lib/crm/ownership";
 import { canAccessRecord, canReadField, presentRecord } from "@/lib/crm/permissions";
 import { listTasksForRecord } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
@@ -100,6 +102,9 @@ export default async function AccountDetailPage({
             </p>
           </div>
           <div className="flex gap-2">
+            {canChangeOwner(db, actor, "account", stored) ? (
+              <ChangeOwnerLink objectType="account" recordId={account.id} />
+            ) : null}
             {canEdit ? (
               <Link
                 href={`/accounts/${account.id}/edit`}

@@ -7,6 +7,7 @@ import {
   setPrimaryOpportunityContactRoleAction,
 } from "../actions";
 import { CustomFieldsSection } from "@/components/CustomFieldsSection";
+import { ChangeOwnerLink } from "@/components/ChangeOwnerLink";
 import { DeleteButton } from "@/components/DeleteButton";
 import { TasksRelatedList } from "@/components/TasksRelatedList";
 import { getAccount } from "@/lib/crm/accounts";
@@ -16,6 +17,7 @@ import { getCustomValues } from "@/lib/crm/customFields";
 import { formatUsd } from "@/lib/crm/money";
 import { readOpportunity } from "@/lib/crm/opportunities";
 import { listOpportunityContactRoles } from "@/lib/crm/opportunityContactRoles";
+import { canChangeOwner } from "@/lib/crm/ownership";
 import { canAccessRecord, presentRecord } from "@/lib/crm/permissions";
 import { recordView } from "@/lib/crm/recentlyViewed";
 import { listTasksForRecord } from "@/lib/crm/tasks";
@@ -102,6 +104,9 @@ export default async function OpportunityDetailPage({
             </p>
           </div>
           <div className="flex gap-2">
+            {canChangeOwner(db, actor, "opportunity", stored) ? (
+              <ChangeOwnerLink objectType="opportunity" recordId={opportunity.id} />
+            ) : null}
             <Link
               href={`/opportunities/${opportunity.id}/edit`}
               className="rounded border border-[#cfc6b6] bg-white px-3 py-1.5 text-sm hover:bg-[#faf7f1]"

@@ -8,8 +8,9 @@ import {
   canChangeOwner,
   getOwnerTarget,
   listEligibleOwners,
+  type OwnableObject,
 } from "@/lib/crm/ownership";
-import { canAccessRecord, canReadField, type CrmObject } from "@/lib/crm/permissions";
+import { canAccessRecord, canReadField } from "@/lib/crm/permissions";
 import { ownerLabel } from "@/lib/crm/users";
 import { getDb } from "@/lib/db/client";
 
@@ -18,7 +19,7 @@ export async function ChangeOwnerScreen({
   recordId,
   notice,
 }: {
-  objectType: CrmObject;
+  objectType: OwnableObject;
   recordId: string;
   notice?: string;
 }) {
