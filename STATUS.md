@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-11, Change Owner on the five CRM objects.
+Last updated: 2026-10-11, Change Owner mutation lock.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -33,6 +33,59 @@ Last updated: 2026-10-11, Change Owner on the five CRM objects.
 ## WORKS
 
 Things actually run, with evidence.
+
+### Change Owner, tests that kill the review survivors (2026-10-11)
+
+No enforcement change. `ownership.ts` is the same file as the Change
+Owner section below. The four survivors were missing tests.
+
+A member with `passwordHash` null, and a member with `username` null,
+are not valid owners. `changeOwner` throws `INVALID_OWNER` for each,
+and `listOwnerCandidates` omits both. The account's `ownerId`,
+`updatedAt`, and `updatedBy` stay put. Riley and the operator stay
+in the candidate list.
+
+Reassigning one account, contact, lead, opportunity, or task leaves
+a second live row of that same type alone: its `ownerId`, `updatedAt`,
+and `updatedBy` stay on the snapshot taken before the write. The row
+that was named in the call moves to Riley.
+
+`changeOwner("campaign", taskId)` throws `NOT_FOUND`. That task's
+owner, `updatedAt`, and `updatedBy` stay put. The server action
+redirects to `/?notice=Record%20not%20found` and does not write the
+task. A caller that used an account id would still get `NOT_FOUND`
+from the task fall-through, so the test uses the task's own id.
+
+`changeOwner` as a user who is not a member of `actor.orgId` throws
+`FORBIDDEN` with "You are not a member of this organization". After
+`organizations.status` is no longer `"active"`, the same call by a
+member throws `FORBIDDEN` with "Organization is not active". In both
+cases `ownerId`, `updatedAt`, and `updatedBy` stay put. A code-only
+`FORBIDDEN` check would not lock the non-member case: deleting
+`assertActor` still fails the profile check with "You do not have
+permission to edit this account" and does not write.
+
+- **`npm run verify` (2026-10-11, vitest `Start at  20:41:40`):** exit 0.
+  38 files, 415 tests (was 38 files, 410). TypeScript, ESLint, and
+  Next.js 16.3.5 production build passed. `NO_COLOR`/`FORCE_COLOR`
+  warnings only.
+- **Mutation re-check, each change restored before that verify.**
+  Dropping `!!user.passwordHash` made `changeOwner` accept the
+  hashless member (`expected INVALID_OWNER`). Dropping
+  `!!user.username` made the same test accept the nameless member.
+  Dropping `eq(table.id, id)` from `writeOwner`, one table at a time,
+  set the sibling's `ownerId` to `usr_riley` for account, contact,
+  lead, opportunity, and task. `isOwnerObject` returning true threw
+  `TypeError: Cannot read properties of undefined (reading 'includes')`
+  from the domain test, and the action redirected to
+  `undefined?notice=Cannot%20read%20properties%20of%20undefined%20(reading%20'includes')`.
+  Deleting `assertActor` changed the non-member error to the edit
+  permission message. With that message relaxed so the inactive-org
+  half ran, `changeOwner` returned instead of throwing `FORBIDDEN`.
+  Source matched the pre-mutation file afterward. Full verify above
+  ran after that restore.
+- **No browser pass.** These tests use a memory database. Chrome
+  DevTools was not connected. The detail pages were not opened.
 
 ### Change Owner (2026-10-11)
 

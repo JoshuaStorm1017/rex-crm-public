@@ -1,5 +1,34 @@
 # Rex log
 
+## 2026-10-11 20:41 EDT
+
+Locked the four Change Owner mutations that survived review. The
+checks were already right. The tests never planted a member with a
+null password or a null username, never compared a second row of the
+same type, never passed a type outside the five owner objects, and
+never called `changeOwner` for a non-member or an inactive org.
+
+`changeOwner` now has those cases. A hashless member and a nameless
+member are `INVALID_OWNER` and stay off the candidate list. A sibling
+account, contact, lead, opportunity, and task keeps its owner. A
+foreign type against a task id is `NOT_FOUND` in the domain and on
+the server action, and the task is not written. A non-member gets the
+membership `FORBIDDEN`, and a member of an inactive org gets the
+inactive-org `FORBIDDEN`. Checking only the code would miss the
+non-member hole, because the profile check also returns `FORBIDDEN`
+and does not write.
+
+`npm run verify` exited 0. Vitest started at 20:41:40: 38 files, 415
+tests, Next.js 16.3.5 build. Each survivor was re-applied, failed the
+new test, and was restored before that run. Dropping the id predicate
+on each of the five tables failed on its own. No browser pass. Chrome
+DevTools was not connected.
+
+Next: hide Edit and Delete wherever the domain will refuse the save,
+including the edit page. Cascade task deletes still skip the task
+owner. Do not retry the whole sharing model or the product catalog in
+one change.
+
 ## 2026-10-11 20:03 EDT
 
 Shipped Change Owner for accounts, contacts, leads, opportunities, and

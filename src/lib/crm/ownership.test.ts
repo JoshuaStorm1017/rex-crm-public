@@ -6,6 +6,7 @@ import {
   contacts,
   leads,
   opportunities,
+  organizations,
   tasks,
   users,
 } from "../db/schema";
@@ -31,12 +32,13 @@ import { createUser, disableUser } from "./users";
 
 const OBJECTS = ["account", "contact", "lead", "opportunity", "task"] as const;
 
-function expectCode(run: () => unknown, code: string) {
+function expectCode(run: () => unknown, code: string, message?: string) {
   try {
     run();
   } catch (error) {
     expect(error).toBeInstanceOf(DomainError);
     expect((error as DomainError).code).toBe(code);
+    if (message !== undefined) expect((error as DomainError).message).toBe(message);
     return;
   }
   throw new Error(`expected ${code}`);
@@ -623,5 +625,134 @@ describe("changeOwner", () => {
     expect(elsewhere).toContain("Quarry Outsider");
     expect(elsewhere).not.toContain("Riley Demo");
     expect(elsewhere).not.toContain("Aaron Candidate");
+  });
+
+  it("rejects a member with no password or no username", () => {
+    const db = openMemoryDb().db;
+    const id = plant(db, LOCAL_ACTOR, "account");
+    rewind(db, "account", id);
+    const hashless = createUser(db, {
+      name: "Hashless Member",
+      email: "hashless@example.com",
+      username: "hashless",
+      password: "long-enough",
+    });
+    const nameless = createUser(db, {
+      name: "Nameless Member",
+      email: "nameless@example.com",
+      username: "nameless",
+      password: "long-enough",
+    });
+    db.update(users).set({ passwordHash: null }).where(eq(users.id, hashless.id)).run();
+    db.update(users).set({ username: null }).where(eq(users.id, nameless.id)).run();
+    addMember(db, LOCAL_ORG_ID, hashless.id, "member");
+    addMember(db, LOCAL_ORG_ID, nameless.id, "member");
+
+    expectCode(
+      () => changeOwner(db, LOCAL_ACTOR, "account", id, hashless.id),
+      "INVALID_OWNER",
+    );
+    expectCode(
+      () => changeOwner(db, LOCAL_ACTOR, "account", id, nameless.id),
+      "INVALID_OWNER",
+    );
+    const after = shot(db, "account", id);
+    expect(after.ownerId).toBe(LOCAL_USER_ID);
+    expect(after.updatedAt).toBe(1);
+    expect(after.updatedBy).toBe(LOCAL_USER_ID);
+
+    const ids = listOwnerCandidates(db, LOCAL_ACTOR).map((row) => row.id);
+    expect(ids).toContain(LOCAL_USER_ID);
+    expect(ids).toContain(RILEY_USER_ID);
+    expect(ids).not.toContain(hashless.id);
+    expect(ids).not.toContain(nameless.id);
+  });
+
+  it("does not reassign a sibling of the same type", () => {
+    const db = openMemoryDb().db;
+    for (const object of OBJECTS) {
+      const editor = enroll(db, {
+        name: `Sibling ${object}`,
+        email: `sibling.${object}@example.com`,
+        username: `sib${object}`,
+        target: object,
+        canUpdate: true,
+        canDelete: false,
+        modifyAll: "no",
+      });
+      const id = plant(db, editor, object);
+      const siblingId = plant(db, editor, object);
+      rewind(db, object, id);
+      rewind(db, object, siblingId);
+      const before = shot(db, object, siblingId);
+      changeOwner(db, editor, object, id, RILEY_USER_ID);
+      const moved = shot(db, object, id);
+      const after = shot(db, object, siblingId);
+      expect(moved.ownerId, object).toBe(RILEY_USER_ID);
+      expect(moved.updatedBy, object).toBe(editor.userId);
+      expect(moved.updatedAt, object).toBeGreaterThan(1);
+      expect(after.ownerId, object).toBe(before.ownerId);
+      expect(after.updatedAt, object).toBe(before.updatedAt);
+      expect(after.updatedBy, object).toBe(before.updatedBy);
+    }
+  });
+
+  it("refuses a type outside the owner objects and leaves that task", () => {
+    const db = openMemoryDb().db;
+    const id = plant(db, LOCAL_ACTOR, "task");
+    rewind(db, "task", id);
+    const before = shot(db, "task", id);
+    expectCode(
+      () => changeOwner(db, LOCAL_ACTOR, "campaign" as CrmObject, id, RILEY_USER_ID),
+      "NOT_FOUND",
+    );
+    const after = shot(db, "task", id);
+    expect(after.ownerId).toBe(before.ownerId);
+    expect(after.updatedAt).toBe(before.updatedAt);
+    expect(after.updatedBy).toBe(before.updatedBy);
+  });
+
+  it("refuses a non-member and an inactive organization", () => {
+    const db = openMemoryDb().db;
+    const id = plant(db, LOCAL_ACTOR, "account");
+    rewind(db, "account", id);
+    const outsider = createUser(db, {
+      name: "Outside Member",
+      email: "outside.member@example.com",
+      username: "outsidemem",
+      password: "long-enough",
+    });
+    createOrganization(db, "Outside Quarry", outsider.id);
+    const before = rawOwner(db, "account", id);
+
+    expectCode(
+      () =>
+        changeOwner(
+          db,
+          actorFor(outsider.id, LOCAL_ORG_ID),
+          "account",
+          id,
+          RILEY_USER_ID,
+        ),
+      "FORBIDDEN",
+      "You are not a member of this organization",
+    );
+    expect(rawOwner(db, "account", id)?.ownerId).toBe(before?.ownerId);
+    expect(rawOwner(db, "account", id)?.updatedAt).toBe(before?.updatedAt);
+    expect(rawOwner(db, "account", id)?.updatedBy).toBe(before?.updatedBy);
+
+    db.update(organizations)
+      .set({ status: "inactive" })
+      .where(eq(organizations.id, LOCAL_ORG_ID))
+      .run();
+    expectCode(
+      () => changeOwner(db, LOCAL_ACTOR, "account", id, RILEY_USER_ID),
+      "FORBIDDEN",
+      "Organization is not active",
+    );
+    const after = rawOwner(db, "account", id);
+    expect(after?.ownerId).toBe(before?.ownerId);
+    expect(after?.updatedAt).toBe(before?.updatedAt);
+    expect(after?.updatedBy).toBe(before?.updatedBy);
   });
 });

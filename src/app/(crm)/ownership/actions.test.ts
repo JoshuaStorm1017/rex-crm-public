@@ -24,11 +24,12 @@ vi.mock("@/lib/db/client", async () => {
 import { requireActor } from "@/lib/crm/currentUser";
 import { LOCAL_ACTOR, actorFor, type Actor } from "@/lib/crm/actor";
 import { createAccount, getAccount } from "@/lib/crm/accounts";
-import { LOCAL_ORG_ID, RILEY_USER_ID } from "@/lib/crm/constants";
+import { LOCAL_ORG_ID, LOCAL_USER_ID, RILEY_USER_ID } from "@/lib/crm/constants";
 import { addMember } from "@/lib/crm/orgs";
+import type { CrmObject } from "@/lib/crm/permissions";
 import { createProfile, setObjectPermission } from "@/lib/crm/profiles";
 import { createTask, getTask } from "@/lib/crm/tasks";
-import { createUser, type PublicUser } from "@/lib/crm/users";
+import { createUser, getUser, type PublicUser } from "@/lib/crm/users";
 import { getDb, openMemoryDb, type Db } from "@/lib/db/client";
 import { changeOwnerAction } from "./actions";
 
@@ -141,5 +142,40 @@ describe("changeOwnerAction", () => {
     expect(getAccount(db, LOCAL_ACTOR, account.id)?.name).toBe("Action Quarry");
     expect(getTask(db, LOCAL_ACTOR, task.id)?.ownerId).toBe(RILEY_USER_ID);
     expect(getTask(db, LOCAL_ACTOR, task.id)?.name).toBe("Action Task");
+  });
+
+  it("refuses a foreign type and does not reassign the task it would fall through to", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const user = getUser(db, LOCAL_USER_ID);
+    if (!user) throw new Error("missing operator");
+    vi.mocked(requireActor).mockResolvedValue({
+      userId: user.id,
+      orgId: LOCAL_ORG_ID,
+      user,
+    });
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Foreign Parent" });
+    const task = createTask(db, LOCAL_ACTOR, {
+      name: "Foreign Task",
+      relatedObjectType: "account",
+      relatedRecordId: account.id,
+    });
+    const before = getTask(db, LOCAL_ACTOR, task.id);
+    const formData = new FormData();
+    formData.set("ownerId", RILEY_USER_ID);
+    let message = "";
+    try {
+      await changeOwnerAction("campaign" as CrmObject, task.id, formData);
+    } catch (error) {
+      message = error instanceof Error ? error.message : "";
+    }
+    expect(message).toBe(
+      `REDIRECT:/?notice=${encodeURIComponent("Record not found")}`,
+    );
+    const after = getTask(db, LOCAL_ACTOR, task.id);
+    expect(after?.ownerId).toBe(before?.ownerId);
+    expect(after?.updatedAt).toBe(before?.updatedAt);
+    expect(after?.updatedBy).toBe(before?.updatedBy);
+    expect(after?.name).toBe("Foreign Task");
   });
 });
