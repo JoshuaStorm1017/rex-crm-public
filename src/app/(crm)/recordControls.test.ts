@@ -97,7 +97,7 @@ function asUser(user: PublicUser): void {
   });
 }
 
-async function renderDetail(object: CrmObject, id: string): Promise<string> {
+async function renderDetail(object: (typeof OBJECTS)[number], id: string): Promise<string> {
   const tree = await DETAIL[object]({
     params: Promise.resolve({ id }),
     searchParams: Promise.resolve({}),
@@ -105,7 +105,7 @@ async function renderDetail(object: CrmObject, id: string): Promise<string> {
   return renderToStaticMarkup(tree as ReactElement);
 }
 
-async function renderEdit(object: CrmObject, id: string): Promise<string> {
+async function renderEdit(object: (typeof OBJECTS)[number], id: string): Promise<string> {
   const tree = await EDIT[object]({
     params: Promise.resolve({ id }),
   });
