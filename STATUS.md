@@ -2121,3 +2121,6 @@ fresh verification evidence for each slice.
 - Lead update/delete require owner or admin (`assertCanMutate`).
 - Migrations: 0008_lead_address, 0009_user_role.
 - `npm run verify` not re-run this session (native better-sqlite3 build skipped in sandbox); changes are schema-compatible and type-safe by construction.
+
+### Orphan fix: reviewer mutants (Oct 12)
+- 3 new kill tests are in tasks.orphans.test.ts. All 7 mutants are killed and the suite has 610 tests. Branch rex/s007-1012-orphan-tasks; the PR has not been created yet (the create_pull_request call only showed a form).

@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
 import { accounts, contacts, leads, opportunities, tasks } from "../db/schema";
@@ -7,7 +8,8 @@ import { LOCAL_ORG_ID, RILEY_USER_ID } from "./constants";
 import { createContact, deleteContact } from "./contacts";
 import { createLead, deleteLead } from "./leads";
 import { createOpportunity, deleteOpportunity } from "./opportunities";
-import { addMember } from "./orgs";
+import { ID_PREFIX, newId } from "./ids";
+import { addMember, createOrganization } from "./orgs";
 import { createProfile, setObjectPermission } from "./profiles";
 import { setOrgWideDefault } from "./sharing";
 import { createTask, getTask } from "./tasks";
@@ -87,13 +89,18 @@ describe("parent delete never orphans a task the actor cannot read", () => {
     });
 
     it(`does not name the hidden task when refusing a ${parent} delete`, () => {
-      const { db, riley, parentId } = setup(parent);
+      const { db, riley, parentId, own, hidden } = setup(parent);
       try {
         DELETE[parent](db, riley, parentId);
         throw new Error("expected refusal");
       } catch (error) {
-        expect((error as Error).message).toMatch(/other records still depend/i);
-        expect((error as Error).message).not.toMatch(/Private follow up/);
+        const message = (error as Error).message;
+        expect(message).toMatch(/other records still depend/i);
+        expect(message).not.toMatch(/Private follow up/);
+        // Neither the hidden task's id nor any other task id leaks.
+        expect(message).not.toContain(hidden.id);
+        expect(message).not.toContain(own.id);
+        expect(message).not.toMatch(/00T[0-9A-Z]{10,}/);
       }
     });
 
@@ -151,5 +158,96 @@ describe("a profile that can delete tasks but not read them", () => {
       expect.objectContaining({ code: "HAS_CHILDREN" }),
     );
     expect(snapshot(db)).toBe(before);
+  });
+});
+
+describe("task delete permission, not edit, decides the cascade", () => {
+  it("refuses a parent delete when the actor can edit but not delete a related task", () => {
+    const db = openMemoryDb().db;
+    const created = createUser(db, {
+      name: "Eddie Example",
+      email: "eddie@example.com",
+      username: "eddie",
+      password: "long-enough",
+    });
+    const profileId = createProfile(db, LOCAL_ACTOR, "Edit Not Delete Tasks");
+    for (const object of ["account", "contact", "lead", "opportunity"] as const) {
+      setObjectPermission(db, LOCAL_ACTOR, profileId, object, {
+        canCreate: true,
+        canRead: true,
+        canUpdate: true,
+        canDelete: true,
+      });
+    }
+    setObjectPermission(db, LOCAL_ACTOR, profileId, "task", {
+      canCreate: true,
+      canRead: true,
+      canUpdate: true,
+      canDelete: false,
+    });
+    addMember(db, LOCAL_ORG_ID, created.id, "member", profileId);
+    const eddie = actorFor(created.id);
+    const account = createAccount(db, eddie, { name: "Mesa Supply" });
+    // Eddie owns the task, so record edit is allowed; only delete is not.
+    const task = createTask(db, eddie, {
+      name: "Eddie follow up",
+      relatedObjectType: "account",
+      relatedRecordId: account.id,
+    });
+    const before = snapshot(db);
+
+    expect(() => deleteAccount(db, eddie, account.id)).toThrow(
+      expect.objectContaining({ code: "HAS_CHILDREN" }),
+    );
+    expect(snapshot(db)).toBe(before);
+    expect(getTask(db, eddie, task.id)?.name).toBe("Eddie follow up");
+  });
+});
+
+describe("tasks in another org never take part in the cascade", () => {
+  it("ignores another org's task that points at the same record id", () => {
+    const db = openMemoryDb().db;
+    const riley = actorFor(RILEY_USER_ID);
+    const olga = createUser(db, {
+      name: "Olga Example",
+      email: "olga@example.com",
+      username: "olga",
+      password: "long-enough",
+    });
+    const otherOrg = createOrganization(db, "Other Example Org", olga.id);
+    const account = createAccount(db, riley, { name: "Mesa Supply" });
+    const own = createTask(db, riley, {
+      name: "Riley follow up",
+      relatedObjectType: "account",
+      relatedRecordId: account.id,
+    });
+    // A row in the other org that happens to carry the same related id.
+    // Riley cannot delete it, so if the org filter were missing it would
+    // either block this delete or be deleted with it.
+    const template = db.select().from(tasks).where(eq(tasks.id, own.id)).get();
+    if (!template) throw new Error("task was not stored");
+    const foreignId = newId(ID_PREFIX.task);
+    db.insert(tasks)
+      .values({
+        ...template,
+        id: foreignId,
+        orgId: otherOrg.id,
+        ownerId: olga.id,
+        createdBy: olga.id,
+        updatedBy: olga.id,
+        name: "Other org follow up",
+      })
+      .run();
+    setOrgWideDefault(db, LOCAL_ACTOR, "task", "private", true);
+    const foreignBefore = JSON.stringify(
+      db.select().from(tasks).where(eq(tasks.id, foreignId)).get(),
+    );
+
+    deleteAccount(db, riley, account.id);
+
+    const stored = db.select().from(tasks).all();
+    expect(stored.find((t) => t.id === own.id)?.deletedAt).not.toBeNull();
+    expect(JSON.stringify(stored.find((t) => t.id === foreignId))).toBe(foreignBefore);
+    expect(stored.find((t) => t.id === foreignId)?.deletedAt).toBeNull();
   });
 });

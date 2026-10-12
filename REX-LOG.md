@@ -600,3 +600,7 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Why:** Rex Reviewer found a surviving deleteSharingRule mutant; main moved ahead with migration 0014.
 - **Verify:** 48 files, 493 tests, build OK. Removing the admin assert from each of the 9 sharing mutators fails the suite.
 - **Next:** Re-review; no merge from Rex.
+
+## 2026-10-12 — orphan fix: reviewer mutants on 35e77e7
+- Added tests that kill three surviving mutants: "delete"→"edit" in the task check (edit-but-not-delete actor refused, nothing written); org filter dropped from the related-task query (a task in another org with the same record ID doesn't block the delete and isn't deleted); task id added to the error message (the message test now asserts no task id).
+- Mutation results: delete→edit killed (1 failure), org filter killed (1), id in message killed (4). Earlier mutants are still killed (10/1/14/15). 610 tests.
