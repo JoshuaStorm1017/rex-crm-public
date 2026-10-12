@@ -64,6 +64,23 @@ type OwnedRow = { id: string; orgId: string; ownerId: string };
 
 const CLOSED_STAGES = new Set(["Closed Won", "Closed Lost"]);
 
+/**
+ * A user who can sign in: not deleted, with a username and a password.
+ * A departed or disabled user cannot be chosen as an owner.
+ */
+function isActiveUser(db: Db, userId: string): boolean {
+  const row = db
+    .select({
+      deletedAt: users.deletedAt,
+      username: users.username,
+      passwordHash: users.passwordHash,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .get();
+  return !!row && row.deletedAt == null && !!row.username && !!row.passwordHash;
+}
+
 export function canChangeOwner(
   db: Db,
   actor: Actor,
@@ -109,7 +126,7 @@ export function listEligibleOwners(
   const owners: PublicUser[] = [];
   for (const member of members) {
     const user = getUser(db, member.userId);
-    if (!user) continue;
+    if (!user || !isActiveUser(db, user.id)) continue;
     if (!canPerform(db, { userId: user.id, orgId: actor.orgId }, objectType, "read")) {
       continue;
     }
@@ -129,14 +146,19 @@ export function changeOwner(
   input: ChangeOwnerInput,
 ): ChangeOwnerResult {
   assertActor(db, actor);
+  // Object edit first, before the row is loaded, so a caller without edit
+  // gets one generic refusal for a converted, open, or missing record.
+  assertCanPerform(db, actor, objectType, "edit");
   const primary = loadLive(db, actor.orgId, objectType, recordId);
   if (!primary) {
     throw new DomainError("NOT_FOUND", `${recordLabel(objectType)} not found`);
   }
+  // Record access before the freeze, so only someone who could edit this
+  // lead learns that it is converted.
+  assertCanAccessRecord(db, actor, objectType, "edit", primary);
   if (objectType === "lead" && primary.status === "Converted") {
     throw new DomainError("FROZEN", "Converted leads cannot be transferred");
   }
-  assertCanAccessRecord(db, actor, objectType, "edit", primary);
   const transfer = readTransfer(objectType, input);
   assertTransferPermission(db, actor, transfer);
   const newOwnerId = resolveNewOwner(
@@ -251,12 +273,7 @@ function resolveNewOwner(
   if (newOwnerId === currentOwnerId) {
     throw new DomainError("ALREADY_OWNER", "This user already owns the record");
   }
-  const user = db
-    .select({ id: users.id, deletedAt: users.deletedAt })
-    .from(users)
-    .where(eq(users.id, newOwnerId))
-    .get();
-  if (!user || user.deletedAt != null) {
+  if (!isActiveUser(db, newOwnerId)) {
     throw new DomainError("INVALID_OWNER", "That user cannot own this record");
   }
   const member = db

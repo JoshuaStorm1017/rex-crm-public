@@ -1,5 +1,45 @@
 # Rex log
 
+## 2026-10-12 16:55 EDT
+
+Kept this branch (PR #4) as the Change Owner base and folded in what
+PR #5 had that this did not. Fixed the round-3 security and mutation
+findings. Grok is out of credits until Oct 17, so Rex wrote this
+directly.
+
+Why this base: PR #4 already moves related contacts, open and closed
+opportunities, and open tasks; has a dedicated owner screen per object;
+checks that the new owner can read the target object; and freezes
+converted leads from the stored status. PR #5 only reassigns the record.
+
+Security: `changeOwner` now checks object edit before it loads the row,
+then record edit, then the converted freeze. A caller without lead edit
+gets the same `FORBIDDEN` for converted, open, and missing leads, and a
+non-owner with edit gets `FORBIDDEN`, not `FROZEN`. The owner screen
+shows the freeze copy only when the actor could edit the record.
+
+From PR #5: a departed or disabled user (deleted, or with no username or
+password) is not listed as an owner and is rejected as one. When the
+current owner is not in the list, the form selects a blank "Choose a new
+owner" option, so a save cannot silently assign the first member. The
+same-owner save already ran after the edit check here; a test now locks
+that order for a viewer and for a non-owner editor.
+
+Mutation tests: an account reader who cannot read contacts, leads,
+opportunities, or tasks is missing from that object's owner list and is
+rejected as its owner. Open tasks move with a contact, lead, or
+opportunity, not only with an account.
+
+Mutation sanity, each restored: dropping the object-edit-first check,
+checking account read instead of the object in either place, collecting
+tasks only for accounts, showing the freeze copy without edit, and
+defaulting the select to a missing owner each failed a test. Dropping
+the username and password part of the active-user check did not fail,
+because a user with no password already has no object read. That check
+is kept as defense in depth.
+
+Next: re-run the three reviews on PR #4. PR #5 is superseded.
+
 ## 2026-10-11 19:13 EDT
 
 Closed the change-owner review that fail-opened a converted lead. The

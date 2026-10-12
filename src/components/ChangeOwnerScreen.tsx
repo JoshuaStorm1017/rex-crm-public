@@ -9,7 +9,7 @@ import {
   getOwnerTarget,
   listEligibleOwners,
 } from "@/lib/crm/ownership";
-import { canReadField, type CrmObject } from "@/lib/crm/permissions";
+import { canAccessRecord, canReadField, type CrmObject } from "@/lib/crm/permissions";
 import { ownerLabel } from "@/lib/crm/users";
 import { getDb } from "@/lib/db/client";
 
@@ -30,7 +30,10 @@ export async function ChangeOwnerScreen({
   const href = recordHref(objectType, target.id);
   const label = recordLabel(objectType);
   const displayName = target.name ?? target.id;
-  const frozen = objectType === "lead" && target.status === "Converted";
+  // Only an actor who could edit this record learns that a lead is
+  // converted. Everyone else gets the same permission copy.
+  const canEdit = canAccessRecord(db, actor, objectType, "edit", target);
+  const frozen = canEdit && objectType === "lead" && target.status === "Converted";
   const allowed = canChangeOwner(db, actor, objectType, target);
   const hideConvertedWord =
     objectType === "lead" && !canReadField(db, actor, "lead", "status");

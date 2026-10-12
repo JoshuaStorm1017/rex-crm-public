@@ -17,6 +17,10 @@ export function ChangeOwnerForm({
   showClosedOpportunities: boolean;
   showOpenTasks: boolean;
 }) {
+  // A departed owner is not in the list. Without a blank selected option
+  // the browser would submit the first member, so the save would silently
+  // reassign the record.
+  const currentListed = owners.some((owner) => owner.id === currentOwnerId);
   const showRelated =
     showContacts || showOpenOpportunities || showClosedOpportunities || showOpenTasks;
 
@@ -26,10 +30,11 @@ export function ChangeOwnerForm({
         <span className="mb-1 block text-sm font-medium">New owner</span>
         <select
           name="newOwnerId"
-          defaultValue={currentOwnerId}
+          defaultValue={currentListed ? currentOwnerId : ""}
           required
           className="w-full rounded border border-[#cfc6b6] bg-white px-3 py-2 text-sm"
         >
+          {currentListed ? null : <option value="">Choose a new owner</option>}
           {owners.map((owner) => (
             <option key={owner.id} value={owner.id}>
               {owner.name} ({owner.username})
