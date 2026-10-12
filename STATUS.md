@@ -10,9 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-11, product field permissions.
-The organization-wide sharing slice was abandoned after three review
-rounds and is not in this tree.
+Last updated: 2026-10-11, tests that lock object delete and the opportunity role gate.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -36,102 +34,128 @@ rounds and is not in this tree.
 
 Things actually run, with evidence.
 
-### Product catalog and standard price book (2026-10-11)
+### Undelete and opportunity contact roles (2026-10-11)
 
-- An organization has one standard price book, created on startup.
-  A product stores its standard price as an integer number of cents on
-  a price book entry. `19.99` is 1999 cents. More than two decimal
-  places is rejected. Product code is unique among live products in
-  the org, and a soft-deleted code can be used again. Another org can
-  use the same code and cannot read this org's product.
-- Create, update, and delete use the same profile and owner checks as
-  the other objects. A missing product permission denies. Read Only
-  can read and cannot create. Riley can read the operator's product
-  and cannot edit or delete it. The operator, with modify-all, can
-  change Riley's price. Edit and Delete are hidden when the check
-  fails, and the edit URL shows the denial instead of the form.
-- The price cap, a sibling standard price, the home-page product
-  count, formatted money on the action, and delete are pinned by
-  tests. `9999999999.99` is `999999999999` cents.
-  `10000000000.00` is `INVALID_MONEY`. Setting Anvil to 0 leaves
-  Birdseed at 500 cents, and an admin edit of Riley's price leaves
-  the operator product at 1000 cents. After another org has a
-  product, `countProducts` is 1 for each actor. The create action
-  stores `$1,250.50` as 125050 cents, and `1.005` returns
-  `INVALID_MONEY` with no product row and no price row. An owner
-  delete soft-deletes and redirects to `/products`. Riley's delete
-  redirects with a permission notice and leaves the product and its
-  1000-cent price in place. Each of those five checks was confirmed
-  by applying the reviewer's mutation, seeing the new assertion
-  fail, and restoring the original code.
-- Field permissions apply to products. A profile that cannot read
-  `description`, `productCode`, or `family` gets null for those
-  fields from get, list, and the update return. A hidden
-  `standardPriceCents` is null on get and list. Create and update
-  returns go through the same redaction. The operator still sees
-  the stored values. `canEdit: false` on
-  `standardPriceCents` blocks create and update before the write,
-  and the same deny covers the form names `standardPrice` and
-  `unitPriceCents`. The price-book column stays `unit_price_cents`.
-  The detail omits a product field the actor cannot read. The list
-  shows an em dash in that cell.
-  Read Only cannot update or delete a product it owns, and the
-  price stays. Riley can delete a product Riley owns. A fractional
-  cent (`10.5`) is rejected and leaves both tables unchanged. An
-  omitted Active checkbox stores inactive on create and on update.
-- **`npm run verify` (2026-10-11, 14:37 EDT):** exit 0. 34 test files,
-  406 tests. TypeScript, ESLint, and the Next.js 16.3.5 production
-  build passed. The build lists `/products`, `/products/new`,
-  `/products/[id]`, and `/products/[id]/edit`. The 13:44 run was
-  402 tests, before field permissions. The 13:04 run was 398.
-- Each reviewer mutation was applied, the focused test failed, and
-  the original line was restored: delete with a fake owner id,
-  `isActive !== "false"`, dropping `.int()` on the cent schema,
-  forcing Read Only product update and delete, skipping
-  `presentRecord` on get, list, create, and update, and skipping
-  `assertEditableFields` on create and on update.
-- **Browser-style pass, throwaway database only.**
-  `DATABASE_PATH=/tmp/rex-crm-products-20261011.sqlite`,
-  `next dev -p 3017`. Signed in by posting the login form.
-  Password `local-dev`. The server was stopped afterward.
-  - Operator home showed Rex Local, a Products link, a product count
-    of 1, and the Setup link.
-  - Creating Anvil, code `ANV-1`, family Hardware, price `19.99`
-    returned 303 to
-    `/products/01t01M4NYW0BGYD0KJE4S75E6WRJW`. The list showed Anvil,
-    `ANV-1`, and `$19.99`. The detail showed Standard Price Book and
-    `$19.99`. The edit form showed `19.99`.
-  - SQLite had one live product, `unit_price_cents` 1999, and one
-    standard price book.
-  - Riley's detail showed the name and price and did not show Edit or
-    Delete. Riley's edit URL said "You do not have permission to edit
-    this product." Posting the operator edit action as Riley returned
-    that same sentence and did not redirect. The row stayed Anvil at
-    1999 cents.
-  - Price `1.005` stayed on the new-product form with "Standard price
-    must be a dollar amount with at most two decimal places" and did
-    not insert a row. Riley's home had no Setup link.
-- **Form pass, throwaway database only (2026-10-11, 14:40 EDT).**
-  `DATABASE_PATH=/tmp/rex-crm-product-fields-20261011.sqlite`,
-  `next dev -p 3018`. Signed in by posting the login form.
-  Password `local-dev`. The server was stopped afterward.
-  Chrome DevTools was not connected, so there was no viewport pass.
-  - Operator created Anvil, code `ANV-1`, family Hardware,
-    description Painted iron, price `19.99`, Active checked.
-    Detail showed `$19.99`, Standard Price Book, Edit, and Delete.
-  - Saving the edit form without the Active field returned to the
-    detail as Inactive. SQLite kept `unit_price_cents` 1999 and
-    `is_active` 0. Creating Dormant Anvil at `10.00` with the
-    checkbox omitted stored inactive and 1000 cents.
-  - Riley was moved to a profile that can read products and cannot
-    read code, family, description, or standard price. Riley's
-    detail showed the name and Standard Price Book, and did not
-    show `ANV-1`, Hardware, Painted iron, `$19.99`, or a Standard
-    Price field. Edit and Delete were absent. The edit URL said
-    "You do not have permission to edit this product." The operator
-    detail still showed the code, family, description, and `$19.99`.
-- Not checked: a real browser viewport. No custom price book,
-  opportunity line, product search, report, or recycle restore.
+Restoring a deleted record uses the same rule as deleting a live one:
+the profile must allow delete, and the actor must own the record or
+have modify-all (`users.role` admin and an admin membership in this
+org). The recycle list only includes rows that pass that check. A
+global admin who is only a member, and an org-membership admin whose
+global role is `user`, cannot restore someone else's record. An owner
+whose profile can edit but not delete cannot restore it either.
+
+Creating, updating, or removing an opportunity contact role requires
+edit on that live opportunity. Lead convert uses the same check. A
+profile that can create the opportunity but cannot edit it rolls the
+convert back: the lead stays New and no account is left behind. Deleting
+the opportunity or the contact still removes the junction rows without
+that edit check, including when the profile can delete the opportunity
+but cannot edit it.
+
+The opportunity page hides Add role, Make primary, and Remove when the
+actor cannot edit. The recycle page does not offer Undelete for a row
+the actor cannot delete. Edit and Delete on the opportunity header are
+still shown. This did not add Change Owner.
+
+- **`npm run verify` (2026-10-11 15:32 EDT):** exit 0. 34 files, 391
+  tests (was 32 files, 378). TypeScript, ESLint, and Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation evidence, focused suite, each change restored:** removing
+  the undelete check, the recycle-list filter, the create check, the
+  update check, or the single-role delete check failed that suite.
+  Switching undelete or the list from delete permission to edit failed.
+  Switching the role gate from edit to delete failed. Making the
+  opportunity-delete cascade require edit failed. Full verify above
+  ran after the source was restored. A later review showed that
+  switching delete to edit was only killed for accounts, and that role
+  update, the contact-delete cascade, and the opportunity page were
+  not covered. The next section is the re-check.
+- **HTML pass, throwaway database only.** `next dev -p 3019` with
+  `DATABASE_PATH=/tmp/rex-crm-auth-browser-20261011.sqlite`. Sessions
+  minted for operator and Riley. No repository database was written.
+  Riley's Operator Anvil page showed Elmer Fudd and "You do not have
+  permission to change contact roles on this opportunity", and did not
+  show Add role, Make primary, or Remove. Riley's own Riley Anvil page
+  and the operator's view of that page showed Make primary and Remove.
+  Add role was absent there because the only contact was already on the
+  opportunity. Riley's `/recycle` said "No records you can restore" and
+  had no undelete form. The operator's `/recycle` listed Operator Bin
+  Co with an Undelete button. SQLite still had that account deleted
+  after the page reads. Server stopped. Chrome DevTools was not
+  connected, so this was not a viewport or click pass. A hand-built
+  multipart post of the Undelete action returned "Connection closed"
+  for both users and did not restore the row.
+
+### Same rules, tests that kill the review survivors (2026-10-11)
+
+No enforcement change. The four survivors were missing tests. An owner
+whose profile can edit but not delete is now refused on account,
+contact, lead, opportunity, and task: the recycle list hides each row,
+`undeleteRecord` throws `FORBIDDEN`, and the row stays deleted. In the
+edit-versus-delete role test, the editor's
+`updateOpportunityContactRole` changes the role to Decision Maker and
+sets primary, and the deleter's update throws `FORBIDDEN` and leaves
+Decision Maker / primary in place. That deleter's `deleteContact`
+removes the contact and its role row, and leaves the opportunity. The
+opportunity page is rendered: the owner sees Make primary, Remove, and
+Add role; Riley, who can read the operator's opportunity but cannot
+edit it, sees the denial sentence and none of those controls. Road
+Runner appears only in the owner's add-role select.
+
+- **`npm run verify` (2026-10-11 16:07 EDT):** exit 0. 35 files, 392
+  tests (was 34 files, 391). TypeScript, ESLint, and Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation re-check, each change restored before that verify.**
+  Recycle list using edit for non-accounts: the contact row was listed
+  (`expected true to be false`). Recycle restore using edit for
+  non-accounts: `undeleteRecord` did not throw `FORBIDDEN`. Role update
+  requiring opportunity delete: the deleter's update did not throw
+  `FORBIDDEN`. Contact cascade requiring opportunity edit:
+  `deleteContact` threw "You do not have permission to edit this
+  opportunity" from `deleteOpportunityContactRolesForContact`.
+  Opportunity page checking read: Riley's markup contained Make
+  primary, Remove, and Add role, and did not contain the denial
+  sentence. Source matched the pre-mutation files afterward.
+- **No browser pass.** The page check is `renderToStaticMarkup` on a
+  memory database. Chrome DevTools was not connected.
+- A later review survived three more mutations. The recycle tests
+  granted the same delete flag on account and opportunity, so checking
+  account delete for an opportunity row still hid and restored every
+  seeded row. The page test compared an owner who can edit and delete
+  with a member who can do neither, so gating the role controls on
+  delete still passed. The next section is that re-check.
+
+### Object delete and the opportunity role gate (2026-10-11)
+
+No enforcement change. An owner, and a modify-all user, whose profile
+can delete accounts and cannot delete opportunities see and restore the
+account. The opportunity stays out of their recycle list,
+`undeleteRecord` throws `FORBIDDEN`, and the row stays deleted. The
+inverse profile, again for an owner and for modify-all, lists and
+restores the opportunity and leaves the account deleted.
+
+The opportunity page renders for a delete-not-edit owner and for an
+edit-not-delete owner. The deleter sees "You do not have permission to
+change contact roles on this opportunity." and does not see Make
+primary, Remove, or Add role. The editor sees those three controls.
+The header Edit and Delete links are still shown for both.
+
+- **`npm run verify` (2026-10-11 16:35 EDT):** exit 0. 35 files, 394
+  tests (was 35 files, 392). TypeScript, ESLint, and Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation re-check, each change restored before that verify.**
+  Recycle list authorizing opportunity rows with account delete: the
+  new test failed (`expected true to be false`) because the opportunity
+  was listed; the other seven recycle tests passed. Undelete checking
+  account delete before restoring an opportunity: the new test failed
+  with `expected FORBIDDEN` because restore did not throw; the other
+  seven passed. Opportunity page gating role controls on delete: the
+  new render failed because the delete-not-edit owner saw Make primary,
+  Remove, and Add role and did not see the denial sentence; the older
+  owner-versus-reader render passed. Source matched the pre-mutation
+  files afterward. Full verify above ran after that restore.
+- **No browser pass.** The page check is `renderToStaticMarkup` on a
+  memory database. Chrome DevTools was not connected.
 
 ### Setup administration and Read Only profile (`5126f24`)
 
@@ -677,11 +701,11 @@ on the existing file (1 list view, 0 of everything else).
 ## PARTIAL
 
 - **`deleted_at`** — written on account/contact/lead/opportunity/task
-  delete, filtered in get/list. `/recycle` lists them and undeletes the
-  one row. No empty-bin. Undelete does not restore tasks or other
-  children that were soft-deleted with the parent. No hard purge.
-  Junction roles are still hard-deleted with the parent opportunity or
-  contact.
+  delete, filtered in get/list. `/recycle` lists a row only when the
+  actor may delete it, and undelete uses that same check (see WORKS).
+  No empty-bin. Undelete does not restore tasks or other children that
+  were soft-deleted with the parent. No hard purge. Junction roles are
+  still hard-deleted with the parent opportunity or contact.
 - **Sharing** — login is real. Another org's records are hidden
   (`0012_orgs`). Inside one org, a member whose profile can read the
   object still sees every record. No OWD and no “My …” views. Profiles
@@ -743,15 +767,6 @@ on the existing file (1 list view, 0 of everything else).
   separate form. Contact and Opportunity Account Name is a join
   column/filter, not a stored field. Task Related To is a coalesce of
   four parent-table left joins, gated by `related_object_type`.
-- **Products** (2026-10-11) — one standard price book per org and a
-  price book entry in integer cents. Active flag, code, family, and
-  description. Org isolation, profile and owner checks, and field
-  permissions on the product fields. The permission name for the
-  price is `standardPriceCents`. No custom
-  price books, no opportunity line items, no product search, reports,
-  list views, custom fields, validation rules, or recycle-bin restore.
-  A member can still read another member's product. The price book
-  entry active flag is stored true and is not edited on its own.
 - **Custom fields** — definitions and values are real on all five
   objects, including list-view columns, filters, and sort via SQL
   against `custom_field_values`. No formula, lookup, or
@@ -804,8 +819,7 @@ This list is supposed to stay long. It is the research measurement.
 
 ### Pipeline / sales cloud beyond four objects
 
-- Opportunity line items, custom price books, quotes, contracts, orders.
-  Products and the standard price book landed on 2026-10-11.
+- Products, price books, line items, quotes, contracts, orders
 - Forecasts, sales path / kanban, territories, quotas
 
 ### Lead / marketing-adjacent
@@ -881,48 +895,36 @@ These stay in scope. See `SALESFORCE-PARITY.md`. They are not done:
 
 ## NEXT
 
-The full sharing slice (organization-wide defaults, role hierarchy, and
-criteria rules) was abandoned after three review rounds. Do not retry
-that whole slice in one change. The still-open correctness holes are
-owner-or-admin checks on undelete, opportunity contact-role writes,
-Change Owner, Edit/Delete visibility on contact, lead, opportunity, and
-task detail, and cascade task deletes. Existing Riley admin memberships
-remain admin until an explicit migration or reassignment. Do not
-reintroduce a default `LOCAL_USER_ID` actor on domain writes.
-
-The catalog's next piece is opportunity line items on top of the
-standard price, then custom price books. Quotes need those. Record
-fresh verification evidence for each slice.
+The recurring build automation is paused. When the owner resumes the build,
+read `HANDOFF.md` and `ARCHITECTURE.md` before choosing the next slice.
+The long-term scope includes Salesforce-level feature breadth. Undelete
+and opportunity contact-role writes are gated. The next correctness gaps
+are Change Owner, permission-aware Edit/Delete controls (the edit URL
+still renders the form; contact, lead, opportunity, and task detail
+still show Edit and Delete before the domain refuses), and cascade task
+deletes. Existing Riley admin memberships remain admin until an explicit
+migration or reassignment. Do not reintroduce a default `LOCAL_USER_ID`
+actor on domain writes. Do not retry organization-wide defaults or a
+product catalog in one change; both were abandoned after three review
+rounds. Record fresh verification evidence for each slice.
 
 ---
 
 ## Session log
 
-### Session 2026-10-11 — product field permissions (Rex / Grok)
+### 2026-10-11 — undelete and opportunity contact roles (Rex)
 
-- Did not start opportunity line items. The review found product
-  field permissions were stored and ignored, and four security or
-  money mutants still survived.
-- Reads and writes now use `standardPriceCents`. Hidden fields are
-  removed from the record and from the list and detail. A locked
-  field blocks the write. Read Only cannot update or delete its own
-  product. Omitted Active stores inactive. Fractional cents are
-  rejected.
-- `npm run verify` exit 0 at 14:37 EDT: 34 files, 406 tests,
-  production build. Form pass on port 3018 with a throwaway
-  database. The server was stopped. No viewport pass.
-- Did not push, open a PR, or deploy. No real-business data.
-
-### Session 2026-10-11 — product catalog (Rex / Grok)
-
-- Did not retry the abandoned sharing slice.
-- Products, one standard price book per org, and standard prices in
-  cents. Migration `0014_products`. Profile rows include `product`.
-  `npm run verify` exit 0: 34 files, 398 tests, production build.
-- Form pass on `next dev -p 3017` with a throwaway database. Operator
-  created Anvil at `$19.99`. Riley could read it and could not edit it.
-  The server was stopped. No viewport pass.
-- Did not push, open a PR, or deploy. No real-business data.
+- Gated recycle restore and the recycle list with the live-delete rule.
+  Gated opportunity contact-role create, update, and delete with edit on
+  the opportunity. Parent delete still clears junction rows without that
+  edit check. Lead convert rolls back when the actor cannot edit the
+  new opportunity.
+- `npm run verify` exit 0 at 15:32 EDT: 34 files, 391 tests, Next.js
+  16.3.5 build. Nine focused mutations failed, then the source was
+  restored. HTML
+  reads on a throwaway database at port 3019 matched the buttons.
+  No viewport pass. The server was stopped.
+- Did not build sharing, products, or Change Owner. Did not push.
 
 ### Reconciliation (2026-10-10) — profiles from `cc5f786`
 

@@ -3,16 +3,9 @@
 > **Publication note.** Commit hashes and branch names below refer to the earlier
 > private repository this one began as a snapshot of. They do not resolve here.
 
-Updated 2026-10-11 after the product catalog. `STATUS.md` is the
-evidence ledger. This file is the baton for the next slice. Do not
-delete it until that slice has absorbed it.
-
-The 2026-10-11 slice did not retry organization-wide sharing. That
-slice was abandoned after three review rounds. Products, one standard
-price book per organization, and standard prices in integer cents are
-in `src/lib/crm/products.ts` and migration `0014_products`. Opportunity
-line items and custom price books are not built. The permission gaps
-in section 3 are still open.
+Updated 2026-10-11 after undelete and opportunity contact-role authorization.
+`STATUS.md` is the evidence ledger. This file is the baton for the next
+slice. Do not delete it until that slice has absorbed it.
 
 The long-term experiment is a unified CRM with Salesforce-level feature
 breadth and strong correctness. The recurring build automation is paused
@@ -94,16 +87,21 @@ regressed. Evidence is the STATUS entry for this branch.
    `assignProfile`. There is still no profile setup screen. The role
    matrix is still the same for `admin` and `user`.
 
+Closed in the 2026-10-11 slice. Evidence is the STATUS entry.
+
+2. **Undelete uses the live delete rule.** `undeleteRecord` calls
+   `assertCanAccessRecord` for `delete`. `listDeletedRecords` uses the
+   same check, so the page does not offer a restore the domain will
+   refuse. Modify-all is still `users.role` admin plus an admin
+   membership, not membership admin alone.
+3. **Opportunity contact-role writes require edit on the opportunity.**
+   Create (including lead convert), update, and delete of one role call
+   `assertCanEditOpportunityRoles`. The opportunity page hides Add role,
+   Make primary, and Remove when that check is false. Cascades from
+   deleting the opportunity or the contact do not use that check.
+
 Still open:
 
-2. **Undelete is not owner-or-admin gated.** `undeleteRecord` restores a
-   row inside the actor's org and does not check the owner.
-3. **Opportunity contact-role writes are ungated.**
-   `addOpportunityContactRoleAction`,
-   `setPrimaryOpportunityContactRoleAction`, and
-   `deleteOpportunityContactRoleAction` call `requireActor()`. The
-   domain functions in `opportunityContactRoles.ts` call `assertActor`
-   only.
 4. **Keep the actor required.** Domain paths take an `Actor`.
    `assertActor` refuses a missing org or a non-member. No production
    function defaults the user to `LOCAL_USER_ID`. Do not put that
@@ -128,11 +126,13 @@ Still open:
 Suggested order when work resumes:
 
 0. CI. A GitHub Actions workflow running `npm ci && npm run verify`.
-1. Close the rest of section 3. Gate undelete and contact-role writes.
-   Change Owner. Hide Edit and Delete wherever `canAccessRecord` is
-   false, including the edit page. Mutation-test it. Browser-test it
-   on a throwaway `DATABASE_PATH`. Setup admin, Riley's membership, and
-   the seeded Read Only profile are done in this slice.
+1. Close the rest of section 3. Change Owner. Hide Edit and Delete
+   wherever `canAccessRecord` is false, including the edit page.
+   Cascade task deletes still skip the task owner. Mutation-test it.
+   Browser-test it on a throwaway `DATABASE_PATH`. Setup admin, Riley's
+   membership, the seeded Read Only profile, undelete, and opportunity
+   contact-role writes are done. Do not retry organization-wide
+   defaults or a product catalog in one change.
 2. A field registry, proven on Opportunity, then the other objects.
    Add further field permissions on that registry rather than beside it.
 
