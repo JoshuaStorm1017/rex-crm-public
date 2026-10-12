@@ -138,7 +138,7 @@ describe("account hierarchy (session 12)", () => {
   it("rejects making an account the parent of its own parent", () => {
     const { db, acme, west } = tree();
     expect(() => updateAccount(db, LOCAL_ACTOR, acme.id, { parentAccountId: west.id })).toThrow(
-      /already under this account/,
+      "Parent account is not valid",
     );
     expect(getAccount(db, LOCAL_ACTOR, acme.id)?.parentAccountId).toBeNull();
   });

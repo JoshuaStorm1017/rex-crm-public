@@ -85,7 +85,8 @@ export function descendantNodes(
 
 /**
  * True when making `newParentId` the parent of `childId` would close a
- * loop: the new parent is the child itself, or already sits under it.
+ * loop through records in `allowed`. A parent outside `allowed` stops the
+ * walk, so a hidden record cannot confirm the loop.
  */
 export function wouldCreateCycle(
   db: Db,
@@ -93,23 +94,47 @@ export function wouldCreateCycle(
   childId: string,
   newParentId: string,
   orgId: string,
+  allowed?: ReadonlySet<string>,
 ): boolean {
   if (childId === newParentId) return true;
-  return ancestorIds(db, spec, newParentId, orgId).includes(childId);
+  const chain = ancestorIds(db, spec, newParentId, orgId);
+  for (const id of chain) {
+    if (id === newParentId) continue;
+    if (id === childId) return true;
+    if (allowed && !allowed.has(id)) return false;
+  }
+  return false;
 }
 
-/** Every live id under `rootId`, not including `rootId`. */
+/**
+ * Every live id under `rootId`, not including `rootId`. When `allowed` is
+ * set, a child outside that set is not returned and is not walked past.
+ */
 export function descendantIds(
   db: Db,
   spec: HierarchySpec,
   rootId: string,
   orgId: string,
+  allowed?: ReadonlySet<string>,
 ): Set<string> {
-  return new Set(
-    descendantNodes(db, spec, rootId, orgId)
-      .filter((node) => node.id !== rootId)
-      .map((node) => node.id),
-  );
+  const children = new Map<string, string[]>();
+  for (const node of descendantNodes(db, spec, rootId, orgId)) {
+    if (!node.parentId) continue;
+    const list = children.get(node.parentId) ?? [];
+    list.push(node.id);
+    children.set(node.parentId, list);
+  }
+  const out = new Set<string>();
+  const walk = (id: string) => {
+    for (const childId of children.get(id) ?? []) {
+      if (allowed && !allowed.has(childId)) continue;
+      if (out.has(childId)) continue;
+      out.add(childId);
+      walk(childId);
+    }
+  };
+  walk(rootId);
+  return out;
 }
 
 function dedupe(ids: string[]): string[] {

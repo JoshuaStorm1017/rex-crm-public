@@ -25,6 +25,9 @@ export const ID_PREFIX = {
   profile: "00e",
   objectPermission: "obp",
   fieldPermission: "fls",
+  orgWideDefault: "owd",
+  role: "00E",
+  sharingRule: "0sr",
 } as const;
 
 export type IdPrefix = (typeof ID_PREFIX)[keyof typeof ID_PREFIX];

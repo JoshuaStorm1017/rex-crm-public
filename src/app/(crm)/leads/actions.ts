@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { convertLead, createLead, deleteLead, updateLead } from "@/lib/crm/leads";
+import { convertLead, createLead, deleteLead, getLead, updateLead } from "@/lib/crm/leads";
 import { withCustomFieldWrite } from "@/lib/crm/customFields";
 import {
   LEAD_RATINGS,
@@ -14,6 +14,7 @@ import {
 import {
   blank,
   formatError,
+  SAVED_HIDDEN_NOTICE,
   type ActionState,
 } from "@/lib/crm/form";
 import { requireActor } from "@/lib/crm/currentUser";
@@ -57,21 +58,30 @@ function leadFields(formData: FormData) {
   };
 }
 
+function leadDestination(actor: Awaited<ReturnType<typeof requireActor>>, id: string): string {
+  if (!getLead(getDb(), actor, id)) {
+    return `/leads?notice=${encodeURIComponent(SAVED_HIDDEN_NOTICE)}`;
+  }
+  return `/leads/${id}`;
+}
+
 export async function createLeadAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  let lead;
+  let destination: string;
   try {
     const actor = await requireActor();
-    lead = withCustomFieldWrite(getDb(), actor, "lead", formData, (tx) =>
-      createLead(tx, actor, leadFields(formData))    );
+    const lead = withCustomFieldWrite(getDb(), actor, "lead", formData, (tx) =>
+      createLead(tx, actor, leadFields(formData)),
+    );
+    destination = leadDestination(actor, lead.id);
   } catch (error) {
     return { error: formatError(error) };
   }
   revalidatePath("/leads");
   revalidatePath("/");
-  redirect(`/leads/${lead.id}`);
+  redirect(destination);
 }
 
 export async function updateLeadAction(
@@ -79,19 +89,20 @@ export async function updateLeadAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  let lead;
+  let destination: string;
   try {
     const actor = await requireActor();
-    lead = withCustomFieldWrite(getDb(), actor, "lead", formData, (tx) =>
+    const lead = withCustomFieldWrite(getDb(), actor, "lead", formData, (tx) =>
       updateLead(tx, actor, id, parseLeadUpdateFormData(formData)),
     );
+    destination = leadDestination(actor, lead.id);
   } catch (error) {
     return { error: formatError(error) };
   }
   revalidatePath("/leads");
-  revalidatePath(`/leads/${lead.id}`);
+  revalidatePath(`/leads/${id}`);
   revalidatePath("/");
-  redirect(`/leads/${lead.id}`);
+  redirect(destination);
 }
 
 export async function deleteLeadAction(id: string): Promise<void> {

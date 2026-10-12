@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateOpportunityAction } from "../../actions";
 import { RecordForm } from "@/components/RecordForm";
+import { getAccount } from "@/lib/crm/accounts";
 import { getOpportunity } from "@/lib/crm/opportunities";
 import {
   OPPORTUNITY_STAGES,
@@ -19,9 +20,11 @@ export default async function EditOpportunityPage({
 }) {
   const actor = await requireActor();
   const { id } = await params;
-  const opportunity = getOpportunity(getDb(), actor, id);
+  const db = getDb();
+  const opportunity = getOpportunity(db, actor, id);
   if (!opportunity) notFound();
   const action = updateOpportunityAction.bind(null, opportunity.id);
+  const account = getAccount(db, actor, opportunity.accountId);
 
   return (
     <div className="space-y-4">
@@ -38,8 +41,8 @@ export default async function EditOpportunityPage({
         <RecordForm
           action={action}
           submitLabel="Save"
-          hidden={{ accountId: opportunity.accountId }}
-          fields={withCustomFormFields(getDb(), actor, "opportunity", [
+          hidden={account ? { accountId: account.id } : undefined}
+          fields={withCustomFormFields(db, actor, "opportunity", [
             {
               name: "name",
               label: "Opportunity Name",

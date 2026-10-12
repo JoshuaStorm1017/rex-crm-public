@@ -13,6 +13,7 @@ import {
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
 import { ensureSystemListViews } from "./listViews";
+import { ensureOrgWideDefaults } from "./sharing";
 import { ensureSystemValidationRules } from "./validationRules";
 
 export type Organization = typeof organizations.$inferSelect;
@@ -96,6 +97,7 @@ export function createOrganization(
     })
     .run();
   addMember(db, id, ownerUserId, "admin");
+  ensureOrgWideDefaults(db);
   const created = getOrganization(db, id);
   if (!created) {
     throw new DomainError("WRITE_FAILED", "Organization was not persisted");
@@ -147,6 +149,7 @@ export function addMember(
     userId,
     role,
     profileId: assignedProfileId,
+    roleId: null,
     createdAt: Date.now(),
   };
   db.insert(orgMemberships).values(row).run();

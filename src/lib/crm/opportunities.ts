@@ -28,6 +28,7 @@ import {
   type OpportunityUpdateInput,
 } from "./validation";
 import { prepareWrite, withoutId } from "./prepareWrite";
+import { canReadRecord, readRestrictionSql } from "./sharing";
 import { mergeDefined } from "./validationRules";
 
 export type Opportunity = typeof opportunities.$inferSelect;
@@ -50,6 +51,13 @@ function live(actor: Actor) {
   );
 }
 
+function visible(db: Db, actor: Actor) {
+  return and(
+    live(actor),
+    readRestrictionSql(db, actor, "opportunity", opportunities.ownerId),
+  );
+}
+
 function assertAccount(db: Db, actor: Actor, accountId: string) {
   const account = getAccount(db, actor, accountId);
   if (!account) {
@@ -57,7 +65,7 @@ function assertAccount(db: Db, actor: Actor, accountId: string) {
   }
 }
 
-function loadOpportunity(
+function storedOpportunity(
   db: Db,
   actor: Actor,
   id: string,
@@ -69,14 +77,36 @@ function loadOpportunity(
     .get();
 }
 
-export function getOpportunity(
+function loadOpportunity(
+  db: Db,
+  actor: Actor,
+  id: string,
+): Opportunity | undefined {
+  const row = storedOpportunity(db, actor, id);
+  if (!row || !canReadRecord(db, actor, "opportunity", row)) return undefined;
+  return row;
+}
+
+/**
+ * Stored row when this actor can read it. Sharing checks need the real
+ * criteria fields. `getOpportunity` is the copy with hidden fields removed.
+ */
+export function readOpportunity(
   db: Db,
   actor: Actor,
   id: string,
 ): Opportunity | undefined {
   assertActor(db, actor);
   if (!canPerform(db, actor, "opportunity", "read")) return undefined;
-  const row = loadOpportunity(db, actor, id);
+  return loadOpportunity(db, actor, id);
+}
+
+export function getOpportunity(
+  db: Db,
+  actor: Actor,
+  id: string,
+): Opportunity | undefined {
+  const row = readOpportunity(db, actor, id);
   return row ? presentRecord(db, actor, "opportunity", row) : undefined;
 }
 
@@ -86,7 +116,7 @@ export function listOpportunities(db: Db, actor: Actor): Opportunity[] {
   return db
     .select()
     .from(opportunities)
-    .where(live(actor))
+    .where(visible(db, actor))
     .orderBy(opportunities.closeDate, opportunities.name)
     .all()
     .map((row) => presentRecord(db, actor, "opportunity", row));
@@ -102,7 +132,7 @@ export function listOpportunitiesForAccount(
   return db
     .select()
     .from(opportunities)
-    .where(and(eq(opportunities.accountId, accountId), live(actor)))
+    .where(and(eq(opportunities.accountId, accountId), visible(db, actor)))
     .orderBy(opportunities.closeDate, opportunities.name)
     .all()
     .map((row) => presentRecord(db, actor, "opportunity", row));
@@ -114,7 +144,7 @@ export function countOpportunities(db: Db, actor: Actor): number {
   const row = db
     .select({ n: count() })
     .from(opportunities)
-    .where(live(actor))
+    .where(visible(db, actor))
     .get();
   return row?.n ?? 0;
 }
@@ -148,9 +178,9 @@ export function createOpportunity(
     createdBy: actor.userId,
     updatedBy: actor.userId,
   };
-  const prepared = prepareWrite(db, "opportunity", row, "create");
+  const prepared = prepareWrite(db, actor, "opportunity", row, "create");
   db.insert(opportunities).values(prepared).run();
-  const created = loadOpportunity(db, actor, id);
+  const created = storedOpportunity(db, actor, id);
   if (!created) {
     throw new DomainError("WRITE_FAILED", "Opportunity was not persisted");
   }
@@ -189,12 +219,12 @@ export function updateOpportunity(
     updatedAt: ts,
     updatedBy: actor.userId,
   });
-  const prepared = prepareWrite(db, "opportunity", next, "update") as Opportunity;
+  const prepared = prepareWrite(db, actor, "opportunity", next, "update") as Opportunity;
   db.update(opportunities)
     .set(withoutId(prepared))
     .where(and(eq(opportunities.id, id), eq(opportunities.orgId, actor.orgId)))
     .run();
-  const updated = loadOpportunity(db, actor, id);
+  const updated = storedOpportunity(db, actor, id);
   if (!updated) {
     throw new DomainError("WRITE_FAILED", "Opportunity update did not persist");
   }
@@ -208,8 +238,8 @@ export function deleteOpportunity(db: Db, actor: Actor, id: string): void {
     throw new DomainError("NOT_FOUND", "Opportunity not found");
   }
   assertCanAccessRecord(db, actor, "opportunity", "delete", existing);
-  deleteOpportunityContactRolesForOpportunity(db, actor, id);
   deleteTasksForRecord(db, actor, id);
+  deleteOpportunityContactRolesForOpportunity(db, actor, id);
   deleteCustomValuesForRecord(db, id);
   db.update(opportunities)
     .set({ deletedAt: now(), updatedAt: now() })

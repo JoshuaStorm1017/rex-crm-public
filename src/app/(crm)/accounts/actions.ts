@@ -5,10 +5,11 @@ import { redirect } from "next/navigation";
 import {
   createAccount,
   deleteAccount,
+  getAccount,
   updateAccount,
 } from "@/lib/crm/accounts";
 import { withCustomFieldWrite } from "@/lib/crm/customFields";
-import { formatError, type ActionState } from "@/lib/crm/form";
+import { formatError, SAVED_HIDDEN_NOTICE, type ActionState } from "@/lib/crm/form";
 import {
   parseAccountCreateFormData,
   parseAccountUpdateFormData,
@@ -18,21 +19,30 @@ import { getDb } from "@/lib/db/client";
 
 export type { ActionState };
 
+function accountDestination(actor: Awaited<ReturnType<typeof requireActor>>, id: string): string {
+  if (!getAccount(getDb(), actor, id)) {
+    return `/accounts?notice=${encodeURIComponent(SAVED_HIDDEN_NOTICE)}`;
+  }
+  return `/accounts/${id}`;
+}
+
 export async function createAccountAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  let account;
+  let destination: string;
   try {
     const actor = await requireActor();
-    account = withCustomFieldWrite(getDb(), actor, "account", formData, (tx) =>
-      createAccount(tx, actor, parseAccountCreateFormData(formData))    );
+    const account = withCustomFieldWrite(getDb(), actor, "account", formData, (tx) =>
+      createAccount(tx, actor, parseAccountCreateFormData(formData)),
+    );
+    destination = accountDestination(actor, account.id);
   } catch (error) {
     return { error: formatError(error) };
   }
   revalidatePath("/accounts");
   revalidatePath("/");
-  redirect(`/accounts/${account.id}`);
+  redirect(destination);
 }
 
 export async function updateAccountAction(
@@ -40,18 +50,20 @@ export async function updateAccountAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  let account;
+  let destination: string;
   try {
     const actor = await requireActor();
-    account = withCustomFieldWrite(getDb(), actor, "account", formData, (tx) =>
-      updateAccount(tx, actor, id, parseAccountUpdateFormData(formData))    );
+    const account = withCustomFieldWrite(getDb(), actor, "account", formData, (tx) =>
+      updateAccount(tx, actor, id, parseAccountUpdateFormData(formData)),
+    );
+    destination = accountDestination(actor, account.id);
   } catch (error) {
     return { error: formatError(error) };
   }
   revalidatePath("/accounts");
-  revalidatePath(`/accounts/${account.id}`);
+  revalidatePath(`/accounts/${id}`);
   revalidatePath("/");
-  redirect(`/accounts/${account.id}`);
+  redirect(destination);
 }
 
 export async function deleteAccountAction(id: string): Promise<void> {
