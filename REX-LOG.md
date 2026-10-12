@@ -1,5 +1,30 @@
 # Rex log
 
+## 2026-10-12 16:55 EDT (round 5)
+
+Killed the one surviving mutant from Rex Reviewer: removing
+`assertTransferPermission` from `changeOwner` left every test green.
+Test-only change, written by Rex.
+
+Why it survived: every refusal test had a related row owned by the
+previous owner, so the per-row edit check also threw `FORBIDDEN`. The
+flag-level check was never the only thing standing.
+
+New `src/lib/crm/ownership.pr4r5.test.ts`: the actor owns and can edit
+the account, but the profile lacks edit on contacts, opportunities, or
+tasks. The related rows on the account belong to someone else, so no
+per-row check runs. One test per flag (`transferContacts`,
+`transferOpenOpportunities`, `transferClosedOpportunities`,
+`transferOpenTasks`) expects `FORBIDDEN` and checks that the account,
+contact, both opportunities, and the task keep their owners. A control
+without the flag succeeds.
+
+Mutation check: removing `assertTransferPermission` failed all 4 new
+tests (full suite 4 failed, 442 passed). Removing only the contact,
+opportunity, or task line failed 1, 2, and 1 tests.
+
+Next: re-run the reviews on PR #4.
+
 ## 2026-10-12 16:55 EDT
 
 Kept this branch (PR #4) as the Change Owner base and folded in what
