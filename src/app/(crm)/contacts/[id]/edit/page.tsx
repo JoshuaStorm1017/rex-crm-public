@@ -2,11 +2,13 @@ import { requireActor } from "@/lib/crm/currentUser";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateContactAction } from "../../actions";
+import { EditDenied } from "@/components/EditDenied";
 import { RecordForm } from "@/components/RecordForm";
 import { getAccount, listAccounts } from "@/lib/crm/accounts";
 import { contactReportsToEditField, getContact } from "@/lib/crm/contacts";
 import { accountPickerOptions, contactPickerOptions } from "@/lib/crm/pickers";
 import { withCustomFormFields } from "@/lib/crm/customFieldForm";
+import { canAccessRecord } from "@/lib/crm/permissions";
 import { getDb } from "@/lib/db/client";
 
 export default async function EditContactPage({
@@ -19,6 +21,15 @@ export default async function EditContactPage({
   const db = getDb();
   const contact = getContact(db, actor, id);
   if (!contact) notFound();
+  if (!canAccessRecord(db, actor, "contact", "edit", contact)) {
+    return (
+      <EditDenied
+        href={`/contacts/${contact.id}`}
+        recordName={contact.name}
+        object="contact"
+      />
+    );
+  }
   const action = updateContactAction.bind(null, contact.id);
   const account = getAccount(db, actor, contact.accountId);
   // Null only when the stored manager is live but unreadable. The helper

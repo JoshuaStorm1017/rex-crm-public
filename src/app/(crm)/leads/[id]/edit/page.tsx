@@ -2,6 +2,7 @@ import { requireActor } from "@/lib/crm/currentUser";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateLeadAction } from "../../actions";
+import { EditDenied } from "@/components/EditDenied";
 import { RecordForm } from "@/components/RecordForm";
 import {
   LEAD_RATINGS,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/crm/constants";
 import { withCustomFormFields } from "@/lib/crm/customFieldForm";
 import { getLead } from "@/lib/crm/leads";
+import { canAccessRecord } from "@/lib/crm/permissions";
 import { getDb } from "@/lib/db/client";
 
 export default async function EditLeadPage({
@@ -19,9 +21,19 @@ export default async function EditLeadPage({
 }) {
   const actor = await requireActor();
   const { id } = await params;
-  const lead = getLead(getDb(), actor, id);
+  const db = getDb();
+  const lead = getLead(db, actor, id);
   if (!lead) notFound();
   if (lead.status === "Converted") notFound();
+  if (!canAccessRecord(db, actor, "lead", "edit", lead)) {
+    return (
+      <EditDenied
+        href={`/leads/${lead.id}`}
+        recordName={lead.name}
+        object="lead"
+      />
+    );
+  }
   const action = updateLeadAction.bind(null, lead.id);
 
   return (
@@ -39,7 +51,7 @@ export default async function EditLeadPage({
         <RecordForm
           action={action}
           submitLabel="Save"
-          fields={withCustomFormFields(getDb(), actor, "lead", [
+          fields={withCustomFormFields(db, actor, "lead", [
             {
               name: "firstName",
               label: "First Name",

@@ -2,6 +2,7 @@ import { requireActor } from "@/lib/crm/currentUser";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateOpportunityAction } from "../../actions";
+import { EditDenied } from "@/components/EditDenied";
 import { RecordForm } from "@/components/RecordForm";
 import { getAccount } from "@/lib/crm/accounts";
 import { getOpportunity } from "@/lib/crm/opportunities";
@@ -11,6 +12,7 @@ import {
 } from "@/lib/crm/constants";
 import { withCustomFormFields } from "@/lib/crm/customFieldForm";
 import { centsToInput } from "@/lib/crm/money";
+import { canAccessRecord } from "@/lib/crm/permissions";
 import { getDb } from "@/lib/db/client";
 
 export default async function EditOpportunityPage({
@@ -23,6 +25,15 @@ export default async function EditOpportunityPage({
   const db = getDb();
   const opportunity = getOpportunity(db, actor, id);
   if (!opportunity) notFound();
+  if (!canAccessRecord(db, actor, "opportunity", "edit", opportunity)) {
+    return (
+      <EditDenied
+        href={`/opportunities/${opportunity.id}`}
+        recordName={opportunity.name}
+        object="opportunity"
+      />
+    );
+  }
   const action = updateOpportunityAction.bind(null, opportunity.id);
   const account = getAccount(db, actor, opportunity.accountId);
 
