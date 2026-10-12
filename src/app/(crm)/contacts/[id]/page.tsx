@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { deleteContactAction } from "../actions";
+import { ChangeOwnerForm } from "@/components/ChangeOwnerForm";
 import { DeleteButton } from "@/components/DeleteButton";
 import { TasksRelatedList } from "@/components/TasksRelatedList";
 import { getAccount } from "@/lib/crm/accounts";
@@ -8,8 +9,9 @@ import { CustomFieldsSection } from "@/components/CustomFieldsSection";
 import { getContact, listDirectReports } from "@/lib/crm/contacts";
 import { getCustomValues } from "@/lib/crm/customFields";
 import { listOpportunityContactRolesForContact } from "@/lib/crm/opportunityContactRoles";
+import { listOwnerCandidates } from "@/lib/crm/ownership";
 import { recordView } from "@/lib/crm/recentlyViewed";
-import { canReadField } from "@/lib/crm/permissions";
+import { canAccessRecord, canReadField } from "@/lib/crm/permissions";
 import { listTasksForRecord } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
 import { ownerLabel } from "@/lib/crm/users";
@@ -44,6 +46,7 @@ export default async function ContactDetailPage({
   const contact = getContact(db, actor, id);
   if (!contact) notFound();
   recordView(db, actor, "contact", contact.id);
+  const canEdit = canAccessRecord(db, actor, "contact", "edit", contact);
   const account = getAccount(db, actor, contact.accountId);
   const roles = listOpportunityContactRolesForContact(db, actor, contact.id);
   const relatedTasks = listTasksForRecord(db, actor, "contact", contact.id);
@@ -97,6 +100,14 @@ export default async function ContactDetailPage({
             />
           </div>
         </div>
+        {canEdit ? (
+          <ChangeOwnerForm
+            objectType="contact"
+            recordId={contact.id}
+            currentOwnerId={contact.ownerId}
+            candidates={listOwnerCandidates(db, actor)}
+          />
+        ) : null}
       </div>
       {notice ? (
         <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">

@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-11, tests that lock object delete and the opportunity role gate.
+Last updated: 2026-10-11, Change Owner on the five CRM objects.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -33,6 +33,65 @@ Last updated: 2026-10-11, tests that lock object delete and the opportunity role
 ## WORKS
 
 Things actually run, with evidence.
+
+### Change Owner (2026-10-11)
+
+An actor who can edit a live account, contact, lead, opportunity, or
+task can assign it to another active member of the same organization.
+Edit means the profile allows update, and the actor owns the record or
+has modify-all (`users.role` admin and an admin membership). Delete is
+not enough. A global admin who is only a member, and a membership admin
+whose global role is `user`, cannot take someone else's record. The
+new owner has to be an active user with a username and password and a
+membership in this org. A blank, unknown, deleted, or other-org id is
+`INVALID_OWNER`. Another org's record is `NOT_FOUND`. A deleted record
+stays deleted. Choosing the current owner does not write. A converted
+lead stays frozen for the owner and for modify-all.
+
+The write changes `owner_id`, `updated_at`, and `updated_by` only.
+Related contacts, opportunities, and tasks keep their owners. Account
+automation does not run. A lead assignment rule does not run again.
+The detail page shows Change owner when that edit check passes, and
+hides it when the check fails. The select lists this org's active
+members. A converted lead hides the control. Contact, lead,
+opportunity, and task detail still show Edit and Delete before the
+domain would refuse them. The edit URL still renders the form.
+
+- **`npm run verify` (2026-10-11, vitest `Start at  20:01:19`):** exit 0.
+  38 files, 410 tests (was 35 files, 394). TypeScript, ESLint, and
+  Next.js 16.3.5 production build passed. `NO_COLOR`/`FORCE_COLOR`
+  warnings only. The first `tsc` in this session failed on stale
+  `.next/dev` types for owner routes that are not in the tree. Those
+  types were removed with `.next`, and the verify above was run after
+  that. No source change between the two runs.
+- **Mutation evidence, each change restored before that verify.**
+  Checking delete instead of edit failed the edit-not-delete transfer,
+  the delete-not-edit refusal, and the modify-all profile split.
+  Skipping the owner / modify-all check failed the non-owner refusal,
+  the global-admin-only refusal, and the membership-admin-only refusal.
+  Removing the converted-lead freeze failed the freeze test. Dropping
+  the org filter from the candidate list put Quarry Outsider in the
+  list and on the account page. Accepting a non-member as the new
+  owner failed `INVALID_OWNER`. Writing when the owner was unchanged
+  moved `updatedAt` off 1. Dropping the org filter from the account
+  load returned `WRITE_FAILED` instead of `NOT_FOUND`. Gating the
+  account, contact, lead, opportunity, or task control on delete hid
+  it from the edit-not-delete owner. Checking account edit on the lead
+  page, and on the task page, did the same. Opportunity still shares
+  one edit check with contact-role controls.
+- **HTML pass, throwaway database only.** `next dev -p 3021` with
+  `DATABASE_PATH=/tmp/rex-crm-owner-20261011.sqlite`. That file already
+  existed; it is not this repo's database. Sessions were inserted for
+  the operator and Riley. Globex Corporation (operator-owned): the
+  operator's page had Change owner, a select of Local Operator and
+  Riley Demo, Edit, and Delete. Riley's page had Globex and none of
+  those controls. The operator had Change owner on Hank Scorpio,
+  Cosmo Kramer, TPS Report Platform, and File TPS cover sheet. Riley
+  did not, and Riley still had Edit and Delete on those four. The
+  operator's converted George Jetson lead said "This lead is frozen"
+  and had no Change owner, Edit, or Delete. The dev server was
+  stopped. The form was not submitted over HTTP. Chrome DevTools was
+  not connected, so this was not a viewport or click pass.
 
 ### Undelete and opportunity contact roles (2026-10-11)
 
@@ -897,12 +956,13 @@ These stay in scope. See `SALESFORCE-PARITY.md`. They are not done:
 
 The recurring build automation is paused. When the owner resumes the build,
 read `HANDOFF.md` and `ARCHITECTURE.md` before choosing the next slice.
-The long-term scope includes Salesforce-level feature breadth. Undelete
-and opportunity contact-role writes are gated. The next correctness gaps
-are Change Owner, permission-aware Edit/Delete controls (the edit URL
-still renders the form; contact, lead, opportunity, and task detail
-still show Edit and Delete before the domain refuses), and cascade task
-deletes. Existing Riley admin memberships remain admin until an explicit
+The long-term scope includes Salesforce-level feature breadth. Undelete,
+opportunity contact-role writes, and Change Owner are gated. Change
+Owner reassigns one live record and does not move related records. The
+next correctness gaps are permission-aware Edit and Delete controls
+(the edit URL still renders the form; contact, lead, opportunity, and
+task detail still show Edit and Delete before the domain refuses) and
+cascade task deletes. Existing Riley admin memberships remain admin until an explicit
 migration or reassignment. Do not reintroduce a default `LOCAL_USER_ID`
 actor on domain writes. Do not retry organization-wide defaults or a
 product catalog in one change; both were abandoned after three review
@@ -911,6 +971,20 @@ rounds. Record fresh verification evidence for each slice.
 ---
 
 ## Session log
+
+### 2026-10-11 — Change Owner (Rex)
+
+- Added `changeOwner` for accounts, contacts, leads, opportunities, and
+  tasks. The detail pages show it only when the actor can edit that
+  record. Related records stay put. Converted leads stay frozen.
+- `npm run verify` exit 0. Vitest started 20:01:19. 38 files, 410 tests,
+  Next.js 16.3.5 build. Fourteen focused mutations failed, then the
+  source was restored. HTML reads on a throwaway database at port 3021
+  matched the control. No viewport pass. The form was not submitted
+  over HTTP. The server was stopped.
+- Did not hide Edit or Delete on contact, lead, opportunity, or task
+  detail. Did not block the edit URL. Did not fix cascade task deletes.
+  Did not build sharing or a product catalog. Did not push.
 
 ### 2026-10-11 — undelete and opportunity contact roles (Rex)
 

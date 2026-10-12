@@ -1,5 +1,33 @@
 # Rex log
 
+## 2026-10-11 20:03 EDT
+
+Shipped Change Owner for accounts, contacts, leads, opportunities, and
+tasks. The previous sessions had closed undelete and contact roles, and
+the abandoned slices were organization-wide defaults and a product
+catalog. This is the smaller capability those notes named next.
+
+`changeOwner` uses the live edit rule: profile update, plus owner or
+modify-all. The new owner must be an active member of this org.
+Converted leads stay frozen. Related records stay with their owners.
+Automation and lead assignment do not run again. The detail page shows
+the control only for that edit check. Delete-not-edit owners do not see
+it, and neither does a check against the wrong object.
+
+`npm run verify` exited 0. Vitest started at 20:01:19: 38 files, 410
+tests, Next.js 16.3.5 build. Fourteen focused mutations failed and were
+restored before that run. A throwaway dev server on port 3021 showed
+the operator the control on Globex and hid it from Riley; Riley still
+saw Edit and Delete on a contact, a lead, an opportunity, and a task.
+The converted lead hid the control. The server was stopped. No browser
+viewport pass. Chrome DevTools was not connected. The form was not
+submitted over HTTP.
+
+Next: hide Edit and Delete wherever the domain will refuse the save,
+including the edit page. Cascade task deletes still skip the task
+owner. Do not retry the whole sharing model or the product catalog in
+one change.
+
 ## 2026-10-11 16:36 EDT
 
 Locked the three authorization mutations that survived the last pass.

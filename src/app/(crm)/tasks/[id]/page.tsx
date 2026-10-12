@@ -5,11 +5,14 @@ import {
   deleteTaskAction,
   reopenTaskAction,
 } from "../actions";
+import { ChangeOwnerForm } from "@/components/ChangeOwnerForm";
 import { CustomFieldsSection } from "@/components/CustomFieldsSection";
 import { DeleteButton } from "@/components/DeleteButton";
 import type { TaskRelatedObjectType } from "@/lib/crm/constants";
 import { recordLabel } from "@/lib/crm/objects";
 import { getCustomValues } from "@/lib/crm/customFields";
+import { listOwnerCandidates } from "@/lib/crm/ownership";
+import { canAccessRecord } from "@/lib/crm/permissions";
 import { getTask, liveRelatedRecord } from "@/lib/crm/tasks";
 import { recordView } from "@/lib/crm/recentlyViewed";
 import { requireActor } from "@/lib/crm/currentUser";
@@ -52,6 +55,7 @@ export default async function TaskDetailPage({
   const task = getTask(db, actor, id);
   if (!task) notFound();
   recordView(db, actor, "task", task.id);
+  const canEdit = canAccessRecord(db, actor, "task", "edit", task);
   const relatedType = task.relatedObjectType as TaskRelatedObjectType;
   const related = liveRelatedRecord(db, actor, relatedType, task.relatedRecordId);
   const done = task.status === "Completed";
@@ -115,6 +119,14 @@ export default async function TaskDetailPage({
             />
           </div>
         </div>
+        {canEdit ? (
+          <ChangeOwnerForm
+            objectType="task"
+            recordId={task.id}
+            currentOwnerId={task.ownerId}
+            candidates={listOwnerCandidates(db, actor)}
+          />
+        ) : null}
       </div>
 
       {notice ? (

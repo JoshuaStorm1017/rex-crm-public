@@ -3,7 +3,7 @@
 > **Publication note.** Commit hashes and branch names below refer to the earlier
 > private repository this one began as a snapshot of. They do not resolve here.
 
-Updated 2026-10-11 after undelete and opportunity contact-role authorization.
+Updated 2026-10-11 after Change Owner.
 `STATUS.md` is the evidence ledger. This file is the baton for the next
 slice. Do not delete it until that slice has absorbed it.
 
@@ -107,7 +107,12 @@ Still open:
    function defaults the user to `LOCAL_USER_ID`. Do not put that
    default back. The session-18 note about 32 functions defaulting
    `actorId` is closed by `5c70f14`.
-6. **No Change Owner.** Nothing reassigns `ownerId`.
+6. **Change Owner reassigns one live record.** `changeOwner` requires
+   edit on that record and an active member of the same org as the new
+   owner. It does not transfer related records and does not run
+   assignment, automation, validation, or duplicate rules. The detail
+   page shows the control only when that edit check passes. A converted
+   lead is frozen. Evidence is the STATUS entry.
 7. **The UI still offers some saves the domain refuses.** Account
    detail hides Edit and Delete when `canAccessRecord` is false. The
    edit URL still renders the form; the save returns the permission
@@ -126,8 +131,8 @@ Still open:
 Suggested order when work resumes:
 
 0. CI. A GitHub Actions workflow running `npm ci && npm run verify`.
-1. Close the rest of section 3. Change Owner. Hide Edit and Delete
-   wherever `canAccessRecord` is false, including the edit page.
+1. Close the rest of section 3. Change Owner is done. Hide Edit and
+   Delete wherever `canAccessRecord` is false, including the edit page.
    Cascade task deletes still skip the task owner. Mutation-test it.
    Browser-test it on a throwaway `DATABASE_PATH`. Setup admin, Riley's
    membership, the seeded Read Only profile, undelete, and opportunity

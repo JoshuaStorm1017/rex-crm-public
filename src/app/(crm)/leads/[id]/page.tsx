@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { convertLeadAction, deleteLeadAction } from "../actions";
+import { ChangeOwnerForm } from "@/components/ChangeOwnerForm";
 import { ConvertLeadForm } from "@/components/ConvertLeadForm";
 import { CustomFieldsSection } from "@/components/CustomFieldsSection";
 import { DeleteButton } from "@/components/DeleteButton";
@@ -10,8 +11,9 @@ import { getContact } from "@/lib/crm/contacts";
 import { getCustomValues } from "@/lib/crm/customFields";
 import { getLead } from "@/lib/crm/leads";
 import { getOpportunity } from "@/lib/crm/opportunities";
+import { listOwnerCandidates } from "@/lib/crm/ownership";
 import { recordView } from "@/lib/crm/recentlyViewed";
-import { canReadField } from "@/lib/crm/permissions";
+import { canAccessRecord, canReadField } from "@/lib/crm/permissions";
 import { listTasksForRecord } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
 import { ownerLabel } from "@/lib/crm/users";
@@ -55,6 +57,7 @@ export default async function LeadDetailPage({
   recordView(db, actor, "lead", lead.id);
 
   const converted = lead.status === "Converted";
+  const canEdit = canAccessRecord(db, actor, "lead", "edit", lead);
   const account = lead.convertedAccountId
     ? getAccount(db, actor, lead.convertedAccountId)
     : undefined;
@@ -100,6 +103,14 @@ export default async function LeadDetailPage({
             </div>
           )}
         </div>
+        {canEdit && !converted ? (
+          <ChangeOwnerForm
+            objectType="lead"
+            recordId={lead.id}
+            currentOwnerId={lead.ownerId}
+            candidates={listOwnerCandidates(db, actor)}
+          />
+        ) : null}
       </div>
 
       {notice ? (

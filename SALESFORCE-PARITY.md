@@ -263,18 +263,18 @@ tracks the gap. It does not block other rows.
 - **Implementation:** `drizzle/0013_profiles.sql`, `src/lib/crm/permissions.ts`, `src/lib/crm/profiles.ts`. Memberships point at a profile. Missing object permission denies. Missing field permission allows. System Administrator is planted per org with full CRUD so existing users keep working. List cells, search, report columns, groups, aggregates, and CSV drop a hidden field, and a filter or sort on it is not applied. Search also omits a hidden name, email, company, stage, status, or type from the query.
 - **Acceptance:** A user with read-only accounts cannot insert. A hidden field is missing from the report CSV and the detail page.
 - **Latest:** 2026-10-10 reconciliation of `cc5f786`. Proof is `profiles.test.ts` and `accounts/actions.test.ts` in this worktree. Exact `npm run verify` and browser results are in `STATUS.md` for this checkout, not the other tree.
-- **Gaps:** No permission sets or permission set groups. No profile setup screen. A profile is assigned with `assignProfile` (an organization admin, no new module). New databases seed a Read Only profile and seed Riley as a member, not an org admin. Setup mutations require current-org admin membership; they are not a profile permission. Opportunity contact-role create, update, and delete require edit on that opportunity, and undelete uses the delete record check (2026-10-11). Jobs and APIs do not exist yet. Not OWD or roles (`IAM-SHARE-002`). Account detail omits a field the actor cannot read; contact and lead detail do that only for phone, and other hidden values still render as an em dash because `presentRecord` nulls them. Detail pages other than the account still show Edit and Delete before the domain refuses the save. The opportunity page does hide contact-role writes the actor cannot perform.
+- **Gaps:** No permission sets or permission set groups. No profile setup screen. A profile is assigned with `assignProfile` (an organization admin, no new module). New databases seed a Read Only profile and seed Riley as a member, not an org admin. Setup mutations require current-org admin membership; they are not a profile permission. Opportunity contact-role create, update, and delete require edit on that opportunity, and undelete uses the delete record check (2026-10-11). Jobs and APIs do not exist yet. Not OWD or roles (`IAM-SHARE-002`). Account detail omits a field the actor cannot read; contact and lead detail do that only for phone, and other hidden values still render as an em dash because `presentRecord` nulls them. Detail pages other than the account still show Edit and Delete before the domain refuses the save. Change owner is shown only when the actor can edit that record (2026-10-11). The opportunity page does hide contact-role writes the actor cannot perform.
 
 ### IAM-SHARE-002 Ownership, OWD, role hierarchy, sharing rules, teams, queues, territories
 
 - **Source:** Organization-wide defaults, role hierarchy, owner/criteria/manual sharing, teams, queues, enterprise territory management.
 - **Expected:** Private OWD hides records the user does not own and does not receive via hierarchy or a rule. Queues own work items. Territory rules assign accounts.
 - **Dependencies:** IAM-SHARE-001.
-- **Status:** NOT STARTED. `owner_id` is stored and displayed. It does not filter reads.
-- **Implementation:** `owner_id` columns.
+- **Status:** NOT STARTED. `owner_id` is stored and displayed. It does not filter reads. An editor can reassign that one record (2026-10-11). That is not private OWD.
+- **Implementation:** `owner_id` columns. `src/lib/crm/ownership.ts` changes one record's owner when the actor can edit it.
 - **Acceptance:** Private account OWD: user B does not list user A's account, cannot open it by id, and a report run as B omits it. A criteria rule for Billing State = AZ grants it, and removing the rule revokes it.
-- **Latest:** not run.
-- **Gaps:** —
+- **Latest:** 2026-10-11. Change-owner tests passed inside `npm run verify`. See STATUS.md. Private OWD was not run.
+- **Gaps:** No private OWD, role hierarchy, sharing rules, teams, queues, or territories. Transfer does not move related records.
 
 ### IAM-SHARE-003 External and guest access
 

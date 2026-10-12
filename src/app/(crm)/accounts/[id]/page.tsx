@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { deleteAccountAction } from "../actions";
+import { ChangeOwnerForm } from "@/components/ChangeOwnerForm";
 import { DeleteButton } from "@/components/DeleteButton";
 import { TasksRelatedList } from "@/components/TasksRelatedList";
 import {
@@ -13,6 +14,7 @@ import { listContactsForAccount } from "@/lib/crm/contacts";
 import { getCustomValues } from "@/lib/crm/customFields";
 import { formatUsd } from "@/lib/crm/money";
 import { listOpportunitiesForAccount } from "@/lib/crm/opportunities";
+import { listOwnerCandidates } from "@/lib/crm/ownership";
 import { recordView } from "@/lib/crm/recentlyViewed";
 import { canAccessRecord, canReadField } from "@/lib/crm/permissions";
 import { listTasksForRecord } from "@/lib/crm/tasks";
@@ -113,6 +115,14 @@ export default async function AccountDetailPage({
             ) : null}
           </div>
         </div>
+        {canEdit ? (
+          <ChangeOwnerForm
+            objectType="account"
+            recordId={account.id}
+            currentOwnerId={account.ownerId}
+            candidates={listOwnerCandidates(db, actor)}
+          />
+        ) : null}
       </div>
 
       {notice ? (

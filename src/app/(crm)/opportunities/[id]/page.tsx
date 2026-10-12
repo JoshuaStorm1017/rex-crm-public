@@ -6,6 +6,7 @@ import {
   deleteOpportunityContactRoleAction,
   setPrimaryOpportunityContactRoleAction,
 } from "../actions";
+import { ChangeOwnerForm } from "@/components/ChangeOwnerForm";
 import { CustomFieldsSection } from "@/components/CustomFieldsSection";
 import { DeleteButton } from "@/components/DeleteButton";
 import { TasksRelatedList } from "@/components/TasksRelatedList";
@@ -15,6 +16,7 @@ import { listContactsForAccount } from "@/lib/crm/contacts";
 import { getCustomValues } from "@/lib/crm/customFields";
 import { formatUsd } from "@/lib/crm/money";
 import { getOpportunity } from "@/lib/crm/opportunities";
+import { listOwnerCandidates } from "@/lib/crm/ownership";
 import { listOpportunityContactRoles } from "@/lib/crm/opportunityContactRoles";
 import { canAccessRecord } from "@/lib/crm/permissions";
 import { recordView } from "@/lib/crm/recentlyViewed";
@@ -118,6 +120,14 @@ export default async function OpportunityDetailPage({
             />
           </div>
         </div>
+        {canEditRoles ? (
+          <ChangeOwnerForm
+            objectType="opportunity"
+            recordId={opportunity.id}
+            currentOwnerId={opportunity.ownerId}
+            candidates={listOwnerCandidates(db, actor)}
+          />
+        ) : null}
       </div>
 
       {notice ? (
