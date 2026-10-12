@@ -1,5 +1,23 @@
 # Rex log
 
+## 2026-10-12 18:50 EDT
+
+Rex Reviewer's non-blocking finding: deleting a parent skipped related
+tasks the actor could not read, leaving them live under a deleted
+parent. Per the parent agent's design decision, any hidden related task
+now refuses the parent delete with `HAS_CHILDREN` and nothing is written.
+Hidden means unreadable by sharing or by a profile without task read
+(found while mutation-testing: a delete-without-read profile could
+delete a task it could not see).
+
+New `tasks.orphans.test.ts` (13 tests) across account, contact, lead and
+opportunity; updated the old skip case in `tasks.test.ts`. Mutation:
+restoring the skip fails 10, dropping the profile-read clause fails 1,
+the delete clause 13, the whole check 14. The sharing-read clause was an
+equivalent mutant and was removed.
+
+Next: review the PR. Rex does not merge.
+
 ## 2026-10-12 18:30 EDT
 
 Merged main (05c70a4, PR #6 record and create controls) into the Change

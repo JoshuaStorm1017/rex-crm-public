@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-12, main (record controls, PR #6) merged into the Change Owner branch; Change Owner refuses non-owned objects at runtime.
+Last updated: 2026-10-12, a parent delete refuses when any related task is hidden from the actor, so no task is orphaned.
 
 The sections dated 2026-10-11 describe the tree verified that day.
 Contact delete no longer clears every junction row or every Reports To
@@ -40,6 +40,30 @@ sharing rules.
 ## WORKS
 
 Things actually run, with evidence.
+
+### Hidden related tasks block the parent delete (2026-10-12)
+
+Deleting an account, contact, lead, or opportunity used to skip related
+tasks the actor could not read: they stayed live and pointed at the
+deleted parent. `deleteTasksForRecord` now refuses with `HAS_CHILDREN`
+("Cannot delete this record while other records still depend on it")
+when any live related task is unreadable, either by sharing or because
+the profile lacks task read. It checks every task before writing, so the
+parent, the actor's own tasks, and the hidden task are unchanged. The
+message does not name the task. A readable task the actor cannot delete
+still refuses the same way.
+
+- **Tests:** `tasks.orphans.test.ts` (13): for each parent, a refusal
+  with every table byte-for-byte unchanged, a message that does not
+  name the task, and a successful delete once the task is visible; plus
+  a profile with task delete and no task read. The old "skips a private
+  task" case in `tasks.test.ts` now expects the refusal.
+- **Mutation (608 tests, each restored):** restoring the old skip fails
+  10; dropping the profile-read clause fails 1; dropping the delete
+  clause fails 13; dropping the whole check fails 14. A separate sharing
+  read clause was removed as an equivalent mutant: record delete access
+  already implies record read.
+- **`npm run verify`:** see the PR. No browser pass.
 
 ### Private related rows, hierarchy, and stored-field checks (2026-10-12)
 
