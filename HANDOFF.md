@@ -3,8 +3,9 @@
 > **Publication note.** Commit hashes and branch names below refer to the earlier
 > private repository this one began as a snapshot of. They do not resolve here.
 
-Updated 2026-10-12 after merging main (undelete and opportunity
-contact-role authorization) into the product catalog branch.
+Updated 2026-10-12 after merging main (product catalog, migration
+`0014_products`) into the sharing branch. Sharing is now migration
+`0015_sharing`.
 `STATUS.md` is the evidence ledger. This file is the baton for the next
 slice. Do not delete it until that slice has absorbed it.
 
@@ -96,16 +97,20 @@ regressed. Evidence is the STATUS entry for this branch.
 
 Closed in the 2026-10-11 slice. Evidence is the STATUS entry.
 
-2. **Undelete uses the live delete rule.** `undeleteRecord` calls
-   `assertCanAccessRecord` for `delete`. `listDeletedRecords` uses the
-   same check, so the page does not offer a restore the domain will
-   refuse. Modify-all is still `users.role` admin plus an admin
-   membership, not membership admin alone.
+2. **Undelete uses read plus the live delete rule.** A row the actor
+   cannot read is not found. A readable row is listed and restored only
+   when `canAccessRecord` allows `delete`. Under Public Read Only the
+   bin omits another user's row and undelete is forbidden. Under
+   Private the bin omits it and undelete is not found. Modify-all is
+   still `users.role` admin plus an admin membership, not membership
+   admin alone.
 3. **Opportunity contact-role writes require edit on the opportunity.**
    Create (including lead convert), update, and delete of one role call
-   `assertCanEditOpportunityRoles`. The opportunity page hides Add role,
-   Make primary, and Remove when that check is false. Cascades from
-   deleting the opportunity or the contact do not use that check.
+   `assertOpportunityEditable`. An unreadable opportunity is not found.
+   The opportunity page hides Add role, Make primary, and Remove when
+   that check is false. Deleting the opportunity still clears junction
+   rows without the edit check. Deleting the contact refuses, and
+   changes nothing, when a related opportunity is not editable.
 
 Still open:
 
@@ -115,26 +120,27 @@ Still open:
    default back. The session-18 note about 32 functions defaulting
    `actorId` is closed by `5c70f14`.
 6. **No Change Owner.** Nothing reassigns `ownerId`.
-7. **Record Edit and Delete follow `canAccessRecord`.** Detail pages
-   hide Edit without edit, and Delete without delete. The edit URL
-   shows a denial instead of the form. Task Complete and Reopen,
-   including related lists, follow task edit. The domain check is still
-   the authorization. Still shown when the domain may refuse: Convert
-   on a lead, and New Contact, New Opportunity, and New Task. Contact
-   and lead detail omit only phone when it is unreadable; other hidden
-   values become an em dash because `presentRecord` nulls them.
-8. **Cascade deletes bypass child task permissions.** Deleting a
-   contact, opportunity, or lead soft-deletes its tasks without checking
-   those tasks' owners.
+7. **The UI still offers some saves the domain refuses.** Account
+   detail hides Edit and Delete when `canAccessRecord` is false. The
+   edit URL still renders the form; the save returns the permission
+   error (seen for Riley on Acme). Contact detail still shows Edit and
+   Delete for a non-owner (seen for Riley on Wile); that save also
+   returns the permission error. Lead, opportunity, and task detail
+   pages were not given the account-style button gate. Contact and lead
+   detail omit only phone when it is unreadable; other hidden values
+   become an em dash because `presentRecord` nulls them.
+8. **Parent task delete refuses when a related task is not deletable.**
+   `deleteTasksForRecord` throws the generic dependent-records error
+   and deletes nothing. It does not skip the task owner.
 
 ## 4. Direction
 
 Suggested order when work resumes:
 
 0. CI. A GitHub Actions workflow running `npm ci && npm run verify`.
-1. Close the rest of section 3. Change Owner. Cascade task deletes
-   still skip the task owner. Record Edit, Delete, the edit page, and
-   task Complete/Reopen are gated. Mutation-test the next slice.
+1. Close the rest of section 3. Change Owner. Hide Edit and Delete
+   wherever `canAccessRecord` is false, including the edit page.
+   Mutation-test it.
    Browser-test it on a throwaway `DATABASE_PATH`. Setup admin, Riley's
    membership, the seeded Read Only profile, undelete, and opportunity
    contact-role writes are done. Do not retry organization-wide

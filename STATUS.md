@@ -10,7 +10,15 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-12, main (product catalog) merged into the record-controls branch; Convert, New Contact/Opportunity/Task gated; cascade task delete checks task permission.
+Last updated: 2026-10-12, main (product catalog) merged into the sharing
+branch; sharing migration renumbered to `0015_sharing`.
+
+The sections dated 2026-10-11 describe the tree verified that day.
+Contact delete no longer clears every junction row or every Reports To
+link. Under Public Read Only the recycle bin no longer lists another
+user's row. The current rules are the latest 2026-10-12 entry. The
+earlier 2026-10-12 entry still describes undelete and two-condition
+sharing rules.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -34,165 +42,123 @@ Last updated: 2026-10-12, main (product catalog) merged into the record-controls
 
 Things actually run, with evidence.
 
-### Mixed related tasks and someone else's Complete (2026-10-11)
+### Private related rows, hierarchy, and stored-field checks (2026-10-12)
 
-No enforcement change. `withTaskEditAccess` already calls
-`canAccessRecord` for each task. The task page already uses that same
-record edit check for Complete, Reopen, and the Edit link. The previous
-related lists gave every task on a parent the same owner, so copying
-the first row's edit flag onto the rest still passed. The non-owner
-detail render checked the edit URL and Delete, and never checked
-Complete or Reopen.
+Closed the review on sharing leaks and relationship writes. A contact
+move counts every live opportunity role in the org, including a private
+opportunity and one the actor's profile cannot read. The error stays
+"Cannot move a contact that is on an opportunity" and does not name the
+deal. The account id is unchanged and the role remains.
 
-Account, contact, lead, and opportunity now each list Mine Open, Mine
-Finished, Theirs Open, and Theirs Finished. The owner can update tasks
-and is not modify-all. Mine Open shows Complete. Mine Finished shows
-Reopen and not Complete. Theirs Open and Theirs Finished show neither.
-A reader who can update tasks, is not the owner, and is not modify-all
-opens someone else's open task and does not see Complete, Reopen, or
-Edit. The same reader opens someone else's completed task and does not
-see Reopen, Complete, or Edit.
+Deleting a record the actor can see no longer confirms a hidden
+dependent. A private task, direct report, or opportunity role does not
+block the delete and is not cleared or deleted. A task, direct report,
+or opportunity the actor can read but cannot delete or edit still
+blocks the whole delete. Nothing else is changed, and the message does
+not name the row. When the delete is allowed, a role on an opportunity
+the actor owns is removed and a role on a private opportunity stays.
 
-- **`npm run verify` (2026-10-11 23:34 EDT):** exit 0. 36 files, 413
-  tests (was 36 files, 409). TypeScript, ESLint, and Next.js 16.3.5
-  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+Account detail shows Parent only when the stored parent account is
+readable. A hidden direct parent is an em dash, not the nearest visible
+ancestor. The hierarchy walk skips a hidden account and keeps a visible
+descendant under the nearest visible ancestor. The operator, with
+modify-all, still sees the hidden account in the tree.
+
+Edit and Delete on the account page, and the opportunity contact-role
+controls, call the access check with the stored row. A profile that
+hides billing state or stage cannot grant or deny that check from the
+blank the redacted copy would show. A read/write rule on billing state
+equals AZ shows Edit and does not show Delete. A read/write rule on
+billing state is blank does not show Edit when the stored state is WA.
+The same split holds for opportunity stage equals Prospecting versus
+stage is blank.
+
+A contact's opportunity list blanks name, stage, and close date unless
+the profile can read that field. Recently viewed for the other member
+is empty after each of the five objects is set to private, and the
+payload does not contain the record name. The five view rows stay
+stored. Task lists show "—" for a private account, contact, lead, or
+opportunity, and those names are absent. The owner still sees them.
+
+- **`npm run verify` (2026-10-12, 01:25 EDT):** exit 0. 39 test files,
+  436 tests (was 38 files, 426). TypeScript, ESLint, and the Next.js
+  16.3.5 production build passed. `NO_COLOR`/`FORCE_COLOR` warnings
+  only.
 - **Mutation re-check, each change restored before that verify.**
-  Stamping `rows[0]`'s edit access onto every related task failed all
-  four parents: Theirs Open contained Complete. The other 17 tests in
-  `recordControls.test.ts` and `opportunities/[id]/page.test.ts` still
-  passed. The task page checking `canPerform(..., "edit")` for
-  Complete and Reopen, while the Edit link stayed on `canAccessRecord`,
-  failed the non-owner test: the open task contained Complete and did
-  not contain the edit URL. Vitest stopped on that assertion, so the
-  completed-task Reopen assertion in the same test was not reached
-  under the mutation. It passed on the restored source. Source again
-  checks each row in `withTaskEditAccess` and uses `canEdit` for
-  Complete and Reopen.
-- **No browser pass.** The check is `renderToStaticMarkup` on a memory
-  database. Chrome DevTools was not connected. The pages did not change.
+  Dropping the recently viewed read check for account, contact, lead,
+  opportunity, or task put that record back in the other member's
+  list. Dropping the task related-name check for account, contact,
+  lead, or opportunity put the private name back in `listTasks`.
+  Blocking parent delete on an unreadable task, and skipping the task
+  delete check, both failed. Counting only readable opportunity roles
+  let the contact move. Blocking contact delete on an unreadable
+  opportunity, and deleting that role anyway, both failed. Blocking
+  on an unreadable direct report, and clearing that report, both
+  failed. Attaching hierarchy children to a hidden parent dropped the
+  visible account. Labeling the nearest visible ancestor as Parent
+  put that ancestor in the Parent Account field. Checking Edit or
+  contact-role controls on the redacted row disagreed with the stored
+  sharing fields. Returning the raw opportunity name, stage, or close
+  date leaked it. All 23 source edits were put back.
+- **UI.** `renderToStaticMarkup` of the account and opportunity detail
+  pages on a memory database. Riley's page for an account whose direct
+  parent is private contained neither the hidden name nor its id. The
+  Parent Account value was an em dash, and the hierarchy still listed
+  the visible ancestor, the account, and its child. A readable direct
+  parent was a link. Chrome DevTools did not connect, so this was not
+  a viewport or click pass. No dev server was started.
 
-### Completed related tasks and modify-all (2026-10-11)
+### Relationship writes, field redaction, and the merged undelete gate (2026-10-12)
 
-No enforcement change. The related list already shows Complete or Reopen
-only when that task's `canEdit` is true. `withTaskEditAccess` already
-calls `canAccessRecord` for task edit, which allows the owner or
-modify-all. The previous render's completed task belonged to someone
-who could edit it. The locked and foreign tasks were open. The
-modify-all renders never included a related task owned by someone else.
+Merged `origin/main` into this branch and kept both sides. Undelete
+lists a deleted row only when the actor can read it and can delete it.
+A readable row the actor cannot delete is forbidden. An unreadable row
+is not found. Under Public Read Only the bin omits another user's row
+and undelete is forbidden. Under Private the bin omits it and undelete
+is not found. Opportunity contact-role create, update, and delete still
+require edit on a readable opportunity. An unreadable opportunity is
+not found. Lead convert still rolls back when that edit is denied.
+Deleting the opportunity still clears junction rows without the edit
+check. Deleting the contact refuses, and changes nothing, when a
+related opportunity or a direct report is not editable. The error is
+"Cannot delete this record while other records still depend on it".
 
-The same four parent pages now also render Sealed Task, completed by
-the parent editor after task update is revoked, and Operator Finished,
-completed by someone else on a parent the viewer can edit. Both rows
-show status Completed and neither Complete nor Reopen. A modify-all
-admin who can update tasks and cannot update the parent opens someone
-else's account, contact, lead, and opportunity. Foreign Open shows
-Complete. Foreign Finished shows Reopen and not Complete.
+A blank Parent Account or Reports To select is omitted when the stored
+related row is not readable, and a null update keeps that stored id.
+The picker and the cycle check walk only rows the actor can read. A
+failed cycle check says "Parent account is not valid" or "Reports To
+contact is not valid". A visible record that hangs off a hidden one
+stays in the picker, and saving that parent can persist a cycle through
+the hidden row. A direct report the actor cannot edit blocks contact
+delete. Nothing is cleared.
 
-- **`npm run verify` (2026-10-11 23:07 EDT):** exit 0. 36 files, 409
-  tests (was 36 files, 405). TypeScript, ESLint, and Next.js 16.3.5
-  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
-- **Mutation re-check, each change restored before that verify.**
-  Showing Reopen for every completed related task, even when `canEdit`
-  is false, failed all four parent tests: Sealed Task contained
-  Reopen. The other tests in the file passed, including the modify-all
-  renders, because those actors can edit the task. Replacing
-  `canAccessRecord` in `withTaskEditAccess` with an owner check plus
-  object edit failed the four new tests: Foreign Open had an empty
-  action cell and did not contain Complete. The older related-task
-  tests still passed under that mutation. Source again requires
-  `canEdit` in the related list and calls `canAccessRecord` for the
-  flag.
-- **No browser pass.** The check is `renderToStaticMarkup` on a memory
-  database. Chrome DevTools was not connected. The pages did not change.
+A sharing rule with two conditions (billing state equals AZ, and name
+contains Mesa) shares only the row that matches both. List, search, and
+report omit a row that matches one. A profile that can create accounts
+and cannot read them can create "Hidden Co" while that name already
+exists. The operator still gets the duplicate error. Recently viewed
+omits a row whose name is not readable and does not copy a hidden
+email or company into the subtitle. Opportunity contact roles null a
+hidden contact title and email, and show an em dash when the contact
+name is hidden.
 
-### Related-task Complete and Reopen (2026-10-11)
-
-No enforcement change. Account, contact, lead, and opportunity detail
-already pass each related task through `withTaskEditAccess`, and the
-related list already shows Reopen when that task is Completed and the
-actor can edit it. The previous proof only rendered account tasks, and
-none of those rows were completed, so copying the parent `canEdit` onto
-contact, lead, or opportunity tasks still passed, and forcing every
-related row to look open still passed.
-
-The same render now runs for all four parents. An owner who can edit
-the parent and cannot edit tasks sees the task with neither Complete
-nor Reopen. An owner who can edit tasks and cannot edit the parent sees
-Complete on an open task and Reopen, not Complete, on a completed task.
-A member who can edit the parent sees neither button on a task owned by
-someone else. The task editor's other objects carry the opposite update
-flag, so checking the parent hides Complete. The parent editor can edit
-the parent and cannot edit tasks, so checking the parent shows Complete
-on the locked row.
-
-- **`npm run verify` (2026-10-11 22:42 EDT):** exit 0. 36 files, 405
-  tests (was 36 files, 402). TypeScript, ESLint, and Next.js 16.3.5
-  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
-- **Mutation re-check, each change restored before that verify.**
-  Stamping the parent `canEdit` onto related tasks failed for account,
-  contact, lead, and opportunity: the locked row contained Complete.
-  The other three parents still passed under each single-page stamp.
-  Forcing the related list to treat every task as open failed all four
-  parents: Finished Task contained Complete and did not contain Reopen.
-  Source still calls `withTaskEditAccess` on each page, and the related
-  list still compares status to Completed.
-- **No browser pass.** The check is `renderToStaticMarkup` on a memory
-  database. Chrome DevTools was not connected. The pages did not change.
-
-### Record Edit and Delete controls (2026-10-11)
-
-Detail pages for accounts, contacts, leads, opportunities, and tasks
-show Edit only when `canAccessRecord` allows edit, and Delete only when
-it allows delete. The check is that object's profile flag plus owner or
-modify-all. An edit-not-delete owner sees Edit and not Delete. A
-delete-not-edit owner sees Delete and not Edit. A member who is not the
-owner sees neither, including when the profile allows both. Modify-all
-(`users.role` admin and an admin membership) sees the control the
-profile allows on someone else's record.
-
-The edit URL does not render the form when edit would be refused. It
-shows "You do not have permission to edit this {object}." The save
-action is unchanged and still enforces the same rule. Hiding the form
-is not the authorization.
-
-Complete and Reopen use task edit, on the task page and on each related
-list. A task the actor can edit shows the button. A task they cannot
-edit stays on the list without it, including when they can edit the
-parent, can delete the task, or can edit tasks they do not own.
-Opportunity contact-role controls are unchanged and still follow
-opportunity edit.
-
-Convert on a lead is still shown when the actor cannot edit the lead.
-New Contact, New Opportunity, and New Task are still shown without a
-create check. This did not add Change Owner. Cascade task deletes are
-unchanged.
-
-- **`npm run verify` (2026-10-11 22:05 EDT):** exit 0. 36 files, 402
-  tests (was 35 files, 394). TypeScript, ESLint, and Next.js 16.3.5
-  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
-- **Mutation re-check, each change restored before that verify.**
-  Contact detail authorizing with account edit, and with account
-  delete, failed the contact test. Account, contact, lead, opportunity,
-  and task edit pages checking delete instead of edit failed that
-  object's test. The opportunity Edit link and the lead Edit link
-  checking delete failed. Task Complete checking delete failed. Task
-  Delete checking edit failed. The related list treating every task as
-  editable failed. `withTaskEditAccess` checking account edit failed.
-  Source matched the pre-mutation files afterward.
-- **HTML pass, throwaway database only.** `next dev -p 3021` with
-  `DATABASE_PATH=/tmp/rex-crm-controls-20261011.sqlite`, seeded, then
-  one extra contact owned by Riley. Sessions minted in that file. No
-  repository database was written. Python `urllib` (curl is blocked in
-  this environment). Riley's Wile E. Coyote page included "Ship extra
-  helmet" and did not include an edit link, a Delete button, or
-  Complete. Riley's edit URL for that contact included the denial
-  sentence and did not include Save. Riley's own contact showed Edit
-  and Delete, and its edit URL showed Save. The operator's Wile page
-  showed Edit, Delete, and Complete, and the edit URL showed Save.
-  Riley's Acme page had no Edit or Delete; the edit URL showed the
-  denial and no Save. The operator's Acme page showed Edit, Delete, and
-  Complete. Server stopped. Chrome DevTools was not connected, so this
-  was not a viewport or click pass.
+- **`npm run verify` (2026-10-12, 00:31 EDT):** exit 0. 38 test files,
+  426 tests. TypeScript, ESLint, and the Next.js 16.3.5 production
+  build passed. `NO_COLOR`/`FORCE_COLOR` warnings only. An earlier
+  verify in the same session, before the edit-page render tests, was
+  also exit 0 at 37 files and 424 tests.
+- **Mutation re-check, restored before that verify.** Changing one
+  sharing rule's criteria from `and` to `or` made the two-condition
+  list return three accounts. Removing the duplicate object-read guard
+  made creating "Hidden Co" throw `DUPLICATE`. Both source edits were
+  put back. This verify ran on the restored tree.
+- **UI.** `renderToStaticMarkup` of the account and contact edit pages
+  on a memory database. Riley's edit of an account whose parent is
+  private contained neither `name="parentAccountId"` nor the hidden
+  account id. The edit of an account whose parent Riley can read
+  contained the select and that parent. The contact edit did the same
+  for Reports To. Chrome DevTools did not connect, so this was not a
+  viewport or click pass. No dev server was started.
 
 ### Undelete and opportunity contact roles (2026-10-11)
 
@@ -207,10 +173,10 @@ whose profile can edit but not delete cannot restore it either.
 Creating, updating, or removing an opportunity contact role requires
 edit on that live opportunity. Lead convert uses the same check. A
 profile that can create the opportunity but cannot edit it rolls the
-convert back: the lead stays New and no account is left behind. Deleting
-the opportunity or the contact still removes the junction rows without
+convert back: the lead stays New and no account is left behind. Deleting the opportunity still removes the junction rows without
 that edit check, including when the profile can delete the opportunity
-but cannot edit it.
+but cannot edit it. On this 15:32 run, deleting the contact did the
+same. That contact-delete cascade is not the current rule.
 
 The opportunity page hides Add role, Make primary, and Remove when the
 actor cannot edit. The recycle page does not offer Undelete for a row
@@ -255,8 +221,9 @@ contact, lead, opportunity, and task: the recycle list hides each row,
 edit-versus-delete role test, the editor's
 `updateOpportunityContactRole` changes the role to Decision Maker and
 sets primary, and the deleter's update throws `FORBIDDEN` and leaves
-Decision Maker / primary in place. That deleter's `deleteContact`
-removes the contact and its role row, and leaves the opportunity. The
+Decision Maker / primary in place. On this run, that deleter's `deleteContact` removed the contact and
+its role row, and left the opportunity. That cascade is not the
+current rule. The
 opportunity page is rendered: the owner sees Make primary, Remove, and
 Add role; Riley, who can read the operator's opportunity but cannot
 edit it, sees the denial sentence and none of those controls. Road
@@ -316,6 +283,149 @@ The header Edit and Delete links are still shown for both.
   files afterward. Full verify above ran after that restore.
 - **No browser pass.** The page check is `renderToStaticMarkup` on a
   memory database. Chrome DevTools was not connected.
+### Sharing review fixes (2026-10-11)
+
+- Opportunity contact-role lists return a row only when the actor can
+  read the opportunity and the contact. Create, update, and delete
+  require edit on the opportunity. An unreadable contact on create
+  returns "Contact does not exist". An unreadable opportunity on
+  update or delete returns "Opportunity contact role not found".
+- Account, contact, lead, opportunity, and task saves redirect to the
+  detail page when the actor can still read the row. When they
+  cannot, the action redirects to the list with "Saved. This record
+  is no longer visible to you." The account test edits a record out
+  of a criteria rule. The lead test creates a lead that an assignment
+  rule gives to the operator under a private lead default.
+- Grant hierarchy grants delete. The Setup checkbox says "Users above
+  the owner can see, edit, and delete". A chief in the parent role
+  deleted the rep's private account. The rep's delete of the chief's
+  account was not found, and that account remained.
+- `drizzle/meta/0014_snapshot.json` matches the migrated schema,
+  including partial unique index `roles_org_name_uidx` on
+  `(org_id, name)` where `deleted_at` is null. A second
+  `drizzle-kit generate` printed "No schema changes, nothing to
+  migrate". The duplicate SQL that generate emitted against the 0013
+  snapshot was discarded, and the journal still ends at
+  `0014_sharing`.
+- Deleting an account, contact, lead, or opportunity refuses when any
+  related live task fails the task delete check. The error is
+  "Cannot delete this record while other records still depend on it"
+  and does not name the task. No related task is deleted. Account
+  delete counts only contacts, opportunities, and child accounts the
+  actor can read. A hidden child does not block the delete and is
+  not named. It keeps the parent id.
+- Duplicate checks for account name, contact email, and lead email or
+  company match only rows the actor can read. Creating the same
+  private value succeeds for a member who cannot see the existing
+  row. The operator, with modify-all, still gets the duplicate error.
+- Contact, opportunity, and task detail pages show an em dash when
+  the related account or record is not readable. Contact and
+  opportunity lists do the same and do not link the hidden id. Task
+  edit omits the related fields in that case and the update keeps
+  the stored relationship. Contact edit omits the account select,
+  and opportunity edit omits the hidden account id. Delete actions
+  look up a readable account on the server and otherwise return to
+  the object list, so the hidden id is not in the page HTML.
+- `sharing.test.ts` covers the list, search, and report paths that
+  get-by-id does not. Under private account OWD, a chief who is not
+  modify-all sees the rep's account in all three, and the rep does
+  not see the chief's. `billingState not_equals AZ` includes a blank
+  state and WA and excludes AZ. `is_blank` and `is_not_blank` agree
+  on the same rows. `amountCents equals "10.00"` returns the
+  opportunity stored as 1000 cents and excludes 1001. A member
+  `createRole` and `createSharingRule` throw FORBIDDEN, and the
+  admin lists do not contain those rows.
+- **`npm run verify` (2026-10-11, 12:16 EDT):** exit 0. 34 test
+  files, 403 tests. TypeScript, ESLint, and the Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **UI, throwaway database only.** Chrome DevTools did not connect,
+  and this pass did not launch a browser viewport. No 390px check.
+  `DATABASE_PATH=/tmp/rex-crm-share-fix-20261011.sqlite`,
+  `next dev -p 3219`. Fetched the rendered HTML with a session
+  cookie. Operator `/setup/sharing` contained "Users above the owner
+  can see, edit, and delete". `/accounts?notice=Saved. This record
+  is no longer visible to you.` rendered that sentence. Riley's
+  contact detail, contact edit, task detail, task edit, opportunity
+  detail, opportunity edit, contact list, and opportunity list for
+  private operator-owned account Hidden Quarry contained neither
+  that account id nor the name. The operator's contact page showed
+  Hidden Quarry and the account link, and the edit form included
+  the account. The server was stopped after the pass. No repository
+  data database was used.
+- Still open: teams, queues, territories, manual shares, owner-based
+  rules, permission sets, and a profile setup screen. Contact is not
+  controlled by its account. The rule form has three condition rows;
+  the domain stores one to five. If the ultimate parent account is
+  unreadable, the hierarchy view roots at the highest visible
+  ancestor, and a visible grandchild under a hidden parent may not
+  attach. Detail pages other than accounts still show Edit and
+  Delete before the domain refuses the save. A hidden child left
+  behind by an account delete keeps the parent id. Change Owner is
+  not built.
+
+### Organization-wide defaults, roles, and criteria sharing (2026-10-11)
+
+- New databases start each of the five objects at Public Read Only,
+  with grant hierarchy on. A member can read every record in the org.
+  Edit and delete stay with the owner, with a role above the owner
+  when grant hierarchy is on, or with modify-all. Modify-all is
+  `users.role === "admin"` and an admin membership. A membership
+  admin whose user role is `user` does not get it. Public Read/Write
+  lets a member who already has the object permission edit and delete.
+  A sharing rule's Read/Write does not grant delete.
+- Private hides another user's record from get, list, count, list
+  views, search, reports, the recycle bin, and recently viewed.
+  Opening the hidden id is not found, so the response does not admit
+  the row exists. A criteria rule Billing State equals AZ shares that
+  account with a role; deleting the rule revokes it. Peers in the
+  same role do not see each other. `includeSubordinates` shares
+  downward only when it is on. Turning grant hierarchy off removes
+  the ancestor's access. The operator, with no role, still reads
+  private rows because of modify-all.
+- Creating a lead that an assignment rule moves to someone else
+  returns the saved row. A later get by the creator is not found
+  when the lead OWD is private. The creator is not modify-all in
+  that test.
+- Setup is `/setup/sharing`, `/setup/sharing/roles`, and
+  `/setup/sharing/rules`. The same admin gate as the rest of Setup
+  applies. The home page says defaults start at Public Read Only.
+- This also fixes the red verify: inserting an org membership now
+  sets `roleId` to null. `0014_sharing` was already in the journal.
+  The migration test now applies that file onto a database that
+  already has `0013_profiles`.
+- **`npm run verify` (2026-10-11, 11:07 EDT):** exit 0. 33 test
+  files, 388 tests. TypeScript, ESLint, and the Next.js 16.3.5
+  production build passed. The build lists the sharing routes above.
+  `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation:** an early `return undefined` in `readRestrictionSql`
+  made `sharing.test.ts` fail. Riley's private account list contained
+  both accounts. `getAccount` still hid the other user's row, so the
+  direct read check is separate from the list filter. The mutation
+  was restored. That one test passed again. The verify run above is
+  the restored tree.
+- **UI, throwaway database only.** Chrome headless exited 139 in
+  this sandbox, so there are no viewport screenshots and no 390px
+  pass. `DATABASE_PATH=/tmp/rex-crm-sharing-20261011.sqlite`,
+  `next dev -p 3217`. The check submitted the HTML forms (the no-JS
+  path) and read the responses. Operator signed in, created Mesa
+  Supply with billing state AZ, and set the account default to
+  Private. Riley's account list omitted Mesa, and the direct URL
+  returned 404. Riley has no Setup link; `/setup/sharing` says only
+  an organization admin can open Setup. Operator created role
+  Southwest, assigned Riley, and created sharing rule Arizona
+  accounts (Billing State equals AZ, Read Only, share with
+  Southwest). The Setup card moved from "0 roles, 0 sharing rules"
+  to "1 role, 1 sharing rule". Riley then listed and opened Mesa
+  and the detail page had no Edit link. Riley created Riley Supply
+  (WA). Operator deleted the rule. Riley's list kept Riley Supply
+  and hid Mesa again (404). Both home pages still rendered. No
+  repository data database was used.
+- Still open from this pass, revised the same day: see the sharing
+  review section above. Parent delete no longer counts hidden
+  children. The items that remain are teams, queues, territories,
+  manual shares, owner-based rules, permission sets, the hierarchy
+  view, the three-row rule form, Edit/Delete buttons on non-account
+  detail pages, and hidden children that keep a deleted parent id.
 
 ### Product catalog and standard price book (2026-10-11)
 
@@ -959,20 +1069,28 @@ on the existing file (1 list view, 0 of everything else).
 
 - **`deleted_at`** — written on account/contact/lead/opportunity/task
   delete, filtered in get/list. `/recycle` lists a row only when the
-  actor may delete it, and undelete uses that same check (see WORKS).
+  actor can read it and can delete it. Undelete of a readable row the
+  actor cannot delete is forbidden. Undelete of a row the actor cannot
+  read is not found. Under Public Read Only, another user's row is
+  omitted and undelete is forbidden. Under Private, the bin hides it
+  and undelete is not found. The owner can still restore their own row.
   No empty-bin. Undelete does not restore tasks or other children that
   were soft-deleted with the parent. No hard purge. Junction roles are
-  still hard-deleted with the parent opportunity or contact.
+  still hard-deleted with the parent opportunity. Contact delete refuses
+  when a related opportunity or direct report is readable but not
+  editable, and changes nothing. An unreadable task, direct report, or
+  opportunity role does not block that delete and is left in place.
 - **Sharing** — login is real. Another org's records are hidden
-  (`0012_orgs`). Inside one org, a member whose profile can read the
-  object still sees every record. No OWD and no “My …” views. Profiles
-  and field permissions exist (`0013_profiles`, see WORKS) and are
-  AND-ed with the session 18 role matrix. That matrix is still
-  identical for `admin` and `user`, so a denial has to come from the
-  profile or from owner-or-admin. The demo seed inserts both operator
-  and Riley as org-membership role `admin`. Riley's `users.role` stays
-  `user`, so Riley does not get modify-all, but Riley can change
-  profile rows. There is no profile setup screen.
+  (`0012_orgs`). Inside one org, Public Read Only is the default, so
+  a member whose profile can read the object still sees every record
+  until an admin sets Private. Private, role hierarchy, and criteria
+  rules are in WORKS for 2026-10-11. No “My …” views, teams, queues,
+  territories, manual shares, or owner-based rules. Profiles and
+  field permissions (`0013_profiles`) are still AND-ed with the role
+  matrix. That matrix is identical for `admin` and `user`, so a
+  denial has to come from the profile, from sharing, or from
+  owner-or-above. There is no profile setup screen. New databases
+  seed Riley as a member, not an org admin.
 - **Validation rules** (session 16) — real rows, enforced on save of the
   five standard objects. Standard fields only. No custom fields, no
   formula language, no OR, no cross-object criteria. Error field is
@@ -992,8 +1110,11 @@ on the existing file (1 list view, 0 of everything else).
   rows beyond "read 40, show 8 live". Search does not write a view.
 - **Account hierarchy** (session 13, Claude) — Parent Account is a
   picker that excludes the account and its descendants; the domain
-  refuses cycles of any depth. Detail shows an ancestor breadcrumb and
-  the whole tree from the ultimate parent. No rollups up the tree
+  refuses cycles of any depth. Detail shows an ancestor breadcrumb of
+  accounts the actor can read. The Parent field is the stored parent
+  only when that account is readable; otherwise it is an em dash. The
+  hierarchy skips an unreadable account and keeps a visible descendant
+  under the nearest visible ancestor. No rollups up the tree
   (e.g. total pipeline for Acme including children). Depth is capped at
   50 levels in the walk.
 - **Lead convert** — optional `accountId` attaches to a live account and
@@ -1001,13 +1122,18 @@ on the existing file (1 list view, 0 of everything else).
   picker. Omitting `accountId` still creates an account from the company.
 - **Lookups** — Contact Account (new and edit), Account Parent, and
   Contact Reports To are pickers (session 13). They are server-rendered
-  `<select>`s of every live record, not a typeahead — fine locally, not
-  at 100k rows. **Opportunity Account is still a raw id**, and so is
-  Task related-to, unless you arrive from a related list. Contact on a
-  role is a real select of that account's contacts.
+  `<select>`s of records the actor can read, not a typeahead — fine
+  locally, not at 100k rows. The parent and Reports To selects are
+  omitted when the stored related row is not readable. A visible record
+  that hangs off a hidden one stays in the picker. **Opportunity Account
+  is still a raw id**, and so is Task related-to, unless you arrive from
+  a related list. Contact on a role is a real select of that account's
+  contacts.
 - **Contact Reports To** (session 13, Claude) — self-lookup, cycles
   refused, Direct Reports list on the detail page. Deleting a manager
-  clears Reports To on their direct reports. Not restricted to the same
+  clears Reports To only when every direct report is editable, and only
+  on those rows. If any direct report is not editable, the delete is
+  refused and nothing changes. Not restricted to the same
   account (Salesforce isn't either); a contact that moves account keeps
   their manager.
 - **Search** — name/email/company/task-subject `LIKE` substring, five
@@ -1123,7 +1249,7 @@ This list is supposed to stay long. It is the research measurement.
 
 ### Sharing / identity
 
-- Roles, OWD, sharing rules, teams, queues, groups, MFA/SSO
+- Teams, queues, groups, manual shares, owner-based rules, territories, MFA/SSO. Organization-wide defaults, the role hierarchy, and criteria sharing rules landed 2026-10-11.
 - User admin UI, self-service signup, password change, “My …” list views
 
 ### Analytics
@@ -1164,17 +1290,27 @@ These stay in scope. See `SALESFORCE-PARITY.md`. They are not done:
 
 The recurring build automation is paused. When the owner resumes the build,
 read `HANDOFF.md` and `ARCHITECTURE.md` before choosing the next slice.
-The long-term scope includes Salesforce-level feature breadth. Undelete,
-opportunity contact-role writes, and record Edit/Delete controls are
-gated, including the edit page and task Complete/Reopen. Convert is
-offered only when the actor can edit the lead and create accounts and
-contacts. New Contact, New Opportunity, and New Task links follow create
-permission. Deleting a parent refuses, changing nothing, when any related
-task is one the actor may not delete. The product catalog (main) is
-merged. The next correctness gap is Change Owner. Existing Riley admin
-memberships remain admin until an explicit
-migration or reassignment. Do not reintroduce a default `LOCAL_USER_ID`
-actor on domain writes. Do not retry the whole sharing model in one change.
+The long-term scope includes Salesforce-level feature breadth. Inside-org
+sharing now has organization-wide defaults, a role hierarchy, and
+criteria rules. Contact roles, duplicate checks, related labels, and
+task cascade deletes follow that visibility. The next sharing gaps
+are manual shares, owner-based rules, teams, queues, and territories.
+Permission sets and a profile setup screen are still open. Change
+Owner and permission-aware Edit/Delete on detail pages other than
+accounts are still open. A hidden child of a deleted account keeps
+the parent id. The recycle bin lists a row only when the actor can
+read it and can delete it. Under Public Read Only another user's row
+is omitted and undelete is forbidden. Under Private the bin omits it
+and undelete is not found. Contact delete refuses, and changes
+nothing, when a related opportunity or a direct report is not
+editable. Opportunity delete still clears junction rows without an
+edit check. A parent or Reports To select is omitted when that
+related row is not readable, and a null on update keeps the stored
+link. Cycle checks walk only readable rows and use a generic error.
+Existing Riley
+admin memberships remain admin until an explicit migration or
+reassignment. Do not reintroduce a default `LOCAL_USER_ID` actor on
+domain writes. Record fresh verification evidence for each slice.
 
 The catalog's next piece is opportunity line items on top of the
 standard price, then custom price books. Quotes need those. Record
@@ -1184,35 +1320,18 @@ fresh verification evidence for each slice.
 
 ## Session log
 
-### 2026-10-11 — mixed task edit and someone else's Complete (Rex)
+### 2026-10-12 — relationship writes and the main merge (Rex)
 
-- No enforcement change. Related lists on account, contact, lead, and
-  opportunity now render an owned open task, an owned completed task,
-  and the same pair owned by someone else. Complete and Reopen show
-  only on the rows this actor can edit. The task detail page hides
-  Complete on someone else's open task and Reopen on someone else's
-  completed task when the viewer can update tasks and is not modify-all.
-- `npm run verify` exit 0 at 23:34 EDT: 36 files, 413 tests, Next.js
-  16.3.5 build. The first-row edit stamp failed all four parent tests.
-  The object-level Complete check failed the non-owner test. Both
-  mutations were restored before verify. No browser pass. Chrome
-  DevTools was not connected.
-- Did not build Change Owner, cascade task deletes, sharing, or
-  products. Did not push.
-
-### 2026-10-11 — record Edit and Delete controls (Rex)
-
-- Hid Edit unless the actor can edit that record, and Delete unless the
-  actor can delete it, on account, contact, lead, opportunity, and task
-  detail. The edit page shows a denial instead of the form. Complete
-  and Reopen, including the related list, follow task edit.
-- `npm run verify` exit 0 at 22:05 EDT: 36 files, 402 tests, Next.js
-  16.3.5 build. Thirteen focused mutations failed, then the source was
-  restored. HTML reads on a throwaway database at port 3021 matched
-  the buttons for Riley and the operator. No viewport pass. The server
-  was stopped.
-- Did not build Change Owner, cascade task deletes, sharing, or
-  products. Did not push.
+- Merged `origin/main` and kept both undelete rules: read, then the
+  delete check. Closed the three review rounds on hidden parent and
+  manager writes, contact delete, contact-role field redaction,
+  recently viewed subtitles, a two-condition sharing rule, and a
+  create-without-read duplicate.
+- `npm run verify` exit 0 at 00:31 EDT: 38 files, 426 tests, Next.js
+  16.3.5 build. The two survivor mutations failed the new tests and
+  were restored before that run. Edit-page markup was checked with
+  `renderToStaticMarkup`. Chrome DevTools did not connect.
+- Did not push, open a PR, or merge. No real-business data.
 
 ### 2026-10-11 — undelete and opportunity contact roles (Rex)
 
@@ -1227,6 +1346,33 @@ fresh verification evidence for each slice.
   reads on a throwaway database at port 3019 matched the buttons.
   No viewport pass. The server was stopped.
 - Did not build sharing, products, or Change Owner. Did not push.
+### Session 20 (2026-10-11, 12:16 EDT) — Rex (Grok)
+
+- Closed the code, security, and mutation review findings on the
+  sharing slice: contact roles, hidden-save redirects, hierarchy
+  delete copy, the 0014 snapshot, task cascade refusal, readable-only
+  duplicate probes, redacted related labels, and list/search/report
+  tests for hierarchy, `not_equals`, blank checks, and money cents.
+- `npm run verify` exit 0: 34 files, 403 tests, Next.js 16.3.5 build.
+  HTML fetches on port 3219 confirmed the checkbox and the hidden
+  account id. Chrome DevTools did not connect, so no viewport pass.
+- Did not push, open a PR, merge, or deploy. No real-business data.
+
+### Session 19 (2026-10-11, 11:14 EDT) — Rex (Grok)
+
+- Organization-wide defaults, role hierarchy, and criteria sharing
+  rules, including Setup pages and enforcement on lists, search,
+  reports, recycle, and recently viewed. Default stays Public Read
+  Only so existing reads keep working.
+- Fixed the red verify (`org_memberships.roleId` on insert) and
+  pointed the newest-migration test at `0014_sharing`.
+- `npm run verify` exit 0: 33 files, 388 tests, Next.js 16.3.5 build.
+  See WORKS. Mutation of the list filter failed the private list
+  test, then was restored.
+- UI pass used HTML form posts against
+  `/tmp/rex-crm-sharing-20261011.sqlite` on port 3217. Chrome
+  headless exited 139, so no browser viewport pass.
+- Did not push, open a PR, merge, or deploy. No real-business data.
 
 ### Session 2026-10-11 — product field permissions (Rex / Grok)
 
