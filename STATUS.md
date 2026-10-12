@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-11, record Edit and Delete controls follow the domain.
+Last updated: 2026-10-11, related-task Complete and Reopen follow task edit on every parent.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -33,6 +33,40 @@ Last updated: 2026-10-11, record Edit and Delete controls follow the domain.
 ## WORKS
 
 Things actually run, with evidence.
+
+### Related-task Complete and Reopen (2026-10-11)
+
+No enforcement change. Account, contact, lead, and opportunity detail
+already pass each related task through `withTaskEditAccess`, and the
+related list already shows Reopen when that task is Completed and the
+actor can edit it. The previous proof only rendered account tasks, and
+none of those rows were completed, so copying the parent `canEdit` onto
+contact, lead, or opportunity tasks still passed, and forcing every
+related row to look open still passed.
+
+The same render now runs for all four parents. An owner who can edit
+the parent and cannot edit tasks sees the task with neither Complete
+nor Reopen. An owner who can edit tasks and cannot edit the parent sees
+Complete on an open task and Reopen, not Complete, on a completed task.
+A member who can edit the parent sees neither button on a task owned by
+someone else. The task editor's other objects carry the opposite update
+flag, so checking the parent hides Complete. The parent editor can edit
+the parent and cannot edit tasks, so checking the parent shows Complete
+on the locked row.
+
+- **`npm run verify` (2026-10-11 22:42 EDT):** exit 0. 36 files, 405
+  tests (was 36 files, 402). TypeScript, ESLint, and Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation re-check, each change restored before that verify.**
+  Stamping the parent `canEdit` onto related tasks failed for account,
+  contact, lead, and opportunity: the locked row contained Complete.
+  The other three parents still passed under each single-page stamp.
+  Forcing the related list to treat every task as open failed all four
+  parents: Finished Task contained Complete and did not contain Reopen.
+  Source still calls `withTaskEditAccess` on each page, and the related
+  list still compares status to Completed.
+- **No browser pass.** The check is `renderToStaticMarkup` on a memory
+  database. Chrome DevTools was not connected. The pages did not change.
 
 ### Record Edit and Delete controls (2026-10-11)
 

@@ -54,6 +54,10 @@ import TaskEdit from "./tasks/[id]/edit/page";
 
 const OBJECTS = ["account", "contact", "lead", "opportunity", "task"] as const;
 
+const RELATED_PARENTS = ["account", "contact", "lead", "opportunity"] as const;
+
+type RelatedParent = (typeof RELATED_PARENTS)[number];
+
 const DETAIL = {
   account: AccountDetail,
   contact: ContactDetail,
@@ -187,6 +191,44 @@ function createOwned(
     name: label,
     relatedObjectType: "account",
     relatedRecordId: accountId,
+    status,
+  });
+}
+
+function createRelatedParent(
+  db: Db,
+  actor: Actor,
+  object: RelatedParent,
+  label: string,
+): { id: string; ownerId: string } {
+  if (object === "account") return createAccount(db, actor, { name: label });
+  if (object === "lead") {
+    return createLead(db, actor, { lastName: label, company: `${label} Co` });
+  }
+  const account = createAccount(db, actor, { name: `${label} Account` });
+  if (object === "contact") {
+    return createContact(db, actor, { accountId: account.id, lastName: label });
+  }
+  return createOpportunity(db, actor, {
+    accountId: account.id,
+    name: label,
+    stage: "Prospecting",
+    closeDate: "2026-12-01",
+  });
+}
+
+function relateTask(
+  db: Db,
+  actor: Actor,
+  object: RelatedParent,
+  recordId: string,
+  name: string,
+  status?: "Completed",
+): { id: string; ownerId: string } {
+  return createTask(db, actor, {
+    name,
+    relatedObjectType: object,
+    relatedRecordId: recordId,
     status,
   });
 }
@@ -391,69 +433,130 @@ describe("record Edit and Delete controls", () => {
     }
   });
 
-  it("shows related Complete only when the actor can edit that task", async () => {
-    const db = openMemoryDb().db;
-    vi.mocked(getDb).mockReturnValue(db);
+  it.each(RELATED_PARENTS)(
+    "shows related Complete only when the actor can edit that task (%s)",
+    async (object) => {
+      const db = openMemoryDb().db;
+      vi.mocked(getDb).mockReturnValue(db);
 
-    const parentEditor = member(db, {
-      name: "Parent Editor",
-      canUpdate: true,
-      canDelete: true,
-    });
-    const account = createAccount(db, parentEditor.actor, { name: "Parent Quarry" });
-    createTask(db, parentEditor.actor, {
-      name: "Locked Task",
-      relatedObjectType: "account",
-      relatedRecordId: account.id,
-    });
-    setObjectPermission(db, LOCAL_ACTOR, parentEditor.profileId, "task", {
-      canCreate: true,
-      canRead: true,
-      canUpdate: false,
-      canDelete: true,
-    });
+      const parentEditor = member(db, {
+        name: `${object} parent editor`,
+        canUpdate: true,
+        canDelete: true,
+      });
+      const parent = createRelatedParent(
+        db,
+        parentEditor.actor,
+        object,
+        `${object} parent quarry`,
+      );
+      const lockedTask = relateTask(
+        db,
+        parentEditor.actor,
+        object,
+        parent.id,
+        "Locked Task",
+      );
+      setObjectPermission(db, LOCAL_ACTOR, parentEditor.profileId, "task", {
+        canCreate: true,
+        canRead: true,
+        canUpdate: false,
+        canDelete: true,
+      });
+      expect(canAccessRecord(db, parentEditor.actor, object, "edit", parent)).toBe(
+        true,
+      );
+      expect(
+        canAccessRecord(db, parentEditor.actor, "task", "edit", lockedTask),
+      ).toBe(false);
 
-    const taskEditor = member(db, {
-      name: "Task Editor",
-      focus: "task",
-      canUpdate: true,
-      canDelete: false,
-      opposite: true,
-    });
-    const taskAccount = createAccount(db, taskEditor.actor, { name: "Task Quarry" });
-    createTask(db, taskEditor.actor, {
-      name: "Editable Task",
-      relatedObjectType: "account",
-      relatedRecordId: taskAccount.id,
-    });
+      const taskEditor = member(db, {
+        name: `${object} task editor`,
+        focus: "task",
+        canUpdate: true,
+        canDelete: false,
+        opposite: true,
+      });
+      const taskParent = createRelatedParent(
+        db,
+        taskEditor.actor,
+        object,
+        `${object} task quarry`,
+      );
+      const openTask = relateTask(
+        db,
+        taskEditor.actor,
+        object,
+        taskParent.id,
+        "Editable Task",
+      );
+      const doneTask = relateTask(
+        db,
+        taskEditor.actor,
+        object,
+        taskParent.id,
+        "Finished Task",
+        "Completed",
+      );
+      expect(canAccessRecord(db, taskEditor.actor, object, "edit", taskParent)).toBe(
+        false,
+      );
+      expect(canAccessRecord(db, taskEditor.actor, "task", "edit", openTask)).toBe(
+        true,
+      );
+      expect(canAccessRecord(db, taskEditor.actor, "task", "edit", doneTask)).toBe(
+        true,
+      );
 
-    const viewer = member(db, {
-      name: "Task Viewer",
-      canUpdate: true,
-      canDelete: true,
-    });
-    const viewerAccount = createAccount(db, viewer.actor, { name: "Viewer Quarry" });
-    createTask(db, LOCAL_ACTOR, {
-      name: "Operator Task",
-      relatedObjectType: "account",
-      relatedRecordId: viewerAccount.id,
-    });
+      const viewer = member(db, {
+        name: `${object} task viewer`,
+        canUpdate: true,
+        canDelete: true,
+      });
+      const viewerParent = createRelatedParent(
+        db,
+        viewer.actor,
+        object,
+        `${object} viewer quarry`,
+      );
+      const foreignTask = relateTask(
+        db,
+        LOCAL_ACTOR,
+        object,
+        viewerParent.id,
+        "Operator Task",
+      );
+      expect(canAccessRecord(db, viewer.actor, object, "edit", viewerParent)).toBe(
+        true,
+      );
+      expect(canAccessRecord(db, viewer.actor, "task", "edit", foreignTask)).toBe(
+        false,
+      );
 
-    asUser(parentEditor.user);
-    const locked = await renderDetail("account", account.id);
-    expect(locked).toContain(editPath("account", account.id));
-    expect(taskRow(locked, "Locked Task")).not.toContain(">Complete</button>");
-    expect(taskRow(locked, "Locked Task")).not.toContain(">Reopen</button>");
+      asUser(parentEditor.user);
+      const locked = await renderDetail(object, parent.id);
+      expect(locked).toContain(editPath(object, parent.id));
+      const lockedRow = taskRow(locked, "Locked Task");
+      expect(lockedRow).not.toContain(">Complete</button>");
+      expect(lockedRow).not.toContain(">Reopen</button>");
 
-    asUser(taskEditor.user);
-    const editable = await renderDetail("account", taskAccount.id);
-    expect(editable).not.toContain(editPath("account", taskAccount.id));
-    expect(taskRow(editable, "Editable Task")).toContain(">Complete</button>");
-    expect(taskRow(editable, "Editable Task")).not.toContain(">Delete</button>");
+      asUser(taskEditor.user);
+      const editable = await renderDetail(object, taskParent.id);
+      expect(editable).not.toContain(editPath(object, taskParent.id));
+      const openRow = taskRow(editable, "Editable Task");
+      expect(openRow).toContain(">Complete</button>");
+      expect(openRow).not.toContain(">Reopen</button>");
+      expect(openRow).not.toContain(">Delete</button>");
+      const doneRow = taskRow(editable, "Finished Task");
+      expect(doneRow).toContain(">Reopen</button>");
+      expect(doneRow).not.toContain(">Complete</button>");
 
-    asUser(viewer.user);
-    const foreign = await renderDetail("account", viewerAccount.id);
-    expect(foreign).toContain(editPath("account", viewerAccount.id));
-    expect(taskRow(foreign, "Operator Task")).not.toContain(">Complete</button>");
-  });
+      asUser(viewer.user);
+      const foreign = await renderDetail(object, viewerParent.id);
+      expect(foreign).toContain(editPath(object, viewerParent.id));
+      const foreignRow = taskRow(foreign, "Operator Task");
+      expect(foreignRow).not.toContain(">Complete</button>");
+      expect(foreignRow).not.toContain(">Reopen</button>");
+    },
+  );
 });

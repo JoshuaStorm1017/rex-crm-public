@@ -1,5 +1,29 @@
 # Rex log
 
+## 2026-10-11 22:42 EDT
+
+Closed the three related-list authorization mutations that survived the
+last pass, and the completed-row probe that never rendered. The checks
+were already right. The related-task test only rendered an account, and
+every related task on that page was open.
+
+The same case now runs for account, contact, lead, and opportunity. A
+parent the actor can edit does not unlock Complete or Reopen on a task
+they cannot edit. A task they can edit shows Complete when it is open
+and Reopen when it is completed, even when they cannot edit the parent.
+A task owned by someone else shows neither button. Stamping the parent
+edit flag failed each parent's test. Treating every related task as
+open failed all four, because the completed row showed Complete.
+
+`npm run verify` exited 0 at 22:42 EDT: 36 files, 405 tests, Next.js
+16.3.5 build. Each mutation was restored before that run. No browser
+pass. Chrome DevTools was not connected. The pages did not change.
+
+Next: Change Owner. Then cascade task deletes, which still skip the
+task owner. Convert and the New record links are still shown when the
+domain may refuse them. Do not retry the whole sharing model or the
+product catalog in one change.
+
 ## 2026-10-11 22:08 EDT
 
 Hid Edit and Delete on the five record pages, and stopped the edit URL
