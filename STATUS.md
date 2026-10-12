@@ -10,8 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-12, main (product catalog) merged into the sharing
-branch; sharing migration renumbered to `0015_sharing`.
+Last updated: 2026-10-12, main (sharing model, PR #1) merged into the Change Owner branch; transfer flags keep their per-object refusal tests.
 
 The sections dated 2026-10-11 describe the tree verified that day.
 Contact delete no longer clears every junction row or every Reports To
@@ -159,6 +158,144 @@ name is hidden.
   contained the select and that parent. The contact edit did the same
   for Reports To. Chrome DevTools did not connect, so this was not a
   viewport or click pass. No dev server was started.
+### Change Owner stays shut when status is hidden (2026-10-11)
+
+A converted lead whose `status` the profile cannot read no longer offers
+Change owner. The detail page passes `getOwnerTarget`, which keeps the
+stored status, into `canChangeOwner`. `getLead` still nulls that field,
+so the page does not say Converted. Edit, Delete, and the Convert form
+still render in that case, because those follow the presented status.
+
+The save redirect uses the same sentence as the form when lead status
+is unreadable: "This lead cannot be transferred." The address does not
+contain "converted". An actor who can read status still gets "Converted
+leads cannot be transferred" in the redirect. `changeOwner` itself
+still throws the domain sentence.
+
+Posting `transferContacts=false` leaves the contact with the previous
+owner. Posting the open-opportunity, closed-opportunity, and open-task
+boxes moves those rows, and the closed and open deals keep
+`amountCents`. A soft-deleted open deal, a soft-deleted Closed Won
+deal, and a soft-deleted open task stay deleted with the previous
+owner and their amounts. Contact, lead, and task detail pages hide
+Change owner for a delete-not-edit owner and show it for an
+edit-not-delete owner.
+
+- **`npm run verify` (2026-10-11 19:13 EDT):** exit 0. 41 files, 428
+  tests (was 38 files, 419). TypeScript, ESLint, and Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation evidence, focused tests, each change restored before that
+  verify.** `checked()` treating any present value as on moved the
+  contact to Riley; the test expected the operator. Hardcoding closed
+  opportunities, open opportunities, or open tasks to false left that
+  row with the operator. Skipping the redirect rewrite put "converted"
+  in the lead owner URL. Dropping `isNull(deletedAt)` on opportunities
+  transferred three deals; the test expected the live one. The same
+  drop on tasks transferred two tasks; the test expected the live one.
+  Always rendering Change owner on the contact, lead, and task pages
+  put the link in the delete-not-edit markup. Passing the presented
+  lead into `canChangeOwner` put Change owner on the hidden-status
+  converted lead.
+- **No browser pass.** The page checks are `renderToStaticMarkup` on a
+  memory database. Chrome DevTools was not connected.
+
+### Change Owner field security (2026-10-11)
+
+The change-owner page no longer shows a name the profile cannot read.
+`getOwnerTarget` passes the display name through `presentRecord`. When
+that name is null, the back link is the record id. The converted-lead
+freeze still reads the stored status, so a hidden status still blocks
+the form and `canChangeOwner` stays false. The page says "Converted
+leads cannot be transferred." only when the actor can read lead
+`status`. Otherwise it says "This lead cannot be transferred." A
+notice that contains "converted" is dropped in that case. The save
+path is unchanged: edit on the live record, same-org membership, and
+object read on the new owner. The domain error string still says
+"Converted"; the page does not show that notice when status is hidden.
+
+Open tasks still move only when the previous owner owns them. A task
+another user owns stays put when it sits on the account, and when it
+sits on a contact or an opportunity that the same call transfers. An
+account save that posts only the new owner moves the account and
+leaves contacts, open opportunities, closed opportunities, and open
+tasks with the previous owner.
+
+- **`npm run verify` (2026-10-11 18:22 EDT):** exit 0. 38 files, 419
+  tests (was 38 files, 415). TypeScript, ESLint, and Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation evidence, focused tests, each change restored before that
+  verify.** Dropping `eq(tasks.ownerId, primary.ownerId)` transferred
+  four tasks; the test expected the previous owner's task only. Forcing
+  `checked()` to return true moved the contact to Riley; the test
+  expected the operator. Returning the raw name made the account target
+  "Quiet Anvil" and the page link "← Quiet Anvil". Always printing
+  "Converted leads cannot be transferred." failed the hidden-status
+  page, which expected "This lead cannot be transferred." Rendering the
+  notice unchanged left "Converted leads cannot be transferred" in the
+  hidden-status markup.
+- **No browser pass.** The page check is `renderToStaticMarkup` on a
+  memory database. Chrome DevTools was not connected.
+
+### Change Owner (2026-10-11)
+
+An actor who can edit a live account, contact, lead, opportunity, or
+task can give it a new owner. Delete permission is not enough. The new
+owner must be a live member of the record's organization who can read
+that object. The same owner is rejected and nothing is written.
+Converted leads stay frozen, before the new owner is checked. A deleted
+or other-org record is not found.
+
+Related rows move only when the caller asks, and only when the previous
+owner still owns them. Contacts, open opportunities, and closed
+opportunities move only with an account. Open tasks can move with an
+account, contact, lead, or opportunity, including tasks on contacts and
+opportunities that the same call actually transfers. Completed tasks,
+someone else's rows, deleted rows, and child accounts stay. The actor
+must be able to edit each related object and each row. Validation,
+automation, and duplicate rules run on every write, and a failure rolls
+the whole transfer back. There is no email.
+
+The five detail pages show Change owner only when that edit check
+passes. The account form offers the four related options. Contact,
+lead, and opportunity offer open tasks only. A task offers none. A
+converted lead explains that it cannot be transferred. A readable
+record the actor cannot edit shows the denial and no select. The save
+authorizes again in the server action. Edit and Delete are still shown
+where they already were.
+
+- **`npm run verify` (2026-10-11 17:22 EDT):** exit 0. 38 files, 415
+  tests (was 35 files, 394). TypeScript, ESLint, and Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation evidence, focused suite, each change restored before that
+  verify.** Parent check switched from edit to delete: the edit-only
+  owner failed with "You do not have permission to delete this
+  account". Contact query dropping the previous-owner filter:
+  transferred two contacts, and the test expected one. `prepareWrite`
+  skipped: the validation case received no `VALIDATION_RULE`. The
+  transaction removed: the contact owner became the operator while the
+  account stayed with Riley. `canChangeOwner` switched to delete: the
+  edit-only account form showed the denial instead of the select, and
+  the delete-only opportunity page showed Change owner. Related
+  contact check switched to delete: the edit-without-delete transfer
+  threw "You do not have permission to delete this contact".
+- **HTML pass, throwaway database only.** `next dev -p 3021` with
+  `DATABASE_PATH=/tmp/rex-crm-owner-20261011.sqlite`. Sessions minted
+  for operator and Riley. No repository database was written. The
+  operator's Acme page showed Change owner. Riley's Acme page did not.
+  The operator's account form had the owner select and all four
+  transfer checkboxes. Contact, lead, and opportunity forms had the
+  select and open tasks only. The task form had the select and no
+  transfer checkbox. Riley's direct Acme owner URL showed the denial
+  sentence and no select. Riley's forged POST returned 303 to the
+  owner URL with notice "You do not have permission to edit this
+  account", and the following operator success redirect was the
+  account itself, so Riley's post did not change the owner. The
+  operator post also sent the four transfer flags. Acme's owner became
+  Riley, `updated_by` stayed the operator, the page showed Owner Riley
+  Demo, and Acme's two contacts and its Prospecting opportunity moved.
+  The other six accounts and five contacts stayed with the operator.
+  The server was stopped. No viewport pass. Chrome DevTools was not
+  connected.
 
 ### Undelete and opportunity contact roles (2026-10-11)
 
@@ -1295,8 +1432,8 @@ sharing now has organization-wide defaults, a role hierarchy, and
 criteria rules. Contact roles, duplicate checks, related labels, and
 task cascade deletes follow that visibility. The next sharing gaps
 are manual shares, owner-based rules, teams, queues, and territories.
-Permission sets and a profile setup screen are still open. Change
-Owner and permission-aware Edit/Delete on detail pages other than
+Permission sets and a profile setup screen are still open. Change Owner is gated: the owner or modify-all can reassign, and each
+transfer flag needs edit on that object. Permission-aware Edit/Delete on detail pages other than
 accounts are still open. A hidden child of a deleted account keeps
 the parent id. The recycle bin lists a row only when the actor can
 read it and can delete it. Under Public Read Only another user's row
@@ -1332,6 +1469,20 @@ fresh verification evidence for each slice.
   were restored before that run. Edit-page markup was checked with
   `renderToStaticMarkup`. Chrome DevTools did not connect.
 - Did not push, open a PR, or merge. No real-business data.
+### 2026-10-11 — Change Owner (Rex)
+
+- Reassigning an account, contact, lead, opportunity, or task requires
+  edit on that live record. Related contacts, open opportunities,
+  closed opportunities, and open tasks move only when asked, only from
+  the previous owner, and only when the actor can edit them. Validation
+  rolls the transfer back. Converted leads stay frozen.
+- `npm run verify` exit 0 at 17:22 EDT: 38 files, 415 tests, Next.js
+  16.3.5 build. Six focused mutations failed, then the source was
+  restored. HTML and two POSTs on a throwaway database at port 3021
+  matched the form and the permission denial. The server was stopped.
+  No viewport pass.
+- Did not hide Edit and Delete, and did not fix cascade task deletes.
+  Did not build sharing or products. Did not push.
 
 ### 2026-10-11 — undelete and opportunity contact roles (Rex)
 
