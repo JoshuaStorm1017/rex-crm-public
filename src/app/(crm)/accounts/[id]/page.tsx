@@ -14,7 +14,7 @@ import { getCustomValues } from "@/lib/crm/customFields";
 import { formatUsd } from "@/lib/crm/money";
 import { listOpportunitiesForAccount } from "@/lib/crm/opportunities";
 import { recordView } from "@/lib/crm/recentlyViewed";
-import { canAccessRecord, canReadField } from "@/lib/crm/permissions";
+import { canAccessRecord, canReadField, canPerform } from "@/lib/crm/permissions";
 import { listTasksForRecord, withTaskEditAccess } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
 import { ownerLabel } from "@/lib/crm/users";
@@ -194,12 +194,14 @@ export default async function AccountDetailPage({
           <h2 className="text-sm font-semibold uppercase tracking-wide text-[#5c564c]">
             Contacts ({relatedContacts.length})
           </h2>
-          <Link
-            href={`/contacts/new?accountId=${account.id}`}
-            className="text-sm text-[#c45c26] hover:underline"
-          >
-            New Contact
-          </Link>
+          {canPerform(db, actor, "contact", "create") ? (
+            <Link
+              href={`/contacts/new?accountId=${account.id}`}
+              className="text-sm text-[#c45c26] hover:underline"
+            >
+              New Contact
+            </Link>
+          ) : null}
         </div>
         {relatedContacts.length === 0 ? (
           <p className="px-4 py-6 text-sm text-[#5c564c]">No contacts yet.</p>
@@ -243,12 +245,14 @@ export default async function AccountDetailPage({
           <h2 className="text-sm font-semibold uppercase tracking-wide text-[#5c564c]">
             Opportunities ({relatedOpportunities.length})
           </h2>
-          <Link
-            href={`/opportunities/new?accountId=${account.id}`}
-            className="text-sm text-[#c45c26] hover:underline"
-          >
-            New Opportunity
-          </Link>
+          {canPerform(db, actor, "opportunity", "create") ? (
+            <Link
+              href={`/opportunities/new?accountId=${account.id}`}
+              className="text-sm text-[#c45c26] hover:underline"
+            >
+              New Opportunity
+            </Link>
+          ) : null}
         </div>
         {relatedOpportunities.length === 0 ? (
           <p className="px-4 py-6 text-sm text-[#5c564c]">
@@ -291,6 +295,7 @@ export default async function AccountDetailPage({
         objectType="account"
         recordId={account.id}
         tasks={withTaskEditAccess(db, actor, relatedTasks)}
+        canCreate={canPerform(db, actor, "task", "create")}
       />
 
       {hierarchy && inHierarchy ? (

@@ -9,7 +9,7 @@ import { getContact, listDirectReports } from "@/lib/crm/contacts";
 import { getCustomValues } from "@/lib/crm/customFields";
 import { listOpportunityContactRolesForContact } from "@/lib/crm/opportunityContactRoles";
 import { recordView } from "@/lib/crm/recentlyViewed";
-import { canAccessRecord, canReadField } from "@/lib/crm/permissions";
+import { canAccessRecord, canReadField, canPerform } from "@/lib/crm/permissions";
 import { listTasksForRecord, withTaskEditAccess } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
 import { ownerLabel } from "@/lib/crm/users";
@@ -239,6 +239,7 @@ export default async function ContactDetailPage({
         objectType="contact"
         recordId={contact.id}
         tasks={withTaskEditAccess(db, actor, relatedTasks)}
+        canCreate={canPerform(db, actor, "task", "create")}
       />
     </div>
   );
