@@ -188,14 +188,10 @@ describe("drizzle journal", () => {
       expect(
         sqlite
           .prepare(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'org_wide_defaults'",
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'products'",
           )
           .get(),
       ).toBeUndefined();
-      const columnsBefore = sqlite
-        .prepare("PRAGMA table_info(org_memberships)")
-        .all() as { name: string }[];
-      expect(columnsBefore.map((column) => column.name)).not.toContain("role_id");
       const orgBefore = sqlite
         .prepare("SELECT id, name FROM organizations")
         .get() as { id: string; name: string };
@@ -203,18 +199,14 @@ describe("drizzle journal", () => {
 
       migrate(drizzle(sqlite), { migrationsFolder });
 
-      for (const table of ["org_wide_defaults", "roles", "sharing_rules"]) {
+      for (const table of ["products", "price_books", "price_book_entries"]) {
         const row = sqlite
           .prepare(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
           )
-          .get(table) as { name: string };
-        expect(row.name).toBe(table);
+          .get(table) as { name: string } | undefined;
+        expect(row?.name).toBe(table);
       }
-      const membershipColumns = sqlite
-        .prepare("PRAGMA table_info(org_memberships)")
-        .all() as { name: string }[];
-      expect(membershipColumns.map((column) => column.name)).toContain("role_id");
       const backfilled = sqlite
         .prepare("SELECT org_id FROM accounts WHERE id = ?")
         .get("001MIGRATE") as { org_id: string };
