@@ -10,7 +10,8 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-11, one parent can list tasks the actor can edit and tasks they cannot, and the task page hides Complete and Reopen on someone else's task.
+Last updated: 2026-10-12, product catalog merged with main (undelete and
+opportunity contact-role gates); product form field security.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -33,166 +34,6 @@ Last updated: 2026-10-11, one parent can list tasks the actor can edit and tasks
 ## WORKS
 
 Things actually run, with evidence.
-
-### Mixed related tasks and someone else's Complete (2026-10-11)
-
-No enforcement change. `withTaskEditAccess` already calls
-`canAccessRecord` for each task. The task page already uses that same
-record edit check for Complete, Reopen, and the Edit link. The previous
-related lists gave every task on a parent the same owner, so copying
-the first row's edit flag onto the rest still passed. The non-owner
-detail render checked the edit URL and Delete, and never checked
-Complete or Reopen.
-
-Account, contact, lead, and opportunity now each list Mine Open, Mine
-Finished, Theirs Open, and Theirs Finished. The owner can update tasks
-and is not modify-all. Mine Open shows Complete. Mine Finished shows
-Reopen and not Complete. Theirs Open and Theirs Finished show neither.
-A reader who can update tasks, is not the owner, and is not modify-all
-opens someone else's open task and does not see Complete, Reopen, or
-Edit. The same reader opens someone else's completed task and does not
-see Reopen, Complete, or Edit.
-
-- **`npm run verify` (2026-10-11 23:34 EDT):** exit 0. 36 files, 413
-  tests (was 36 files, 409). TypeScript, ESLint, and Next.js 16.3.5
-  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
-- **Mutation re-check, each change restored before that verify.**
-  Stamping `rows[0]`'s edit access onto every related task failed all
-  four parents: Theirs Open contained Complete. The other 17 tests in
-  `recordControls.test.ts` and `opportunities/[id]/page.test.ts` still
-  passed. The task page checking `canPerform(..., "edit")` for
-  Complete and Reopen, while the Edit link stayed on `canAccessRecord`,
-  failed the non-owner test: the open task contained Complete and did
-  not contain the edit URL. Vitest stopped on that assertion, so the
-  completed-task Reopen assertion in the same test was not reached
-  under the mutation. It passed on the restored source. Source again
-  checks each row in `withTaskEditAccess` and uses `canEdit` for
-  Complete and Reopen.
-- **No browser pass.** The check is `renderToStaticMarkup` on a memory
-  database. Chrome DevTools was not connected. The pages did not change.
-
-### Completed related tasks and modify-all (2026-10-11)
-
-No enforcement change. The related list already shows Complete or Reopen
-only when that task's `canEdit` is true. `withTaskEditAccess` already
-calls `canAccessRecord` for task edit, which allows the owner or
-modify-all. The previous render's completed task belonged to someone
-who could edit it. The locked and foreign tasks were open. The
-modify-all renders never included a related task owned by someone else.
-
-The same four parent pages now also render Sealed Task, completed by
-the parent editor after task update is revoked, and Operator Finished,
-completed by someone else on a parent the viewer can edit. Both rows
-show status Completed and neither Complete nor Reopen. A modify-all
-admin who can update tasks and cannot update the parent opens someone
-else's account, contact, lead, and opportunity. Foreign Open shows
-Complete. Foreign Finished shows Reopen and not Complete.
-
-- **`npm run verify` (2026-10-11 23:07 EDT):** exit 0. 36 files, 409
-  tests (was 36 files, 405). TypeScript, ESLint, and Next.js 16.3.5
-  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
-- **Mutation re-check, each change restored before that verify.**
-  Showing Reopen for every completed related task, even when `canEdit`
-  is false, failed all four parent tests: Sealed Task contained
-  Reopen. The other tests in the file passed, including the modify-all
-  renders, because those actors can edit the task. Replacing
-  `canAccessRecord` in `withTaskEditAccess` with an owner check plus
-  object edit failed the four new tests: Foreign Open had an empty
-  action cell and did not contain Complete. The older related-task
-  tests still passed under that mutation. Source again requires
-  `canEdit` in the related list and calls `canAccessRecord` for the
-  flag.
-- **No browser pass.** The check is `renderToStaticMarkup` on a memory
-  database. Chrome DevTools was not connected. The pages did not change.
-
-### Related-task Complete and Reopen (2026-10-11)
-
-No enforcement change. Account, contact, lead, and opportunity detail
-already pass each related task through `withTaskEditAccess`, and the
-related list already shows Reopen when that task is Completed and the
-actor can edit it. The previous proof only rendered account tasks, and
-none of those rows were completed, so copying the parent `canEdit` onto
-contact, lead, or opportunity tasks still passed, and forcing every
-related row to look open still passed.
-
-The same render now runs for all four parents. An owner who can edit
-the parent and cannot edit tasks sees the task with neither Complete
-nor Reopen. An owner who can edit tasks and cannot edit the parent sees
-Complete on an open task and Reopen, not Complete, on a completed task.
-A member who can edit the parent sees neither button on a task owned by
-someone else. The task editor's other objects carry the opposite update
-flag, so checking the parent hides Complete. The parent editor can edit
-the parent and cannot edit tasks, so checking the parent shows Complete
-on the locked row.
-
-- **`npm run verify` (2026-10-11 22:42 EDT):** exit 0. 36 files, 405
-  tests (was 36 files, 402). TypeScript, ESLint, and Next.js 16.3.5
-  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
-- **Mutation re-check, each change restored before that verify.**
-  Stamping the parent `canEdit` onto related tasks failed for account,
-  contact, lead, and opportunity: the locked row contained Complete.
-  The other three parents still passed under each single-page stamp.
-  Forcing the related list to treat every task as open failed all four
-  parents: Finished Task contained Complete and did not contain Reopen.
-  Source still calls `withTaskEditAccess` on each page, and the related
-  list still compares status to Completed.
-- **No browser pass.** The check is `renderToStaticMarkup` on a memory
-  database. Chrome DevTools was not connected. The pages did not change.
-
-### Record Edit and Delete controls (2026-10-11)
-
-Detail pages for accounts, contacts, leads, opportunities, and tasks
-show Edit only when `canAccessRecord` allows edit, and Delete only when
-it allows delete. The check is that object's profile flag plus owner or
-modify-all. An edit-not-delete owner sees Edit and not Delete. A
-delete-not-edit owner sees Delete and not Edit. A member who is not the
-owner sees neither, including when the profile allows both. Modify-all
-(`users.role` admin and an admin membership) sees the control the
-profile allows on someone else's record.
-
-The edit URL does not render the form when edit would be refused. It
-shows "You do not have permission to edit this {object}." The save
-action is unchanged and still enforces the same rule. Hiding the form
-is not the authorization.
-
-Complete and Reopen use task edit, on the task page and on each related
-list. A task the actor can edit shows the button. A task they cannot
-edit stays on the list without it, including when they can edit the
-parent, can delete the task, or can edit tasks they do not own.
-Opportunity contact-role controls are unchanged and still follow
-opportunity edit.
-
-Convert on a lead is still shown when the actor cannot edit the lead.
-New Contact, New Opportunity, and New Task are still shown without a
-create check. This did not add Change Owner. Cascade task deletes are
-unchanged.
-
-- **`npm run verify` (2026-10-11 22:05 EDT):** exit 0. 36 files, 402
-  tests (was 35 files, 394). TypeScript, ESLint, and Next.js 16.3.5
-  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
-- **Mutation re-check, each change restored before that verify.**
-  Contact detail authorizing with account edit, and with account
-  delete, failed the contact test. Account, contact, lead, opportunity,
-  and task edit pages checking delete instead of edit failed that
-  object's test. The opportunity Edit link and the lead Edit link
-  checking delete failed. Task Complete checking delete failed. Task
-  Delete checking edit failed. The related list treating every task as
-  editable failed. `withTaskEditAccess` checking account edit failed.
-  Source matched the pre-mutation files afterward.
-- **HTML pass, throwaway database only.** `next dev -p 3021` with
-  `DATABASE_PATH=/tmp/rex-crm-controls-20261011.sqlite`, seeded, then
-  one extra contact owned by Riley. Sessions minted in that file. No
-  repository database was written. Python `urllib` (curl is blocked in
-  this environment). Riley's Wile E. Coyote page included "Ship extra
-  helmet" and did not include an edit link, a Delete button, or
-  Complete. Riley's edit URL for that contact included the denial
-  sentence and did not include Save. Riley's own contact showed Edit
-  and Delete, and its edit URL showed Save. The operator's Wile page
-  showed Edit, Delete, and Complete, and the edit URL showed Save.
-  Riley's Acme page had no Edit or Delete; the edit URL showed the
-  denial and no Save. The operator's Acme page showed Edit, Delete, and
-  Complete. Server stopped. Chrome DevTools was not connected, so this
-  was not a viewport or click pass.
 
 ### Undelete and opportunity contact roles (2026-10-11)
 
@@ -316,6 +157,103 @@ The header Edit and Delete links are still shown for both.
   files afterward. Full verify above ran after that restore.
 - **No browser pass.** The page check is `renderToStaticMarkup` on a
   memory database. Chrome DevTools was not connected.
+
+### Product catalog and standard price book (2026-10-11)
+
+- An organization has one standard price book, created on startup.
+  A product stores its standard price as an integer number of cents on
+  a price book entry. `19.99` is 1999 cents. More than two decimal
+  places is rejected. Product code is unique among live products in
+  the org, and a soft-deleted code can be used again. Another org can
+  use the same code and cannot read this org's product.
+- Create, update, and delete use the same profile and owner checks as
+  the other objects. A missing product permission denies. Read Only
+  can read and cannot create. Riley can read the operator's product
+  and cannot edit or delete it. The operator, with modify-all, can
+  change Riley's price. Edit and Delete are hidden when the check
+  fails, and the edit URL shows the denial instead of the form.
+- The price cap, a sibling standard price, the home-page product
+  count, formatted money on the action, and delete are pinned by
+  tests. `9999999999.99` is `999999999999` cents.
+  `10000000000.00` is `INVALID_MONEY`. Setting Anvil to 0 leaves
+  Birdseed at 500 cents, and an admin edit of Riley's price leaves
+  the operator product at 1000 cents. After another org has a
+  product, `countProducts` is 1 for each actor. The create action
+  stores `$1,250.50` as 125050 cents, and `1.005` returns
+  `INVALID_MONEY` with no product row and no price row. An owner
+  delete soft-deletes and redirects to `/products`. Riley's delete
+  redirects with a permission notice and leaves the product and its
+  1000-cent price in place. Each of those five checks was confirmed
+  by applying the reviewer's mutation, seeing the new assertion
+  fail, and restoring the original code.
+- Field permissions apply to products. A profile that cannot read
+  `description`, `productCode`, or `family` gets null for those
+  fields from get, list, and the update return. A hidden
+  `standardPriceCents` is null on get and list. Create and update
+  returns go through the same redaction. The operator still sees
+  the stored values. `canEdit: false` on
+  `standardPriceCents` blocks create and update before the write,
+  and the same deny covers the form names `standardPrice` and
+  `unitPriceCents`. The price-book column stays `unit_price_cents`.
+  The detail omits a product field the actor cannot read. The list
+  shows an em dash in that cell.
+  Read Only cannot update or delete a product it owns, and the
+  price stays. Riley can delete a product Riley owns. A fractional
+  cent (`10.5`) is rejected and leaves both tables unchanged. An
+  omitted Active checkbox stores inactive on create and on update.
+- **`npm run verify` (2026-10-11, 14:37 EDT):** exit 0. 34 test files,
+  406 tests. TypeScript, ESLint, and the Next.js 16.3.5 production
+  build passed. The build lists `/products`, `/products/new`,
+  `/products/[id]`, and `/products/[id]/edit`. The 13:44 run was
+  402 tests, before field permissions. The 13:04 run was 398.
+- Each reviewer mutation was applied, the focused test failed, and
+  the original line was restored: delete with a fake owner id,
+  `isActive !== "false"`, dropping `.int()` on the cent schema,
+  forcing Read Only product update and delete, skipping
+  `presentRecord` on get, list, create, and update, and skipping
+  `assertEditableFields` on create and on update.
+- **Browser-style pass, throwaway database only.**
+  `DATABASE_PATH=/tmp/rex-crm-products-20261011.sqlite`,
+  `next dev -p 3017`. Signed in by posting the login form.
+  Password `local-dev`. The server was stopped afterward.
+  - Operator home showed Rex Local, a Products link, a product count
+    of 1, and the Setup link.
+  - Creating Anvil, code `ANV-1`, family Hardware, price `19.99`
+    returned 303 to
+    `/products/01t01M4NYW0BGYD0KJE4S75E6WRJW`. The list showed Anvil,
+    `ANV-1`, and `$19.99`. The detail showed Standard Price Book and
+    `$19.99`. The edit form showed `19.99`.
+  - SQLite had one live product, `unit_price_cents` 1999, and one
+    standard price book.
+  - Riley's detail showed the name and price and did not show Edit or
+    Delete. Riley's edit URL said "You do not have permission to edit
+    this product." Posting the operator edit action as Riley returned
+    that same sentence and did not redirect. The row stayed Anvil at
+    1999 cents.
+  - Price `1.005` stayed on the new-product form with "Standard price
+    must be a dollar amount with at most two decimal places" and did
+    not insert a row. Riley's home had no Setup link.
+- **Form pass, throwaway database only (2026-10-11, 14:40 EDT).**
+  `DATABASE_PATH=/tmp/rex-crm-product-fields-20261011.sqlite`,
+  `next dev -p 3018`. Signed in by posting the login form.
+  Password `local-dev`. The server was stopped afterward.
+  Chrome DevTools was not connected, so there was no viewport pass.
+  - Operator created Anvil, code `ANV-1`, family Hardware,
+    description Painted iron, price `19.99`, Active checked.
+    Detail showed `$19.99`, Standard Price Book, Edit, and Delete.
+  - Saving the edit form without the Active field returned to the
+    detail as Inactive. SQLite kept `unit_price_cents` 1999 and
+    `is_active` 0. Creating Dormant Anvil at `10.00` with the
+    checkbox omitted stored inactive and 1000 cents.
+  - Riley was moved to a profile that can read products and cannot
+    read code, family, description, or standard price. Riley's
+    detail showed the name and Standard Price Book, and did not
+    show `ANV-1`, Hardware, Painted iron, `$19.99`, or a Standard
+    Price field. Edit and Delete were absent. The edit URL said
+    "You do not have permission to edit this product." The operator
+    detail still showed the code, family, description, and `$19.99`.
+- Not checked: a real browser viewport. No custom price book,
+  opportunity line, product search, report, or recycle restore.
 
 ### Setup administration and Read Only profile (`5126f24`)
 
@@ -927,6 +865,15 @@ on the existing file (1 list view, 0 of everything else).
   separate form. Contact and Opportunity Account Name is a join
   column/filter, not a stored field. Task Related To is a coalesce of
   four parent-table left joins, gated by `related_object_type`.
+- **Products** (2026-10-11) — one standard price book per org and a
+  price book entry in integer cents. Active flag, code, family, and
+  description. Org isolation, profile and owner checks, and field
+  permissions on the product fields. The permission name for the
+  price is `standardPriceCents`. No custom
+  price books, no opportunity line items, no product search, reports,
+  list views, custom fields, validation rules, or recycle-bin restore.
+  A member can still read another member's product. The price book
+  entry active flag is stored true and is not edited on its own.
 - **Custom fields** — definitions and values are real on all five
   objects, including list-view columns, filters, and sort via SQL
   against `custom_field_values`. No formula, lookup, or
@@ -979,7 +926,8 @@ This list is supposed to stay long. It is the research measurement.
 
 ### Pipeline / sales cloud beyond four objects
 
-- Products, price books, line items, quotes, contracts, orders
+- Opportunity line items, custom price books, quotes, contracts, orders.
+  Products and the standard price book landed on 2026-10-11.
 - Forecasts, sales path / kanban, territories, quotas
 
 ### Lead / marketing-adjacent
@@ -1057,51 +1005,20 @@ These stay in scope. See `SALESFORCE-PARITY.md`. They are not done:
 
 The recurring build automation is paused. When the owner resumes the build,
 read `HANDOFF.md` and `ARCHITECTURE.md` before choosing the next slice.
-The long-term scope includes Salesforce-level feature breadth. Undelete,
-opportunity contact-role writes, and record Edit/Delete controls are
-gated, including the edit page and task Complete/Reopen. The next
-correctness gaps are Change Owner and cascade task deletes. Convert is
-still offered when the actor cannot edit the lead. New Contact, New
-Opportunity, and New Task do not check create permission. Existing
-Riley admin memberships remain admin until an explicit
+The long-term scope includes Salesforce-level feature breadth. Undelete
+and opportunity contact-role writes are gated. The next correctness gaps
+are Change Owner, permission-aware Edit/Delete controls, and cascade task
+deletes. Existing Riley admin memberships remain admin until an explicit
 migration or reassignment. Do not reintroduce a default `LOCAL_USER_ID`
-actor on domain writes. Do not retry organization-wide defaults or a
-product catalog in one change; both were abandoned after three review
-rounds. Record fresh verification evidence for each slice.
+actor on domain writes. Do not retry the whole sharing model in one change.
+
+The catalog's next piece is opportunity line items on top of the
+standard price, then custom price books. Quotes need those. Record
+fresh verification evidence for each slice.
 
 ---
 
 ## Session log
-
-### 2026-10-11 — mixed task edit and someone else's Complete (Rex)
-
-- No enforcement change. Related lists on account, contact, lead, and
-  opportunity now render an owned open task, an owned completed task,
-  and the same pair owned by someone else. Complete and Reopen show
-  only on the rows this actor can edit. The task detail page hides
-  Complete on someone else's open task and Reopen on someone else's
-  completed task when the viewer can update tasks and is not modify-all.
-- `npm run verify` exit 0 at 23:34 EDT: 36 files, 413 tests, Next.js
-  16.3.5 build. The first-row edit stamp failed all four parent tests.
-  The object-level Complete check failed the non-owner test. Both
-  mutations were restored before verify. No browser pass. Chrome
-  DevTools was not connected.
-- Did not build Change Owner, cascade task deletes, sharing, or
-  products. Did not push.
-
-### 2026-10-11 — record Edit and Delete controls (Rex)
-
-- Hid Edit unless the actor can edit that record, and Delete unless the
-  actor can delete it, on account, contact, lead, opportunity, and task
-  detail. The edit page shows a denial instead of the form. Complete
-  and Reopen, including the related list, follow task edit.
-- `npm run verify` exit 0 at 22:05 EDT: 36 files, 402 tests, Next.js
-  16.3.5 build. Thirteen focused mutations failed, then the source was
-  restored. HTML reads on a throwaway database at port 3021 matched
-  the buttons for Riley and the operator. No viewport pass. The server
-  was stopped.
-- Did not build Change Owner, cascade task deletes, sharing, or
-  products. Did not push.
 
 ### 2026-10-11 — undelete and opportunity contact roles (Rex)
 
@@ -1116,6 +1033,32 @@ rounds. Record fresh verification evidence for each slice.
   reads on a throwaway database at port 3019 matched the buttons.
   No viewport pass. The server was stopped.
 - Did not build sharing, products, or Change Owner. Did not push.
+
+### Session 2026-10-11 — product field permissions (Rex / Grok)
+
+- Did not start opportunity line items. The review found product
+  field permissions were stored and ignored, and four security or
+  money mutants still survived.
+- Reads and writes now use `standardPriceCents`. Hidden fields are
+  removed from the record and from the list and detail. A locked
+  field blocks the write. Read Only cannot update or delete its own
+  product. Omitted Active stores inactive. Fractional cents are
+  rejected.
+- `npm run verify` exit 0 at 14:37 EDT: 34 files, 406 tests,
+  production build. Form pass on port 3018 with a throwaway
+  database. The server was stopped. No viewport pass.
+- Did not push, open a PR, or deploy. No real-business data.
+
+### Session 2026-10-11 — product catalog (Rex / Grok)
+
+- Did not retry the abandoned sharing slice.
+- Products, one standard price book per org, and standard prices in
+  cents. Migration `0014_products`. Profile rows include `product`.
+  `npm run verify` exit 0: 34 files, 398 tests, production build.
+- Form pass on `next dev -p 3017` with a throwaway database. Operator
+  created Anvil at `$19.99`. Riley could read it and could not edit it.
+  The server was stopped. No viewport pass.
+- Did not push, open a PR, or deploy. No real-business data.
 
 ### Reconciliation (2026-10-10) — profiles from `cc5f786`
 
