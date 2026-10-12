@@ -15,7 +15,7 @@ import { formatUsd } from "@/lib/crm/money";
 import { listOpportunitiesForAccount } from "@/lib/crm/opportunities";
 import { recordView } from "@/lib/crm/recentlyViewed";
 import { canAccessRecord, canReadField } from "@/lib/crm/permissions";
-import { listTasksForRecord } from "@/lib/crm/tasks";
+import { listTasksForRecord, withTaskEditAccess } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
 import { ownerLabel } from "@/lib/crm/users";
 import { getDb } from "@/lib/db/client";
@@ -290,7 +290,7 @@ export default async function AccountDetailPage({
       <TasksRelatedList
         objectType="account"
         recordId={account.id}
-        tasks={relatedTasks}
+        tasks={withTaskEditAccess(db, actor, relatedTasks)}
       />
 
       {hierarchy && inHierarchy ? (

@@ -2,11 +2,13 @@ import { requireActor } from "@/lib/crm/currentUser";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateAccountAction } from "../../actions";
+import { EditDenied } from "@/components/EditDenied";
 import { RecordForm } from "@/components/RecordForm";
 import { getAccount, listEligibleParentAccounts } from "@/lib/crm/accounts";
 import { ACCOUNT_TYPES } from "@/lib/crm/constants";
 import { withCustomFormFields } from "@/lib/crm/customFieldForm";
 import { centsToInput } from "@/lib/crm/money";
+import { canAccessRecord } from "@/lib/crm/permissions";
 import { getDb } from "@/lib/db/client";
 
 export default async function EditAccountPage({
@@ -16,8 +18,18 @@ export default async function EditAccountPage({
 }) {
   const actor = await requireActor();
   const { id } = await params;
-  const account = getAccount(getDb(), actor, id);
+  const db = getDb();
+  const account = getAccount(db, actor, id);
   if (!account) notFound();
+  if (!canAccessRecord(db, actor, "account", "edit", account)) {
+    return (
+      <EditDenied
+        href={`/accounts/${account.id}`}
+        recordName={account.name}
+        object="account"
+      />
+    );
+  }
 
   const action = updateAccountAction.bind(null, account.id);
 
@@ -36,7 +48,7 @@ export default async function EditAccountPage({
         <RecordForm
           action={action}
           submitLabel="Save"
-          fields={withCustomFormFields(getDb(), actor, "account", [
+          fields={withCustomFormFields(db, actor, "account", [
             {
               name: "name",
               label: "Account Name",
@@ -78,7 +90,7 @@ export default async function EditAccountPage({
               type: "select",
               // Excludes this account and everything under it, so the
               // picker cannot offer a loop. The domain refuses one anyway.
-              options: listEligibleParentAccounts(getDb(), actor, account.id).map(
+              options: listEligibleParentAccounts(db, actor, account.id).map(
                 (candidate) => ({ value: candidate.id, label: candidate.name }),
               ),
               defaultValue: account.parentAccountId,

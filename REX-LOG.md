@@ -1,5 +1,32 @@
 # Rex log
 
+## 2026-10-11 22:08 EDT
+
+Hid Edit and Delete on the five record pages, and stopped the edit URL
+from rendering a form the domain will refuse. Complete and Reopen,
+including the related list, follow task edit. The previous sessions
+that tried organization-wide defaults and a product catalog were
+abandoned after three review rounds, so this stayed on the one
+permission hole the handoff already named.
+
+An owner who can edit but not delete sees Edit and Save, and not
+Delete. The inverse sees Delete and the edit-page denial. A non-owner
+sees neither. Modify-all follows the profile flag on someone else's
+record. Other objects carry the opposite flags, so checking the wrong
+object fails. Thirteen mutations failed the new tests and were restored.
+
+`npm run verify` exited 0 at 22:05 EDT: 36 files, 402 tests, Next.js
+16.3.5 build. Throwaway HTML at port 3021: Riley's Wile page listed
+Ship extra helmet with no Edit, Delete, or Complete, and the edit URL
+showed the denial. Riley's own contact showed Edit, Delete, and Save.
+The operator saw Edit, Delete, and Complete on Wile and on Acme. The
+server was stopped. No browser pass. Chrome DevTools was not connected.
+
+Next: Change Owner. Then cascade task deletes, which still skip the
+task owner. Convert and the New record links are still shown when the
+domain may refuse them. Do not retry the whole sharing model or the
+product catalog in one change.
+
 ## 2026-10-11 16:36 EDT
 
 Locked the three authorization mutations that survived the last pass.

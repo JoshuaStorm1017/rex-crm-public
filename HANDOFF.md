@@ -108,15 +108,14 @@ Still open:
    default back. The session-18 note about 32 functions defaulting
    `actorId` is closed by `5c70f14`.
 6. **No Change Owner.** Nothing reassigns `ownerId`.
-7. **The UI still offers some saves the domain refuses.** Account
-   detail hides Edit and Delete when `canAccessRecord` is false. The
-   edit URL still renders the form; the save returns the permission
-   error (seen for Riley on Acme). Contact detail still shows Edit and
-   Delete for a non-owner (seen for Riley on Wile); that save also
-   returns the permission error. Lead, opportunity, and task detail
-   pages were not given the account-style button gate. Contact and lead
-   detail omit only phone when it is unreadable; other hidden values
-   become an em dash because `presentRecord` nulls them.
+7. **Record Edit and Delete follow `canAccessRecord`.** Detail pages
+   hide Edit without edit, and Delete without delete. The edit URL
+   shows a denial instead of the form. Task Complete and Reopen,
+   including related lists, follow task edit. The domain check is still
+   the authorization. Still shown when the domain may refuse: Convert
+   on a lead, and New Contact, New Opportunity, and New Task. Contact
+   and lead detail omit only phone when it is unreadable; other hidden
+   values become an em dash because `presentRecord` nulls them.
 8. **Cascade deletes bypass child task permissions.** Deleting a
    contact, opportunity, or lead soft-deletes its tasks without checking
    those tasks' owners.
@@ -126,9 +125,9 @@ Still open:
 Suggested order when work resumes:
 
 0. CI. A GitHub Actions workflow running `npm ci && npm run verify`.
-1. Close the rest of section 3. Change Owner. Hide Edit and Delete
-   wherever `canAccessRecord` is false, including the edit page.
-   Cascade task deletes still skip the task owner. Mutation-test it.
+1. Close the rest of section 3. Change Owner. Cascade task deletes
+   still skip the task owner. Record Edit, Delete, the edit page, and
+   task Complete/Reopen are gated. Mutation-test the next slice.
    Browser-test it on a throwaway `DATABASE_PATH`. Setup admin, Riley's
    membership, the seeded Read Only profile, undelete, and opportunity
    contact-role writes are done. Do not retry organization-wide

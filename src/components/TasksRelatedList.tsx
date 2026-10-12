@@ -14,7 +14,7 @@ export function TasksRelatedList({
 }: {
   objectType: TaskRelatedObjectType;
   recordId: string;
-  tasks: TaskListItem[];
+  tasks: (TaskListItem & { canEdit: boolean })[];
 }) {
   const returnTo = recordHref(objectType, recordId);
   const newHref = `/tasks/new?relatedObjectType=${objectType}&relatedRecordId=${recordId}`;
@@ -62,37 +62,39 @@ export function TasksRelatedList({
                   <td className="px-4 py-2">{task.priority}</td>
                   <td className="px-4 py-2">{task.dueDate ?? "—"}</td>
                   <td className="px-4 py-2 text-right">
-                    {done ? (
-                      <form
-                        action={reopenTaskAction.bind(
-                          null,
-                          task.id,
-                          returnTo,
-                        )}
-                      >
-                        <button
-                          type="submit"
-                          className="text-sm text-[#c45c26] hover:underline"
+                    {task.canEdit ? (
+                      done ? (
+                        <form
+                          action={reopenTaskAction.bind(
+                            null,
+                            task.id,
+                            returnTo,
+                          )}
                         >
-                          Reopen
-                        </button>
-                      </form>
-                    ) : (
-                      <form
-                        action={completeTaskAction.bind(
-                          null,
-                          task.id,
-                          returnTo,
-                        )}
-                      >
-                        <button
-                          type="submit"
-                          className="text-sm text-[#c45c26] hover:underline"
+                          <button
+                            type="submit"
+                            className="text-sm text-[#c45c26] hover:underline"
+                          >
+                            Reopen
+                          </button>
+                        </form>
+                      ) : (
+                        <form
+                          action={completeTaskAction.bind(
+                            null,
+                            task.id,
+                            returnTo,
+                          )}
                         >
-                          Complete
-                        </button>
-                      </form>
-                    )}
+                          <button
+                            type="submit"
+                            className="text-sm text-[#c45c26] hover:underline"
+                          >
+                            Complete
+                          </button>
+                        </form>
+                      )
+                    ) : null}
                   </td>
                 </tr>
               );

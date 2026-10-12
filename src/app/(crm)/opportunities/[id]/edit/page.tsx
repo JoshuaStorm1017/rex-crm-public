@@ -2,6 +2,7 @@ import { requireActor } from "@/lib/crm/currentUser";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateOpportunityAction } from "../../actions";
+import { EditDenied } from "@/components/EditDenied";
 import { RecordForm } from "@/components/RecordForm";
 import { getOpportunity } from "@/lib/crm/opportunities";
 import {
@@ -10,6 +11,7 @@ import {
 } from "@/lib/crm/constants";
 import { withCustomFormFields } from "@/lib/crm/customFieldForm";
 import { centsToInput } from "@/lib/crm/money";
+import { canAccessRecord } from "@/lib/crm/permissions";
 import { getDb } from "@/lib/db/client";
 
 export default async function EditOpportunityPage({
@@ -19,8 +21,18 @@ export default async function EditOpportunityPage({
 }) {
   const actor = await requireActor();
   const { id } = await params;
-  const opportunity = getOpportunity(getDb(), actor, id);
+  const db = getDb();
+  const opportunity = getOpportunity(db, actor, id);
   if (!opportunity) notFound();
+  if (!canAccessRecord(db, actor, "opportunity", "edit", opportunity)) {
+    return (
+      <EditDenied
+        href={`/opportunities/${opportunity.id}`}
+        recordName={opportunity.name}
+        object="opportunity"
+      />
+    );
+  }
   const action = updateOpportunityAction.bind(null, opportunity.id);
 
   return (
@@ -39,7 +51,7 @@ export default async function EditOpportunityPage({
           action={action}
           submitLabel="Save"
           hidden={{ accountId: opportunity.accountId }}
-          fields={withCustomFormFields(getDb(), actor, "opportunity", [
+          fields={withCustomFormFields(db, actor, "opportunity", [
             {
               name: "name",
               label: "Opportunity Name",

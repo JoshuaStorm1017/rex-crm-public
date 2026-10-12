@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-11, tests that lock object delete and the opportunity role gate.
+Last updated: 2026-10-11, record Edit and Delete controls follow the domain.
 
 > **Attribution note for the research.** Sessions 1–11 were built by Rex
 > (Grok) alone. **Sessions 12 and 13 were built by Cass — Claude Opus 5 —
@@ -33,6 +33,61 @@ Last updated: 2026-10-11, tests that lock object delete and the opportunity role
 ## WORKS
 
 Things actually run, with evidence.
+
+### Record Edit and Delete controls (2026-10-11)
+
+Detail pages for accounts, contacts, leads, opportunities, and tasks
+show Edit only when `canAccessRecord` allows edit, and Delete only when
+it allows delete. The check is that object's profile flag plus owner or
+modify-all. An edit-not-delete owner sees Edit and not Delete. A
+delete-not-edit owner sees Delete and not Edit. A member who is not the
+owner sees neither, including when the profile allows both. Modify-all
+(`users.role` admin and an admin membership) sees the control the
+profile allows on someone else's record.
+
+The edit URL does not render the form when edit would be refused. It
+shows "You do not have permission to edit this {object}." The save
+action is unchanged and still enforces the same rule. Hiding the form
+is not the authorization.
+
+Complete and Reopen use task edit, on the task page and on each related
+list. A task the actor can edit shows the button. A task they cannot
+edit stays on the list without it, including when they can edit the
+parent, can delete the task, or can edit tasks they do not own.
+Opportunity contact-role controls are unchanged and still follow
+opportunity edit.
+
+Convert on a lead is still shown when the actor cannot edit the lead.
+New Contact, New Opportunity, and New Task are still shown without a
+create check. This did not add Change Owner. Cascade task deletes are
+unchanged.
+
+- **`npm run verify` (2026-10-11 22:05 EDT):** exit 0. 36 files, 402
+  tests (was 35 files, 394). TypeScript, ESLint, and Next.js 16.3.5
+  production build passed. `NO_COLOR`/`FORCE_COLOR` warnings only.
+- **Mutation re-check, each change restored before that verify.**
+  Contact detail authorizing with account edit, and with account
+  delete, failed the contact test. Account, contact, lead, opportunity,
+  and task edit pages checking delete instead of edit failed that
+  object's test. The opportunity Edit link and the lead Edit link
+  checking delete failed. Task Complete checking delete failed. Task
+  Delete checking edit failed. The related list treating every task as
+  editable failed. `withTaskEditAccess` checking account edit failed.
+  Source matched the pre-mutation files afterward.
+- **HTML pass, throwaway database only.** `next dev -p 3021` with
+  `DATABASE_PATH=/tmp/rex-crm-controls-20261011.sqlite`, seeded, then
+  one extra contact owned by Riley. Sessions minted in that file. No
+  repository database was written. Python `urllib` (curl is blocked in
+  this environment). Riley's Wile E. Coyote page included "Ship extra
+  helmet" and did not include an edit link, a Delete button, or
+  Complete. Riley's edit URL for that contact included the denial
+  sentence and did not include Save. Riley's own contact showed Edit
+  and Delete, and its edit URL showed Save. The operator's Wile page
+  showed Edit, Delete, and Complete, and the edit URL showed Save.
+  Riley's Acme page had no Edit or Delete; the edit URL showed the
+  denial and no Save. The operator's Acme page showed Edit, Delete, and
+  Complete. Server stopped. Chrome DevTools was not connected, so this
+  was not a viewport or click pass.
 
 ### Undelete and opportunity contact roles (2026-10-11)
 
@@ -897,12 +952,13 @@ These stay in scope. See `SALESFORCE-PARITY.md`. They are not done:
 
 The recurring build automation is paused. When the owner resumes the build,
 read `HANDOFF.md` and `ARCHITECTURE.md` before choosing the next slice.
-The long-term scope includes Salesforce-level feature breadth. Undelete
-and opportunity contact-role writes are gated. The next correctness gaps
-are Change Owner, permission-aware Edit/Delete controls (the edit URL
-still renders the form; contact, lead, opportunity, and task detail
-still show Edit and Delete before the domain refuses), and cascade task
-deletes. Existing Riley admin memberships remain admin until an explicit
+The long-term scope includes Salesforce-level feature breadth. Undelete,
+opportunity contact-role writes, and record Edit/Delete controls are
+gated, including the edit page and task Complete/Reopen. The next
+correctness gaps are Change Owner and cascade task deletes. Convert is
+still offered when the actor cannot edit the lead. New Contact, New
+Opportunity, and New Task do not check create permission. Existing
+Riley admin memberships remain admin until an explicit
 migration or reassignment. Do not reintroduce a default `LOCAL_USER_ID`
 actor on domain writes. Do not retry organization-wide defaults or a
 product catalog in one change; both were abandoned after three review
@@ -911,6 +967,20 @@ rounds. Record fresh verification evidence for each slice.
 ---
 
 ## Session log
+
+### 2026-10-11 — record Edit and Delete controls (Rex)
+
+- Hid Edit unless the actor can edit that record, and Delete unless the
+  actor can delete it, on account, contact, lead, opportunity, and task
+  detail. The edit page shows a denial instead of the form. Complete
+  and Reopen, including the related list, follow task edit.
+- `npm run verify` exit 0 at 22:05 EDT: 36 files, 402 tests, Next.js
+  16.3.5 build. Thirteen focused mutations failed, then the source was
+  restored. HTML reads on a throwaway database at port 3021 matched
+  the buttons for Riley and the operator. No viewport pass. The server
+  was stopped.
+- Did not build Change Owner, cascade task deletes, sharing, or
+  products. Did not push.
 
 ### 2026-10-11 — undelete and opportunity contact roles (Rex)
 

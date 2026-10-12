@@ -9,8 +9,8 @@ import { getContact, listDirectReports } from "@/lib/crm/contacts";
 import { getCustomValues } from "@/lib/crm/customFields";
 import { listOpportunityContactRolesForContact } from "@/lib/crm/opportunityContactRoles";
 import { recordView } from "@/lib/crm/recentlyViewed";
-import { canReadField } from "@/lib/crm/permissions";
-import { listTasksForRecord } from "@/lib/crm/tasks";
+import { canAccessRecord, canReadField } from "@/lib/crm/permissions";
+import { listTasksForRecord, withTaskEditAccess } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
 import { ownerLabel } from "@/lib/crm/users";
 import { getDb } from "@/lib/db/client";
@@ -51,6 +51,8 @@ export default async function ContactDetailPage({
     ? getContact(db, actor, contact.reportsToId)
     : undefined;
   const directReports = listDirectReports(db, actor, contact.id);
+  const canEdit = canAccessRecord(db, actor, "contact", "edit", contact);
+  const canDelete = canAccessRecord(db, actor, "contact", "delete", contact);
 
   return (
     <div className="space-y-6">
@@ -80,21 +82,25 @@ export default async function ContactDetailPage({
             </p>
           </div>
           <div className="flex gap-2">
-            <Link
-              href={`/contacts/${contact.id}/edit`}
-              className="rounded border border-[#cfc6b6] bg-white px-3 py-1.5 text-sm hover:bg-[#faf7f1]"
-            >
-              Edit
-            </Link>
-            <DeleteButton
-              label="Delete"
-              confirmMessage={`Delete contact ${contact.name}?`}
-              action={deleteContactAction.bind(
-                null,
-                contact.id,
-                contact.accountId,
-              )}
-            />
+            {canEdit ? (
+              <Link
+                href={`/contacts/${contact.id}/edit`}
+                className="rounded border border-[#cfc6b6] bg-white px-3 py-1.5 text-sm hover:bg-[#faf7f1]"
+              >
+                Edit
+              </Link>
+            ) : null}
+            {canDelete ? (
+              <DeleteButton
+                label="Delete"
+                confirmMessage={`Delete contact ${contact.name}?`}
+                action={deleteContactAction.bind(
+                  null,
+                  contact.id,
+                  contact.accountId,
+                )}
+              />
+            ) : null}
           </div>
         </div>
       </div>
@@ -232,7 +238,7 @@ export default async function ContactDetailPage({
       <TasksRelatedList
         objectType="contact"
         recordId={contact.id}
-        tasks={relatedTasks}
+        tasks={withTaskEditAccess(db, actor, relatedTasks)}
       />
     </div>
   );

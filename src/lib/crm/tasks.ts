@@ -19,6 +19,7 @@ import {
   assertCanAccessRecord,
   assertCanPerform,
   assertEditableFields,
+  canAccessRecord,
   canPerform,
   presentRecord,
   touchedFields,
@@ -200,6 +201,18 @@ export function listTasks(db: Db, actor: Actor): TaskListItem[] {
     .all()
     .sort(compareTasks)
     .map((row) => withRelated(db, actor, access(row)));
+}
+
+/** Record edit, per task. Related lists use this so a parent the actor can edit does not unlock someone else's task. */
+export function withTaskEditAccess<T extends { ownerId: string }>(
+  db: Db,
+  actor: Actor,
+  rows: readonly T[],
+): (T & { canEdit: boolean })[] {
+  return rows.map((row) => ({
+    ...row,
+    canEdit: canAccessRecord(db, actor, "task", "edit", row),
+  }));
 }
 
 export function listTasksForRecord(
