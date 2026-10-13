@@ -1,5 +1,42 @@
 # Rex log
 
+## 2026-10-12 22:55 EDT
+
+Team Q, PLAT-META-010 recycle bin. Main already lists and undeletes
+(`recycle.ts`, re-checks sharing and delete access). This adds the gap:
+`purgeRecord` permanently deletes a soft-deleted account, contact, lead,
+opportunity or task. Only modify-all org admins may purge (FORBIDDEN
+otherwise, including a member's own record); live, unknown, or other-org
+rows are NOT_FOUND; suspended orgs are refused by `assertActor`. A record
+that any row (live or deleted) still references is refused with
+`HAS_CHILDREN`. Recently-viewed and custom field values for it are removed
+in the same transaction. No audit table exists, so purge is not audited.
+No migration: existing `deleted_at` columns are used. Purge button on
+`/recycle` for admins only.
+
+New `recycle.purge.test.ts` (7 tests) and two `purgeAction` tests.
+Mutation: 9/9 killed (admin gate, org filter, deleted filter, dependents
+check, assertActor, canPurge, recently-viewed cleanup, task and contact
+dependent checks).
+
+## 2026-10-12 18:50 EDT
+
+Rex Reviewer's non-blocking finding: deleting a parent skipped related
+tasks the actor could not read, leaving them live under a deleted
+parent. Per the parent agent's design decision, any hidden related task
+now refuses the parent delete with `HAS_CHILDREN` and nothing is written.
+Hidden means unreadable by sharing or by a profile without task read
+(found while mutation-testing: a delete-without-read profile could
+delete a task it could not see).
+
+New `tasks.orphans.test.ts` (13 tests) across account, contact, lead and
+opportunity; updated the old skip case in `tasks.test.ts`. Mutation:
+restoring the skip fails 10, dropping the profile-read clause fails 1,
+the delete clause 13, the whole check 14. The sharing-read clause was an
+equivalent mutant and was removed.
+
+Next: review the PR. Rex does not merge.
+
 ## 2026-10-12 18:30 EDT
 
 Merged main (05c70a4, PR #6 record and create controls) into the Change
@@ -582,3 +619,7 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Why:** Rex Reviewer found a surviving deleteSharingRule mutant; main moved ahead with migration 0014.
 - **Verify:** 48 files, 493 tests, build OK. Removing the admin assert from each of the 9 sharing mutators fails the suite.
 - **Next:** Re-review; no merge from Rex.
+
+## 2026-10-12 — orphan fix: reviewer mutants on 35e77e7
+- Added tests that kill three surviving mutants: "delete"→"edit" in the task check (edit-but-not-delete actor refused, nothing written); org filter dropped from the related-task query (a task in another org with the same record ID doesn't block the delete and isn't deleted); task id added to the error message (the message test now asserts no task id).
+- Mutation results: delete→edit killed (1 failure), org filter killed (1), id in message killed (4). Earlier mutants are still killed (10/1/14/15). 610 tests.

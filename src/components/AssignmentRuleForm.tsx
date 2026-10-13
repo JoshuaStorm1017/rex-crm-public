@@ -17,6 +17,8 @@ export function AssignmentRuleForm({
   assignToId,
   sortOrder = 1,
   criteria = [],
+  mode = "user",
+  poolUserIds = [],
 }: {
   action: (prev: ActionState, formData: FormData) => Promise<ActionState>;
   submitLabel: string;
@@ -26,6 +28,8 @@ export function AssignmentRuleForm({
   assignToId?: string;
   sortOrder?: number;
   criteria?: ValidationCriterion[];
+  mode?: "user" | "round_robin";
+  poolUserIds?: string[];
 }) {
   const [state, formAction, pending] = useActionState(action, null);
   return (
@@ -63,6 +67,29 @@ export function AssignmentRuleForm({
           </select>
         </label>
       </div>
+      <fieldset className="space-y-2">
+        <label className="block max-w-xs">
+          <span className="mb-1 block text-sm font-medium">Assignment mode</span>
+          <select name="mode" defaultValue={mode} className={inputClass}>
+            <option value="user">One user (Assign to)</option>
+            <option value="round_robin">Round-robin across users below</option>
+          </select>
+        </label>
+        <p className="text-sm text-[#6b6255]">Round-robin users (pick 2 or more):</p>
+        <div className="grid gap-1 sm:grid-cols-3">
+          {users.map((user) => (
+            <label key={user.id} className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                name="poolUserIds"
+                value={user.id}
+                defaultChecked={poolUserIds.includes(user.id)}
+              />
+              {user.name}
+            </label>
+          ))}
+        </div>
+      </fieldset>
       <CriteriaFields objectType="lead" fields={VALIDATION_FIELDS.lead} criteria={criteria} />
       <button
         type="submit"
