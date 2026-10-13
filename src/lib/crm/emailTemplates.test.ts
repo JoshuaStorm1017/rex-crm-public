@@ -3,7 +3,8 @@ import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 import { EmailPreview } from "../../components/EmailPreview";
 import { openMemoryDb, type Db } from "../db/client";
-import { emailTemplates } from "../db/schema";
+import { eq } from "drizzle-orm";
+import { emailTemplates, organizations, users } from "../db/schema";
 import { createAccount } from "./accounts";
 import { LOCAL_ACTOR, actorFor } from "./actor";
 import { LOCAL_ORG_ID, RILEY_USER_ID } from "./constants";
@@ -193,5 +194,90 @@ describe("email templates", () => {
     expect(html).not.toContain("<script>");
     expect(html).not.toContain("<b>Hi</b>");
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;x&quot;");
+  });
+
+  describe("refuses inactive or outside actors with FORBIDDEN and no row changes", () => {
+    function adminInLocalOrg(db: Db, username: string) {
+      const user = createUser(db, {
+        name: `Test ${username}`,
+        email: `${username}@example.org`,
+        username,
+        password: "long-enough",
+      });
+      addMember(db, LOCAL_ORG_ID, user.id, "admin");
+      return actorFor(user.id);
+    }
+
+    const cases: Array<[string, (db: Db) => { actor: ReturnType<typeof actorFor>; templateId?: string; contactId?: string }]> = [
+      [
+        "a non-member of the org",
+        (db) => {
+          const outsider = createUser(db, {
+            name: "Nora Outsider",
+            email: "nora.outsider@example.org",
+            username: "noraoutsider",
+            password: "long-enough",
+          });
+          return { actor: actorFor(outsider.id) };
+        },
+      ],
+      [
+        "a deleted user",
+        (db) => {
+          const actor = adminInLocalOrg(db, "deliadeleted");
+          db.update(users).set({ deletedAt: Date.now() }).where(eq(users.id, actor.userId)).run();
+          return { actor };
+        },
+      ],
+      [
+        "a disabled user (no login)",
+        (db) => {
+          const actor = adminInLocalOrg(db, "dariusdisabled");
+          db.update(users)
+            .set({ username: null, passwordHash: null })
+            .where(eq(users.id, actor.userId))
+            .run();
+          return { actor };
+        },
+      ],
+      [
+        "a user in a suspended org",
+        (db) => {
+          const actor = otherOrg(db);
+          const own = createEmailTemplate(db, actor, { ...WELCOME, name: "Suspended" });
+          const ownAccount = createAccount(db, actor, { name: "Spindle Supply" });
+          const ownContact = createContact(db, actor, {
+            accountId: ownAccount.id,
+            firstName: "Sue",
+            lastName: "Spended",
+          });
+          db.update(organizations)
+            .set({ status: "suspended" })
+            .where(eq(organizations.id, actor.orgId))
+            .run();
+          return { actor, templateId: own.id, contactId: ownContact.id };
+        },
+      ],
+    ];
+
+    for (const [label, makeActor] of cases) {
+      it(`refuses create, edit and render for ${label}`, () => {
+        const { db, contact, template } = setup();
+        const made = makeActor(db);
+        const templateId = made.templateId ?? template.id;
+        const contactId = made.contactId ?? contact.id;
+        const count = () => db.select().from(emailTemplates).all().length;
+        const countBefore = count();
+        expectRefused(db, () => createEmailTemplate(db, made.actor, { ...WELCOME, name: "Nope" }), "FORBIDDEN");
+        expectRefused(
+          db,
+          () => updateEmailTemplate(db, made.actor, templateId, { ...WELCOME, name: "Changed" }),
+          "FORBIDDEN",
+        );
+        expectRefused(db, () => renderTemplate(db, made.actor, templateId, contactId), "FORBIDDEN");
+        expect(count()).toBe(countBefore);
+        expect(db.select().from(emailTemplates).all().some((row) => row.name === "Changed" || row.name === "Nope")).toBe(false);
+      });
+    }
   });
 });
