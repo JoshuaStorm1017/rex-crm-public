@@ -4,6 +4,8 @@ import { deleteContactAction } from "../actions";
 import { ChangeOwnerLink } from "@/components/ChangeOwnerLink";
 import { DeleteButton } from "@/components/DeleteButton";
 import { TasksRelatedList } from "@/components/TasksRelatedList";
+import { ActivityTimeline } from "@/components/ActivityTimeline";
+import { listActivities } from "@/lib/crm/activities";
 import { getAccount } from "@/lib/crm/accounts";
 import { CustomFieldsSection } from "@/components/CustomFieldsSection";
 import { getContact, listDirectReports } from "@/lib/crm/contacts";
@@ -238,6 +240,13 @@ export default async function ContactDetailPage({
         recordId={contact.id}
         tasks={withTaskEditAccess(db, actor, relatedTasks)}
         canCreate={canPerform(db, actor, "task", "create")}
+      />
+
+
+      <ActivityTimeline
+
+        activities={listActivities(db, actor, "contact", contact.id)}
+
       />
     </div>
   );

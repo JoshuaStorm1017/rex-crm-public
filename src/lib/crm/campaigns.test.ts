@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb } from "../db/client";
 import { campaignMembers, campaigns, orgMemberships, organizations, profiles, users } from "../db/schema";
-import { LOCAL_ACTOR, actorFor } from "./actor";
+import { LOCAL_ACTOR, actorFor, type Actor } from "./actor";
 import {
   addCampaignMember,
   createCampaign,
@@ -19,7 +19,7 @@ import { createContact } from "./contacts";
 import { DomainError } from "./errors";
 import { createLead } from "./leads";
 import { addMember, createOrganization } from "./orgs";
-import { createUser } from "./users";
+import { createUser, disableUser } from "./users";
 import { READ_ONLY_PROFILE_NAME, assignProfile, createProfile } from "./profiles";
 import { setOrgWideDefault } from "./sharing";
 
@@ -388,4 +388,84 @@ describe("campaigns", () => {
     expect(caught).toBe(failure);
     expect(db.select().from(campaignMembers).all()).toHaveLength(0);
   });
+});
+
+describe("refuses inactive or outside actors on every campaign read with FORBIDDEN (existing and unknown ids)", () => {
+  const UNKNOWN_CAMPAIGN_ID = "701000000000000UNKNOWN";
+  function readUser(db: Db, username: string) {
+    return createUser(db, {
+      name: username,
+      email: `${username}@example.invalid`,
+      username,
+      password: "long-enough",
+    });
+  }
+  function readMember(db: Db, username: string): Actor {
+    const u = readUser(db, username);
+    addMember(db, LOCAL_ORG_ID, u.id, "member");
+    return actorFor(u.id);
+  }
+  type Made = { actor: Actor; campaignId?: string };
+  const actorCases: Array<[string, (db: Db) => Made]> = [
+    ["a non-member of the org", (db) => ({ actor: actorFor(readUser(db, "camp_outsider").id) })],
+    [
+      "a deleted user",
+      (db) => {
+        const actor = readMember(db, "camp_deleted");
+        db.update(users).set({ deletedAt: Date.now() }).where(eq(users.id, actor.userId)).run();
+        return { actor };
+      },
+    ],
+    [
+      "a disabled user",
+      (db) => {
+        const actor = readMember(db, "camp_disabled_read");
+        disableUser(db, actor.userId);
+        return { actor };
+      },
+    ],
+    [
+      "a disabled user (no login)",
+      (db) => {
+        const actor = readMember(db, "camp_nologin");
+        db.update(users).set({ username: null, passwordHash: null }).where(eq(users.id, actor.userId)).run();
+        return { actor };
+      },
+    ],
+    [
+      "a user in a suspended org",
+      (db) => {
+        const owner = readUser(db, "camp_susp_owner");
+        const org = createOrganization(db, "Suspended Sprocket Co", owner.id);
+        const actor = actorFor(owner.id, org.id);
+        const own = createCampaign(db, actor, { name: "Sprocket Summit" });
+        db.update(organizations).set({ status: "suspended" }).where(eq(organizations.id, org.id)).run();
+        return { actor, campaignId: own.id };
+      },
+    ],
+    [
+      "an outside-org owner reading into this org",
+      (db) => {
+        const owner = readUser(db, "camp_other_owner");
+        createOrganization(db, "Other Sprockets Org", owner.id);
+        return { actor: actorFor(owner.id, LOCAL_ORG_ID) };
+      },
+    ],
+  ];
+
+  for (const [label, make] of actorCases) {
+    it(`refuses getCampaign, listCampaigns and listCampaignMembers for ${label}`, () => {
+      const db = memory();
+      const campaign = createCampaign(db, LOCAL_ACTOR, SPRING);
+      const lead = createLead(db, LOCAL_ACTOR, { lastName: "Reader", company: "Example Widgets" });
+      addCampaignMember(db, LOCAL_ACTOR, campaign.id, { leadId: lead.id });
+      const made = make(db);
+      const campaignId = made.campaignId ?? campaign.id;
+      expectRefused(db, () => listCampaigns(db, made.actor), "FORBIDDEN");
+      expectRefused(db, () => getCampaign(db, made.actor, campaignId), "FORBIDDEN");
+      expectRefused(db, () => getCampaign(db, made.actor, UNKNOWN_CAMPAIGN_ID), "FORBIDDEN");
+      expectRefused(db, () => listCampaignMembers(db, made.actor, campaignId), "FORBIDDEN");
+      expectRefused(db, () => listCampaignMembers(db, made.actor, UNKNOWN_CAMPAIGN_ID), "FORBIDDEN");
+    });
+  }
 });

@@ -174,7 +174,29 @@ describe("drizzle journal", () => {
     }
   });
 
-  it("applies the sharing migration onto a database that stopped at 0014", () => {
+  it("applies the newest migration onto a database that already has the previous one", () => {
+    const journal = readJournal();
+    const prior = journal.entries.slice(0, -1);
+    expect(prior.length).toBe(journal.entries.length - 1);
+    const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-"));
+    const sqlite = new Database(path.join(dir, "rex.sqlite"));
+    try {
+      sqlite.pragma("foreign_keys = ON");
+      applyEntries(sqlite, prior);
+      insertLegacyRows(sqlite);
+      const tablesBefore = sqlite.prepare("SELECT count(*) AS n FROM sqlite_master").get() as { n: number };
+      migrate(drizzle(sqlite), { migrationsFolder });
+      const tablesAfter = sqlite.prepare("SELECT count(*) AS n FROM sqlite_master").get() as { n: number };
+      expect(tablesAfter.n).toBeGreaterThan(tablesBefore.n);
+      const account = sqlite.prepare("SELECT org_id FROM accounts WHERE id = ?").get("001MIGRATE") as { org_id: string };
+      expect(account.org_id).toBe("00D000000000LOCALORG0001");
+    } finally {
+      sqlite.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("applies 0015_sharing onto a database that stopped at 0014_products", () => {
     const journal = readJournal();
     const stop = journal.entries.findIndex((entry) => entry.tag === "0014_products");
     expect(stop).toBeGreaterThan(0);
@@ -242,12 +264,73 @@ describe("drizzle journal", () => {
     }
   });
 
+  it("upgrades a database that stopped at 0015 with the activity timeline", () => {
+    const journal = readJournal();
+    const stop = journal.entries.findIndex(
+      (entry) => entry.tag === "0015_sharing",
+    );
+    const prior = journal.entries.slice(0, stop + 1);
+    expect(prior.at(-1)?.tag).toBe("0015_sharing");
+    const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-0015-"));
+    const sqlite = new Database(path.join(dir, "rex.sqlite"));
+    try {
+      sqlite.pragma("foreign_keys = ON");
+      applyEntries(sqlite, prior);
+      const tableExists = () =>
+        sqlite
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'activities'",
+          )
+          .get();
+      expect(tableExists()).toBeUndefined();
+      migrate(drizzle(sqlite), { migrationsFolder });
+      expect(tableExists()).toBeDefined();
+      const columns = sqlite
+        .prepare("PRAGMA table_info(activities)")
+        .all() as { name: string }[];
+      expect(columns.map((column) => column.name)).toEqual(
+        expect.arrayContaining(["org_id", "parent_type", "parent_id", "occurred_at"]),
+      );
+    } finally {
+      sqlite.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("upgrades a database that stopped at 0015 with email templates", () => {
+    const journal = readJournal();
+    const stop = journal.entries.findIndex((entry) => entry.tag === "0015_sharing");
+    expect(stop).toBeGreaterThan(0);
+    const prior = journal.entries.slice(0, stop + 1);
+    const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-0015-"));
+    const sqlite = new Database(path.join(dir, "rex.sqlite"));
+    const hasTable = () =>
+      sqlite
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'email_templates'")
+        .get();
+    try {
+      sqlite.pragma("foreign_keys = ON");
+      applyEntries(sqlite, prior);
+      insertLegacyRows(sqlite);
+      expect(hasTable()).toBeUndefined();
+      migrate(drizzle(sqlite), { migrationsFolder });
+      expect(hasTable()).toEqual({ name: "email_templates" });
+      const account = sqlite
+        .prepare("SELECT org_id FROM accounts WHERE id = ?")
+        .get("001MIGRATE") as { org_id: string };
+      expect(account.org_id).toBe("00D000000000LOCALORG0001");
+    } finally {
+      sqlite.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("adds campaigns to a database that stopped at 0015 and keeps its rows", () => {
     const journal = readJournal();
     const stop = journal.entries.findIndex((entry) => entry.tag === "0015_sharing");
     expect(stop).toBeGreaterThan(0);
     const prior = journal.entries.slice(0, stop + 1);
-    expect(journal.entries.some((entry) => entry.tag === "0037_campaigns")).toBe(true);
+    expect(journal.entries.some((entry) => entry.tag === "0052_campaigns")).toBe(true);
     const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-0015-"));
     const sqlite = new Database(path.join(dir, "rex.sqlite"));
     try {
