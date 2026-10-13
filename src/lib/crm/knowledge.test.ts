@@ -12,7 +12,9 @@ import {
   getArticle,
   listArticles,
   setArticleStatus,
+  updateArticle,
 } from "./knowledge";
+import { createElement as h } from "react";
 import { createOrganization } from "./orgs";
 import { createUser, demoPassword } from "./users";
 
@@ -101,5 +103,71 @@ describe("knowledge articles", () => {
     expect(html).not.toContain("<script>");
     expect(html).not.toContain("<b>");
     expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("searches titles only, inside the org, with wildcards neutralised", () => {
+    const { db, draft, live } = setup();
+    const titles = (rows: { title: string }[]) => rows.map((r) => r.title).sort();
+    expect(titles(listArticles(db, LOCAL_ACTOR, "faq"))).toEqual(["Fictional FAQ"]);
+    expect(titles(listArticles(db, LOCAL_ACTOR, "  "))).toEqual(titles([draft, live]));
+    expect(listArticles(db, LOCAL_ACTOR, "Answer")).toEqual([]);
+    expect(listArticles(db, LOCAL_ACTOR, "%")).toHaveLength(2);
+    expect(listArticles(db, LOCAL_ACTOR, "F_Q")).toEqual([]);
+    // Members still only find published articles.
+    expect(listArticles(db, member, "demo")).toEqual([]);
+    expect(titles(listArticles(db, member, "FAQ"))).toEqual(["Fictional FAQ"]);
+    const other = createUser(db, { name: "Avery Example", email: "avery@example.invalid", username: "avery", password: demoPassword() });
+    const org = createOrganization(db, "Other Org", other.id);
+    expect(listArticles(db, actorFor(other.id, org.id), "FAQ")).toEqual([]);
+  });
+
+  it("lets the author edit their own draft only", () => {
+    const { db, draft, live } = setup();
+    const edited = updateArticle(db, LOCAL_ACTOR, draft.id, { title: " New title ", body: "<i>x</i>" });
+    expect(edited.title).toBe("New title");
+    expect(edited.body).toBe("<i>x</i>");
+    const ids = [draft.id, live.id, RILEY_USER_ID];
+    expectRefused(db, () => updateArticle(db, LOCAL_ACTOR, live.id, { title: "T", body: "" }), "FORBIDDEN", ids);
+    setArticleStatus(db, LOCAL_ACTOR, live.id, "archived");
+    expectRefused(db, () => updateArticle(db, LOCAL_ACTOR, live.id, { title: "T", body: "" }), "FORBIDDEN", ids);
+    expectRefused(db, () => updateArticle(db, LOCAL_ACTOR, draft.id, { title: " ", body: "" }), "INVALID_INPUT", ids);
+    expectRefused(db, () => updateArticle(db, member, draft.id, { title: "T", body: "" }), "NOT_FOUND", ids);
+    expectRefused(db, () => updateArticle(db, LOCAL_ACTOR, "ka0missing", { title: "T", body: "" }), "NOT_FOUND", []);
+  });
+
+  it("refuses another admin editing someone else's draft, and other orgs", () => {
+    const { db, draft } = setup();
+    const other = createUser(db, { name: "Avery Example", email: "avery@example.invalid", username: "avery", password: demoPassword() });
+    const org = createOrganization(db, "Other Org", other.id);
+    const otherAdmin = actorFor(other.id, org.id);
+    const theirs = createArticle(db, otherAdmin, { title: "Theirs", body: "" });
+    expectRefused(db, () => updateArticle(db, otherAdmin, draft.id, { title: "T", body: "" }), "NOT_FOUND", [draft.id]);
+    expectRefused(db, () => updateArticle(db, LOCAL_ACTOR, theirs.id, { title: "T", body: "" }), "NOT_FOUND", [theirs.id]);
+    // Same org, different admin: visible but not theirs to edit.
+    const mine = createArticle(db, LOCAL_ACTOR, { title: "Mine", body: "" });
+    db.update(knowledgeArticles).set({ createdBy: other.id }).run();
+    expectRefused(db, () => updateArticle(db, LOCAL_ACTOR, mine.id, { title: "T", body: "" }), "FORBIDDEN", [mine.id]);
+  });
+
+  it("escapes hostile bodies and titles in the rendered body", () => {
+    const hostile = [
+      '<img src=x onerror="alert(1)">',
+      '<a href="javascript:alert(1)">x</a>',
+      "<svg onload=alert(1)></svg>",
+      "[x](javascript:alert(1))",
+      '<script>alert("x")</script>',
+      '<a href="data:text/html;base64,PHNjcmlwdD4=">x</a>',
+      "[y](data:text/html,<script>alert(1)</script>)",
+    ];
+    for (const body of hostile) {
+      const html = renderToStaticMarkup(h(ArticleBody, { body }));
+      expect(html).not.toMatch(/<(img|a|svg|script)\b/i);
+      expect(html).not.toMatch(/<[a-z]+[^>]*\s(href|src)=/i);
+      expect(html.replace(/&lt;[^]*?&gt;/g, "")).not.toMatch(/<[a-z]+ [^>]*on\w+=/i);
+    }
+    const raw = '<img src=x onerror="alert(1)">';
+    expect(renderToStaticMarkup(h(ArticleBody, { body: raw }))).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
+    const md = renderToStaticMarkup(h(ArticleBody, { body: "[x](javascript:alert(1))" }));
+    expect(md).not.toContain("href");
   });
 });

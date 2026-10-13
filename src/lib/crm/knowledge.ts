@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, like, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client";
 import { knowledgeArticles } from "../db/schema";
@@ -24,13 +24,20 @@ function parseInput(input: ArticleInput) {
   return parsed.data;
 }
 
-/** Admins see every state; members see published articles only. */
-export function listArticles(db: Db, actor: Actor): KnowledgeArticle[] {
+/** LIKE wildcards in user input are treated as spaces, matching global search. */
+function titleTerm(raw: string | undefined): string | undefined {
+  const term = (raw ?? "").replace(/[%_]/g, " ").replace(/\s+/g, " ").trim().slice(0, 200);
+  return term ? `%${term}%` : undefined;
+}
+
+/** Admins see every state; members see published articles only. Optional title search. */
+export function listArticles(db: Db, actor: Actor, query?: string): KnowledgeArticle[] {
   assertActor(db, actor);
-  const inOrg = eq(knowledgeArticles.orgId, actor.orgId);
-  const where = isCurrentOrgAdmin(db, actor)
-    ? inOrg
-    : and(inOrg, eq(knowledgeArticles.status, "published"));
+  const parts: SQL[] = [eq(knowledgeArticles.orgId, actor.orgId)];
+  if (!isCurrentOrgAdmin(db, actor)) parts.push(eq(knowledgeArticles.status, "published"));
+  const pattern = titleTerm(query);
+  if (pattern) parts.push(like(knowledgeArticles.title, pattern));
+  const where = and(...parts);
   return db.select().from(knowledgeArticles).where(where).orderBy(desc(knowledgeArticles.updatedAt)).all();
 }
 
@@ -68,6 +75,23 @@ export function setArticleStatus(db: Db, actor: Actor, id: string, status: strin
   }
   db.update(knowledgeArticles)
     .set({ status, updatedAt: Date.now(), updatedBy: actor.userId })
+    .where(and(eq(knowledgeArticles.id, id), eq(knowledgeArticles.orgId, actor.orgId)))
+    .run();
+  return getArticle(db, actor, id);
+}
+
+/** Authors edit their own drafts. Published and archived articles are read-only. */
+export function updateArticle(db: Db, actor: Actor, id: string, input: ArticleInput): KnowledgeArticle {
+  const row = getArticle(db, actor, id);
+  if (row.createdBy !== actor.userId) {
+    throw new DomainError("FORBIDDEN", "Only the author can edit this article");
+  }
+  if (row.status !== "draft") {
+    throw new DomainError("FORBIDDEN", "Only draft articles can be edited");
+  }
+  const data = parseInput(input);
+  db.update(knowledgeArticles)
+    .set({ ...data, updatedAt: Date.now(), updatedBy: actor.userId })
     .where(and(eq(knowledgeArticles.id, id), eq(knowledgeArticles.orgId, actor.orgId)))
     .run();
   return getArticle(db, actor, id);
