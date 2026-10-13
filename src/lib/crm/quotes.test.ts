@@ -12,12 +12,14 @@ import { createProfile, setObjectPermission } from "./profiles";
 import {
   createQuote,
   deleteQuote,
+  editableQuote,
   getQuote,
   isQuoteExpired,
   listQuotes,
   listQuotesForOpportunity,
   rawLines,
   rawQuote,
+  touch,
   updateQuote,
 } from "./quotes";
 import { setOrgWideDefault } from "./sharing";
@@ -392,6 +394,24 @@ describe("quote reads refuse inactive or outside actors with FORBIDDEN (existing
       }
       for (const id of [oppId, UNKNOWN_OPP_ID]) {
         expectRefused(db, () => listQuotesForOpportunity(db, made.actor, id), "FORBIDDEN");
+      }
+    });
+
+    it(`refuses every quote write (create, update, status change, delete, touch) for ${label} without writing`, () => {
+      const { db, opp, quote } = setup();
+      const made = make(db);
+      const quoteId = made.quoteId ?? quote.id;
+      const oppId = made.oppId ?? opp.id;
+      for (const id of [oppId, UNKNOWN_OPP_ID]) {
+        expectRefused(db, () => createQuote(db, made.actor, { opportunityId: id, name: "Refused Quote" }), "FORBIDDEN");
+      }
+      for (const id of [quoteId, UNKNOWN_QUOTE_ID]) {
+        expectRefused(db, () => updateQuote(db, made.actor, id, { name: "Refused rename" }), "FORBIDDEN");
+        expectRefused(db, () => updateQuote(db, made.actor, id, { status: "Accepted" }), "FORBIDDEN");
+        expectRefused(db, () => updateQuote(db, made.actor, id, { expirationDate: "2027-01-31" }), "FORBIDDEN");
+        expectRefused(db, () => deleteQuote(db, made.actor, id), "FORBIDDEN");
+        expectRefused(db, () => touch(db, made.actor, id, Date.now() + 60_000), "FORBIDDEN");
+        expectRefused(db, () => editableQuote(db, made.actor, id), "FORBIDDEN");
       }
     });
   }

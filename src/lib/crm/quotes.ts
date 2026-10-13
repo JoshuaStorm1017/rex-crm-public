@@ -252,6 +252,7 @@ export function assertOpen(quote: Quote) {
 }
 
 export function touch(db: Db, actor: Actor, quoteId: string, ts: number) {
+  assertActor(db, actor);
   db.update(quotes)
     .set({ updatedAt: ts, updatedBy: actor.userId })
     .where(and(eq(quotes.id, quoteId), eq(quotes.orgId, actor.orgId)))
