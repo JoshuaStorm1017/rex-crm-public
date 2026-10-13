@@ -216,4 +216,66 @@ describe("campaigns", () => {
     expectRefused(db, () => removeCampaignMember(db, LOCAL_ACTOR, campaign.id, "00vFORGED"), "NOT_FOUND");
     expect(listCampaignMembers(db, LOCAL_ACTOR, campaign.id)).toEqual([]);
   });
+
+  function forgeMember(db: Db, orgId: string, campaignId: string, leadId: string, id: string) {
+    db.insert(campaignMembers)
+      .values({
+        id,
+        orgId,
+        campaignId,
+        leadId,
+        contactId: null,
+        status: "sent",
+        createdAt: 1,
+        createdBy: LOCAL_ACTOR.userId,
+      })
+      .run();
+  }
+
+  it("is not refused as DUPLICATE by a forged member row from another org", () => {
+    const db = memory();
+    const campaign = createCampaign(db, LOCAL_ACTOR, SPRING);
+    const lead = createLead(db, LOCAL_ACTOR, { lastName: "Fictional", company: "Example Widgets" });
+    const other = createOrganization(db, "Other Marketing", LOCAL_ACTOR.userId);
+    forgeMember(db, other.id, campaign.id, lead.id, "00vFORGEDDUP");
+    const added = addCampaignMember(db, LOCAL_ACTOR, campaign.id, { leadId: lead.id });
+    expect(added.recordId).toBe(lead.id);
+    const listed = listCampaignMembers(db, LOCAL_ACTOR, campaign.id);
+    expect(listed.map((m) => m.id)).toEqual([added.id]);
+  });
+
+  it("does not list a forged other-org member row that points at a visible lead", () => {
+    const db = memory();
+    const campaign = createCampaign(db, LOCAL_ACTOR, SPRING);
+    const lead = createLead(db, LOCAL_ACTOR, { lastName: "Visible", company: "Example Widgets" });
+    const other = createOrganization(db, "Other Marketing", LOCAL_ACTOR.userId);
+    forgeMember(db, other.id, campaign.id, lead.id, "00vFORGEDLIST");
+    expect(listCampaignMembers(db, LOCAL_ACTOR, campaign.id)).toEqual([]);
+  });
+
+  it("returns DUPLICATE when the insert hits the unique index", () => {
+    const db = memory();
+    const campaign = createCampaign(db, LOCAL_ACTOR, SPRING);
+    const lead = createLead(db, LOCAL_ACTOR, { lastName: "Racer", company: "Example Widgets" });
+    // Simulate a concurrent add that lands between the duplicate check and the insert.
+    const insert = db.insert.bind(db);
+    let planted = false;
+    (db as unknown as { insert: unknown }).insert = ((table: unknown) => {
+      if (!planted && table === campaignMembers) {
+        planted = true;
+        forgeMember(db, LOCAL_ORG_ID, campaign.id, lead.id, "00vRACE");
+      }
+      return (insert as (t: unknown) => unknown)(table);
+    }) as unknown;
+    let caught: unknown;
+    try {
+      addCampaignMember(db, LOCAL_ACTOR, campaign.id, { leadId: lead.id });
+    } catch (error) {
+      caught = error;
+    }
+    (db as unknown as { insert: unknown }).insert = insert;
+    expect(caught).toBeInstanceOf(DomainError);
+    expect((caught as DomainError).code).toBe("DUPLICATE");
+    expect(db.select().from(campaignMembers).all()).toHaveLength(1);
+  });
 });

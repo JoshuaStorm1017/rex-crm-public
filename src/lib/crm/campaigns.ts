@@ -206,18 +206,26 @@ export function addCampaignMember(
     .get();
   if (existing) throw new DomainError("DUPLICATE", "Already a member of this campaign");
   const id = newId(ID_PREFIX.campaignMember);
-  db.insert(campaignMembers)
-    .values({
-      id,
-      orgId: actor.orgId,
-      campaignId,
-      leadId,
-      contactId,
-      status: "sent",
-      createdAt: Date.now(),
-      createdBy: actor.userId,
-    })
-    .run();
+  try {
+    db.insert(campaignMembers)
+      .values({
+        id,
+        orgId: actor.orgId,
+        campaignId,
+        leadId,
+        contactId,
+        status: "sent",
+        createdAt: Date.now(),
+        createdBy: actor.userId,
+      })
+      .run();
+  } catch (error) {
+    // A concurrent add can pass the check above and then hit the unique index.
+    if (isUniqueViolation(error)) {
+      throw new DomainError("DUPLICATE", "Already a member of this campaign");
+    }
+    throw error;
+  }
   return {
     id,
     campaignId,
@@ -270,4 +278,12 @@ export function listCampaignMembers(db: Db, actor: Actor, campaignId: string): C
     });
   }
   return views;
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return (
+    code === "SQLITE_CONSTRAINT_UNIQUE" ||
+    (error instanceof Error && /UNIQUE constraint failed/.test(error.message))
+  );
 }

@@ -14,5 +14,5 @@ CREATE TABLE `campaign_members` (
 --> statement-breakpoint
 CREATE INDEX `campaign_members_org_idx` ON `campaign_members` (`org_id`);--> statement-breakpoint
 CREATE INDEX `campaign_members_campaign_idx` ON `campaign_members` (`campaign_id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `campaign_members_lead_uidx` ON `campaign_members` (`campaign_id`,`lead_id`) WHERE lead_id is not null;--> statement-breakpoint
-CREATE UNIQUE INDEX `campaign_members_contact_uidx` ON `campaign_members` (`campaign_id`,`contact_id`) WHERE contact_id is not null;
+CREATE UNIQUE INDEX `campaign_members_lead_uidx` ON `campaign_members` (`org_id`,`campaign_id`,`lead_id`) WHERE lead_id is not null;--> statement-breakpoint
+CREATE UNIQUE INDEX `campaign_members_contact_uidx` ON `campaign_members` (`org_id`,`campaign_id`,`contact_id`) WHERE contact_id is not null;

@@ -732,10 +732,10 @@ export const campaignMembers = sqliteTable(
     index("campaign_members_org_idx").on(table.orgId),
     index("campaign_members_campaign_idx").on(table.campaignId),
     uniqueIndex("campaign_members_lead_uidx")
-      .on(table.campaignId, table.leadId)
+      .on(table.orgId, table.campaignId, table.leadId)
       .where(sql`lead_id is not null`),
     uniqueIndex("campaign_members_contact_uidx")
-      .on(table.campaignId, table.contactId)
+      .on(table.orgId, table.campaignId, table.contactId)
       .where(sql`contact_id is not null`),
   ],
 );
