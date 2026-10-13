@@ -1387,6 +1387,12 @@ on the existing file (1 list view, 0 of everything else).
 
 ## PARTIAL
 
+- **Login lockout** (`0016_login_lockout`, 2026-10-12): 5 failed passwords lock a
+  user for 15 minutes; LOCKED shows the same message as a wrong password, and
+  unknown usernames still run scrypt against a dummy hash. Known limits: anyone
+  who knows a username can lock that user out (no per-IP or CAPTCHA throttle),
+  and `recordLoginFailure` writes `count + 1` from the row it read, so
+  simultaneous failures may be undercounted. No unlock button in setup yet.
 - **`deleted_at`** — written on account/contact/lead/opportunity/task
   delete, filtered in get/list. `/recycle` lists a row only when the
   actor can read it and can delete it. Undelete of a readable row the
