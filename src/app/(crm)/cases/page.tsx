@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireActor } from "@/lib/crm/currentUser";
 import { listCases } from "@/lib/crm/cases";
 import { getDb } from "@/lib/db/client";
@@ -23,7 +24,7 @@ export default async function CasesPage() {
           <tbody>
             {rows.map((row) => (
               <tr key={row.id}>
-                <td>{row.subject}</td>
+                <td><Link href={`/cases/${row.id}`}>{row.subject}</Link></td>
                 <td>{row.status}</td>
                 <td>{row.priority}</td>
                 <td>{row.origin}</td>

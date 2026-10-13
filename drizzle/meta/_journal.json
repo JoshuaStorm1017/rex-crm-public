@@ -120,6 +120,13 @@
       "when": 1791857418640,
       "tag": "0034_cases",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1791859626535,
+      "tag": "0040_case_comments",
+      "breakpoints": true
     }
   ]
 }
