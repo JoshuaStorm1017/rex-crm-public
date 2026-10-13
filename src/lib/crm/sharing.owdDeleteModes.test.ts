@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
-import { accounts, contacts, leads, opportunities, tasks, users } from "../db/schema";
+import { accounts, contacts, leads, opportunities, organizations, tasks, users } from "../db/schema";
 import { LOCAL_ACTOR, actorFor, type Actor } from "./actor";
 import { createAccount, deleteAccount, updateAccount } from "./accounts";
 import { LOCAL_ORG_ID } from "./constants";
@@ -169,5 +169,71 @@ describe("HAS_CHILDREN does not leak the other user's task", () => {
     for (const secret of [task.id, "Secret Anvil Followup", "Secret", peer.userId, peerUser.name, peerUser.username, peerUser.email]) {
       expect(shown).not.toContain(secret);
     }
+  });
+});
+
+// assertActor is the only check that the org is active and that the actor
+// is a member. Delete and restore must both refuse before touching rows.
+describe("delete and restore refuse an inactive org or a non-member", () => {
+  function outsider(db: Db): Actor {
+    const user = createUser(db, {
+      name: "Test nora.nonmember",
+      email: "nora.nonmember@example.invalid",
+      username: "nora.nonmember",
+      password: "long-enough",
+    });
+    return actorFor(user.id);
+  }
+
+  function deactivate(db: Db) {
+    db.update(organizations).set({ status: "inactive" }).where(eq(organizations.id, LOCAL_ORG_ID)).run();
+  }
+
+  describe.each(OBJECTS)("%s", (obj) => {
+    it("the owner cannot delete while the org is inactive", () => {
+      const { db, owner } = world("public_read_write");
+      const ids = plant(db, owner);
+      deactivate(db);
+      const before = snapshot(db);
+      const err = errorOf(() => DELETE[obj](db, owner, ids[obj]));
+      expect(err.code).toBe("FORBIDDEN");
+      expect(err.message).toBe("Organization is not active");
+      expect(snapshot(db)).toBe(before);
+    });
+
+    it("a non-member cannot delete", () => {
+      const { db, owner } = world("public_read_write");
+      const ids = plant(db, owner);
+      const stranger = outsider(db);
+      const before = snapshot(db);
+      const err = errorOf(() => DELETE[obj](db, stranger, ids[obj]));
+      expect(err.code).toBe("FORBIDDEN");
+      expect(err.message).toBe("You are not a member of this organization");
+      expect(snapshot(db)).toBe(before);
+    });
+
+    it("the owner cannot restore while the org is inactive", () => {
+      const { db, owner } = world("public_read_write");
+      const ids = plant(db, owner);
+      DELETE[obj](db, owner, ids[obj]);
+      deactivate(db);
+      const before = snapshot(db);
+      const err = errorOf(() => undeleteRecord(db, owner, obj, ids[obj]));
+      expect(err.code).toBe("FORBIDDEN");
+      expect(err.message).toBe("Organization is not active");
+      expect(snapshot(db)).toBe(before);
+    });
+
+    it("a non-member cannot restore", () => {
+      const { db, owner } = world("public_read_write");
+      const ids = plant(db, owner);
+      DELETE[obj](db, owner, ids[obj]);
+      const stranger = outsider(db);
+      const before = snapshot(db);
+      const err = errorOf(() => undeleteRecord(db, stranger, obj, ids[obj]));
+      expect(err.code).toBe("FORBIDDEN");
+      expect(err.message).toBe("You are not a member of this organization");
+      expect(snapshot(db)).toBe(before);
+    });
   });
 });
