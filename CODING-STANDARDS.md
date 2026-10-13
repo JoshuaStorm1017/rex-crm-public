@@ -110,6 +110,10 @@ migration; add a new one. Migrations must upgrade an existing DB (add a test lik
 - PR body: what changed, what was run with exit codes, gitleaks result, mutation table, open items.
 - Every review verdict names the exact head SHA it covers. A new head (any push, rebase or
   amend) voids earlier verdicts and needs a re-review before merge.
+- Any change under `.github/` (PR template, workflows, CODEOWNERS or any other file there)
+  needs all three reviewer verdicts (code, security, mutation/process) at the current head
+  SHA before merge. It never takes the docs-only fast lane, even when every changed file is
+  `.md`.
 - Never push to `main`; only Rex Approver / the architect merges (squash). Never merge red.
 
 ## 8. Data

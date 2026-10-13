@@ -30,6 +30,10 @@ The docs-only check sorts PRs; it never rejects them. Any doubt means the full p
 
 ## Docs-only fast lane
 
+A PR that changes anything under `.github/`, `package.json` or a lockfile is never in the
+fast lane, even if the changed files are `.md`. A `.github/` change needs all three reviews
+(code, security, mutation/process) at the current head SHA before merge.
+
 If the docs-only job reports `true`, the PR needs only:
 
 1. CI green (verify + gitleaks), and
