@@ -2138,7 +2138,7 @@ fresh verification evidence for each slice.
 
 ## 2026-10-13 — s018b quote domain (PR #26, not merged)
 
-- WORKS (verified 2026-10-13, `npm run verify` exit 0, 957 tests): quote
+- WORKS (verified 2026-10-13, `npm run verify` exit 0, 1169/1169 tests across 99 files, after merging main 216574c): quote
   header CRUD with integer-cent totals. A quote is visible only when its
   opportunity is readable; writes need opportunity edit. Quote and line
   reads/writes are org-scoped, including forged cross-org rows.
