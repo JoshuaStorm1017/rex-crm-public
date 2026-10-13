@@ -13,6 +13,8 @@ export const ID_PREFIX = {
   task: "00T",
   listView: "00B",
   report: "00O",
+  dashboard: "01Z",
+  dashboardComponent: "01a",
   customField: "00N",
   customFieldValue: "cfv",
   validationRule: "03d",
@@ -29,6 +31,7 @@ export const ID_PREFIX = {
   orgWideDefault: "owd",
   role: "00E",
   sharingRule: "0sr",
+  approvalRequest: "04g",
 } as const;
 
 export type IdPrefix = (typeof ID_PREFIX)[keyof typeof ID_PREFIX];

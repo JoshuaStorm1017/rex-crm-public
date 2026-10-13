@@ -216,7 +216,13 @@ function storedTask(db: Db, actor: Actor, id: string): Task | undefined {
     .get();
 }
 
+/**
+ * A task the actor may not read is not found, for every caller. Profile
+ * read is checked here, not only in getTask, so a profile with edit or
+ * delete but no read cannot write a task it cannot see.
+ */
 function loadTask(db: Db, actor: Actor, id: string): Task | undefined {
+  if (!canPerform(db, actor, "task", "read")) return undefined;
   const row = storedTask(db, actor, id);
   if (!row || !canReadRecord(db, actor, "task", row)) return undefined;
   return row;
@@ -224,7 +230,6 @@ function loadTask(db: Db, actor: Actor, id: string): Task | undefined {
 
 export function getTask(db: Db, actor: Actor, id: string): Task | undefined {
   assertActor(db, actor);
-  if (!canPerform(db, actor, "task", "read")) return undefined;
   const row = loadTask(db, actor, id);
   return row ? presentRecord(db, actor, "task", row) : undefined;
 }
@@ -428,13 +433,20 @@ export function deleteTasksForRecord(
     .from(tasks)
     .where(and(eq(tasks.relatedRecordId, relatedRecordId), liveTask(actor)))
     .all();
-  // A task this actor can read but cannot delete blocks the parent delete.
-  // A task they cannot read does not block and is not deleted. The message
-  // does not name the task.
+  // Any related task this actor cannot read, or can read but cannot
+  // delete, blocks the parent delete with HAS_CHILDREN. A hidden task is
+  // never deleted, changed, or left pointing at a deleted parent. Every
+  // task is checked before anything is written. The message does not
+  // name the task.
   const deletable: string[] = [];
   for (const task of related) {
-    if (!canReadRecord(db, actor, "task", task)) continue;
-    if (!canAccessRecord(db, actor, "task", "delete", task)) {
+    // Record delete access implies record read under sharing (owner,
+    // hierarchy, or public read/write all grant read), but profile delete
+    // does not imply profile read, so that is checked on its own.
+    if (
+      !canPerform(db, actor, "task", "read") ||
+      !canAccessRecord(db, actor, "task", "delete", task)
+    ) {
       throw new DomainError(
         "HAS_CHILDREN",
         "Cannot delete this record while other records still depend on it",
