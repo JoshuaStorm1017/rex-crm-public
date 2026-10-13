@@ -1,11 +1,13 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client";
-import { campaigns } from "../db/schema";
+import { campaignMembers, campaigns } from "../db/schema";
 import type { Actor } from "./actor";
 import { assertActor, hasModifyAllData } from "./actor";
+import { getContact } from "./contacts";
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
+import { getLead } from "./leads";
 import { canPerform, type ObjectAction } from "./permissions";
 
 /**
@@ -18,6 +20,9 @@ import { canPerform, type ObjectAction } from "./permissions";
 
 export const CAMPAIGN_STATUSES = ["planned", "in_progress", "completed", "aborted"] as const;
 export type CampaignStatus = (typeof CAMPAIGN_STATUSES)[number];
+
+export const CAMPAIGN_MEMBER_STATUSES = ["sent", "responded"] as const;
+export type CampaignMemberStatus = (typeof CAMPAIGN_MEMBER_STATUSES)[number];
 
 const MAX_BUDGET_CENTS = 9_999_999_999_99;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -51,6 +56,14 @@ export const campaignSchema = z
 
 export type CampaignInput = z.input<typeof campaignSchema>;
 export type Campaign = typeof campaigns.$inferSelect;
+export type CampaignMemberView = {
+  id: string;
+  campaignId: string;
+  memberType: "lead" | "contact";
+  recordId: string;
+  name: string;
+  status: string;
+};
 
 function parseInput(input: CampaignInput) {
   const result = campaignSchema.safeParse(input);
@@ -164,4 +177,97 @@ export function deleteCampaign(db: Db, actor: Actor, id: string): void {
     .set({ deletedAt: ts, updatedAt: ts, updatedBy: actor.userId })
     .where(and(eq(campaigns.id, id), eq(campaigns.orgId, actor.orgId)))
     .run();
+}
+
+export function addCampaignMember(
+  db: Db,
+  actor: Actor,
+  campaignId: string,
+  member: { leadId: string } | { contactId: string },
+): CampaignMemberView {
+  requireChangeable(db, actor, campaignId, "edit");
+  const leadId = "leadId" in member ? member.leadId : null;
+  const contactId = "contactId" in member ? member.contactId : null;
+  // getLead/getContact apply org, profile read and sharing; hidden reads as missing.
+  const target = leadId ? getLead(db, actor, leadId) : getContact(db, actor, contactId ?? "");
+  if (!target || target.orgId !== actor.orgId) {
+    throw new DomainError("NOT_FOUND", leadId ? "Lead not found" : "Contact not found");
+  }
+  const existing = db
+    .select({ id: campaignMembers.id })
+    .from(campaignMembers)
+    .where(
+      and(
+        eq(campaignMembers.orgId, actor.orgId),
+        eq(campaignMembers.campaignId, campaignId),
+        leadId ? eq(campaignMembers.leadId, leadId) : eq(campaignMembers.contactId, contactId!),
+      ),
+    )
+    .get();
+  if (existing) throw new DomainError("DUPLICATE", "Already a member of this campaign");
+  const id = newId(ID_PREFIX.campaignMember);
+  db.insert(campaignMembers)
+    .values({
+      id,
+      orgId: actor.orgId,
+      campaignId,
+      leadId,
+      contactId,
+      status: "sent",
+      createdAt: Date.now(),
+      createdBy: actor.userId,
+    })
+    .run();
+  return {
+    id,
+    campaignId,
+    memberType: leadId ? "lead" : "contact",
+    recordId: target.id,
+    name: [target.firstName, target.lastName].filter(Boolean).join(" "),
+    status: "sent",
+  };
+}
+
+export function removeCampaignMember(db: Db, actor: Actor, campaignId: string, memberId: string): void {
+  requireChangeable(db, actor, campaignId, "edit");
+  const row = db
+    .select({ id: campaignMembers.id })
+    .from(campaignMembers)
+    .where(
+      and(
+        eq(campaignMembers.id, memberId),
+        eq(campaignMembers.campaignId, campaignId),
+        eq(campaignMembers.orgId, actor.orgId),
+      ),
+    )
+    .get();
+  if (!row) throw new DomainError("NOT_FOUND", "Campaign member not found");
+  db.delete(campaignMembers)
+    .where(and(eq(campaignMembers.id, memberId), eq(campaignMembers.orgId, actor.orgId)))
+    .run();
+}
+
+/** Members the actor can see; leads/contacts hidden by sharing are left out. */
+export function listCampaignMembers(db: Db, actor: Actor, campaignId: string): CampaignMemberView[] {
+  if (!getCampaign(db, actor, campaignId)) return [];
+  const rows = db
+    .select()
+    .from(campaignMembers)
+    .where(and(eq(campaignMembers.orgId, actor.orgId), eq(campaignMembers.campaignId, campaignId)))
+    .orderBy(asc(campaignMembers.createdAt))
+    .all();
+  const views: CampaignMemberView[] = [];
+  for (const row of rows) {
+    const target = row.leadId ? getLead(db, actor, row.leadId) : getContact(db, actor, row.contactId ?? "");
+    if (!target) continue;
+    views.push({
+      id: row.id,
+      campaignId,
+      memberType: row.leadId ? "lead" : "contact",
+      recordId: target.id,
+      name: [target.firstName, target.lastName].filter(Boolean).join(" "),
+      status: row.status,
+    });
+  }
+  return views;
 }

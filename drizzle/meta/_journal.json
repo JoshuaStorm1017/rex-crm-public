@@ -120,6 +120,13 @@
       "when": 1791857938472,
       "tag": "0037_campaigns",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1791858046080,
+      "tag": "0038_campaign_members",
+      "breakpoints": true
     }
   ]
 }

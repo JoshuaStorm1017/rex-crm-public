@@ -259,8 +259,10 @@ describe("drizzle journal", () => {
           .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
           .get(name);
       expect(tableExists("campaigns")).toBeUndefined();
+      expect(tableExists("campaign_members")).toBeUndefined();
       migrate(drizzle(sqlite), { migrationsFolder });
       expect(tableExists("campaigns")).toBeDefined();
+      expect(tableExists("campaign_members")).toBeDefined();
       const account = sqlite
         .prepare("SELECT name FROM accounts WHERE id = ?")
         .get("001MIGRATE") as { name: string };
