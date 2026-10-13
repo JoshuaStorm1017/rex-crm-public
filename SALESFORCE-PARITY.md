@@ -230,7 +230,7 @@ tracks the gap. It does not block other rows.
 - **Implementation:** `src/lib/crm/users.ts`, `sessions.ts`, `src/app/login/`, `src/proxy.ts`.
 - **Acceptance:** `sessions.test.ts`, `users.test.ts`. Browser login as `operator`.
 - **Latest:** 2026-10-10 browser login as `operator` on port 3002 reached Home. `sessions.test.ts` checks `active_org_id` and membership removal.
-- **Gaps:** `proxy.ts` only checks that a cookie exists. The CRM layout checks SQLite. No password reset, no lockout, no password policy beyond length checks in the schema.
+- **Gaps:** `proxy.ts` only checks that a cookie exists. The CRM layout checks SQLite. No password reset and no password policy beyond length checks in the schema. Lockout (2026-10-12, `0016_login_lockout`): 5 failed passwords in a row lock the user for 15 minutes; a locked user is refused even with the right password, with the same message as a wrong password. An org admin can clear it with `unlockUser` (members of the current org only); there is no unlock button on a setup page yet.
 
 ### IAM-AUTH-002 Org on the session
 

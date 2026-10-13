@@ -17,6 +17,7 @@ import {
   updateRole,
   updateSharingRule,
 } from "@/lib/crm/sharing";
+import { unlockUser } from "@/lib/crm/users";
 import { getDb } from "@/lib/db/client";
 
 export type { ActionState };
@@ -171,4 +172,18 @@ export async function deleteSharingRuleAction(id: string): Promise<void> {
   }
   refresh();
   redirect("/setup/sharing/rules");
+}
+
+export async function unlockUserAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const actor = await requireActor();
+    unlockUser(getDb(), actor, String(formData.get("userId") ?? ""));
+  } catch (error) {
+    return actionError(error);
+  }
+  refresh();
+  redirect("/setup/sharing");
 }

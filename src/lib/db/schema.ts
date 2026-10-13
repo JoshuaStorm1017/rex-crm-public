@@ -19,6 +19,8 @@ export const users = sqliteTable(
     passwordHash: text("password_hash"),
     role: text("role").notNull().default("user"),
     deletedAt: integer("deleted_at"),
+    failedLoginCount: integer("failed_login_count").notNull().default(0),
+    lockedUntil: integer("locked_until"),
   },
   (table) => [
     uniqueIndex("users_username_uidx").on(table.username),
