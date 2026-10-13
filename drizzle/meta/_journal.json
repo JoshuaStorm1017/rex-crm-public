@@ -169,6 +169,13 @@
       "when": 1791865381994,
       "tag": "0050_email_templates",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1791865441994,
+      "tag": "0051_cases",
+      "breakpoints": true
     }
   ]
 }
