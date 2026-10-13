@@ -149,6 +149,14 @@ export function createCampaign(db: Db, actor: Actor, input: CampaignInput): Camp
 }
 
 export function updateCampaign(db: Db, actor: Actor, id: string, input: CampaignInput): Campaign {
+  // Check, read and write share one synchronous transaction on tx.
+  return db.transaction((txRaw) => {
+    const tx = txRaw as unknown as Db;
+    return updateCampaignTx(tx, actor, id, input);
+  });
+}
+
+function updateCampaignTx(db: Db, actor: Actor, id: string, input: CampaignInput): Campaign {
   const existing = requireChangeable(db, actor, id, "edit");
   const parsed = parseInput(input);
   db.update(campaigns)
@@ -171,15 +179,30 @@ export function updateCampaign(db: Db, actor: Actor, id: string, input: Campaign
 }
 
 export function deleteCampaign(db: Db, actor: Actor, id: string): void {
-  requireChangeable(db, actor, id, "delete");
-  const ts = Date.now();
-  db.update(campaigns)
-    .set({ deletedAt: ts, updatedAt: ts, updatedBy: actor.userId })
-    .where(and(eq(campaigns.id, id), eq(campaigns.orgId, actor.orgId)))
-    .run();
+  db.transaction((txRaw) => {
+    const tx = txRaw as unknown as Db;
+    requireChangeable(tx, actor, id, "delete");
+    const ts = Date.now();
+    tx.update(campaigns)
+      .set({ deletedAt: ts, updatedAt: ts, updatedBy: actor.userId })
+      .where(and(eq(campaigns.id, id), eq(campaigns.orgId, actor.orgId)))
+      .run();
+  });
 }
 
 export function addCampaignMember(
+  db: Db,
+  actor: Actor,
+  campaignId: string,
+  member: { leadId: string } | { contactId: string },
+): CampaignMemberView {
+  return db.transaction((txRaw) => {
+    const tx = txRaw as unknown as Db;
+    return addCampaignMemberTx(tx, actor, campaignId, member);
+  });
+}
+
+function addCampaignMemberTx(
   db: Db,
   actor: Actor,
   campaignId: string,
@@ -237,6 +260,12 @@ export function addCampaignMember(
 }
 
 export function removeCampaignMember(db: Db, actor: Actor, campaignId: string, memberId: string): void {
+  db.transaction((txRaw) => {
+    removeCampaignMemberTx(txRaw as unknown as Db, actor, campaignId, memberId);
+  });
+}
+
+function removeCampaignMemberTx(db: Db, actor: Actor, campaignId: string, memberId: string): void {
   requireChangeable(db, actor, campaignId, "edit");
   const row = db
     .select({ id: campaignMembers.id })

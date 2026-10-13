@@ -50,6 +50,25 @@ function expectRefused(db: Db, run: () => unknown, code: string) {
   throw new Error(`expected ${code}`);
 }
 
+/**
+ * Member writes run inside db.transaction on its tx handle, so insert seams
+ * patch the tx that the transaction hands to the write.
+ */
+function withTxInsert(db: Db, insertFor: (tx: Db, table: unknown, insert: (t: unknown) => unknown) => unknown, run: () => void) {
+  const transaction = db.transaction.bind(db);
+  (db as unknown as { transaction: unknown }).transaction = ((fn: (tx: unknown) => unknown) =>
+    transaction((tx) => {
+      const insert = (tx.insert as (t: unknown) => unknown).bind(tx);
+      (tx as unknown as { insert: unknown }).insert = (table: unknown) => insertFor(tx as unknown as Db, table, insert);
+      return fn(tx);
+    })) as unknown;
+  try {
+    run();
+  } finally {
+    (db as unknown as { transaction: unknown }).transaction = transaction;
+  }
+}
+
 function readOnlyProfileId(db: Db): string {
   const row = db
     .select()
@@ -302,26 +321,31 @@ describe("campaigns", () => {
     const db = memory();
     const campaign = createCampaign(db, LOCAL_ACTOR, SPRING);
     const lead = createLead(db, LOCAL_ACTOR, { lastName: "Racer", company: "Example Widgets" });
-    // Simulate a concurrent add that lands between the duplicate check and the insert.
-    const insert = db.insert.bind(db);
+    // Plant a matching row between the duplicate check and the insert (test-only seam;
+    // the check and insert share one synchronous transaction, so production has no gap).
     let planted = false;
-    (db as unknown as { insert: unknown }).insert = ((table: unknown) => {
-      if (!planted && table === campaignMembers) {
-        planted = true;
-        forgeMember(db, LOCAL_ORG_ID, campaign.id, lead.id, "00vRACE");
-      }
-      return (insert as (t: unknown) => unknown)(table);
-    }) as unknown;
     let caught: unknown;
-    try {
-      addCampaignMember(db, LOCAL_ACTOR, campaign.id, { leadId: lead.id });
-    } catch (error) {
-      caught = error;
-    }
-    (db as unknown as { insert: unknown }).insert = insert;
+    withTxInsert(
+      db,
+      (tx, table, insert) => {
+        if (!planted && table === campaignMembers) {
+          planted = true;
+          forgeMember(tx, LOCAL_ORG_ID, campaign.id, lead.id, "00vRACE");
+        }
+        return insert(table);
+      },
+      () => {
+        try {
+          addCampaignMember(db, LOCAL_ACTOR, campaign.id, { leadId: lead.id });
+        } catch (error) {
+          caught = error;
+        }
+      },
+    );
     expect(caught).toBeInstanceOf(DomainError);
     expect((caught as DomainError).code).toBe("DUPLICATE");
-    expect(db.select().from(campaignMembers).all()).toHaveLength(1);
+    // The planted row was written inside the same transaction, so the refusal rolls it back too.
+    expect(db.select().from(campaignMembers).all()).toHaveLength(0);
   });
   it("does not remove a member through a different campaign", () => {
     const db = memory();
@@ -416,19 +440,22 @@ describe("campaigns", () => {
     const db = memory();
     const campaign = createCampaign(db, LOCAL_ACTOR, SPRING);
     const lead = createLead(db, LOCAL_ACTOR, { lastName: "Broken", company: "Example Widgets" });
-    const insert = db.insert.bind(db);
     const failure = new Error("disk I/O error");
-    (db as unknown as { insert: unknown }).insert = ((table: unknown) => {
-      if (table === campaignMembers) throw failure;
-      return (insert as (t: unknown) => unknown)(table);
-    }) as unknown;
     let caught: unknown;
-    try {
-      addCampaignMember(db, LOCAL_ACTOR, campaign.id, { leadId: lead.id });
-    } catch (error) {
-      caught = error;
-    }
-    (db as unknown as { insert: unknown }).insert = insert;
+    withTxInsert(
+      db,
+      (_tx, table, insert) => {
+        if (table === campaignMembers) throw failure;
+        return insert(table);
+      },
+      () => {
+        try {
+          addCampaignMember(db, LOCAL_ACTOR, campaign.id, { leadId: lead.id });
+        } catch (error) {
+          caught = error;
+        }
+      },
+    );
     expect(caught).toBe(failure);
     expect(db.select().from(campaignMembers).all()).toHaveLength(0);
   });
