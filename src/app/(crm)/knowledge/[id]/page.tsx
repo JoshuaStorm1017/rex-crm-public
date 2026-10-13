@@ -7,6 +7,7 @@ import { isDomainError } from "@/lib/crm/errors";
 import { ARTICLE_STATUSES, getArticle } from "@/lib/crm/knowledge";
 import { getDb } from "@/lib/db/client";
 import { setArticleStatusAction } from "../actions";
+import { EditArticleForm } from "./EditArticleForm";
 
 export default async function ArticlePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -37,6 +38,9 @@ export default async function ArticlePage({ params }: { params: Promise<{ id: st
         </div>
       ) : null}
       <ArticleBody body={article.body} />
+      {article.status === "draft" && article.createdBy === actor.userId ? (
+        <EditArticleForm id={article.id} title={article.title} body={article.body} />
+      ) : null}
     </div>
   );
 }

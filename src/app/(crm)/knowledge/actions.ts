@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { actionError, type ActionState } from "@/lib/crm/form";
-import { createArticle, setArticleStatus } from "@/lib/crm/knowledge";
+import { createArticle, setArticleStatus, updateArticle } from "@/lib/crm/knowledge";
 import { requireActor } from "@/lib/crm/currentUser";
 import { getDb } from "@/lib/db/client";
 
@@ -31,4 +31,23 @@ export async function setArticleStatusAction(formData: FormData): Promise<void> 
   setArticleStatus(getDb(), actor, id, String(formData.get("status") ?? ""));
   revalidatePath("/knowledge");
   revalidatePath(`/knowledge/${id}`);
+}
+
+export async function updateArticleAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const actor = await requireActor();
+  const id = String(formData.get("id") ?? "");
+  try {
+    updateArticle(getDb(), actor, id, {
+      title: String(formData.get("title") ?? ""),
+      body: String(formData.get("body") ?? ""),
+    });
+  } catch (error) {
+    return actionError(error);
+  }
+  revalidatePath("/knowledge");
+  revalidatePath(`/knowledge/${id}`);
+  return null;
 }
