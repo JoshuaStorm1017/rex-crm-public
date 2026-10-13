@@ -690,3 +690,31 @@ export const priceBookEntries = sqliteTable(
     index("price_book_entries_product_idx").on(table.productId),
   ],
 );
+
+/** Service cases. Access is controlled by the parent account (SVC-CASE-001). */
+export const cases = sqliteTable(
+  "cases",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    subject: text("subject").notNull(),
+    status: text("status").notNull(),
+    priority: text("priority").notNull(),
+    origin: text("origin").notNull(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id),
+    closedAt: integer("closed_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+  },
+  (table) => [
+    index("cases_org_idx").on(table.orgId),
+    index("cases_account_idx").on(table.accountId),
+  ],
+);
