@@ -158,8 +158,8 @@ tracks the gap. It does not block other rows.
 - **Source:** Validation rules help. Order of execution is part of the architect metadata chapter.
 - **Expected:** An admin writes a rule as data. A save that violates it returns the rule's message and does not persist. Rules run in the UI and the API.
 - **Dependencies:** PLAT-META-002.
-- **Status:** NOT STARTED. Zod schemas are code, not admin data.
-- **Implementation:** `src/lib/crm/validation.ts`.
+- **Status:** BUILT on main (session 16; audited 2026-10-12). Rules are org-scoped rows in `validation_rules` (`drizzle/0010_validation_rules.sql`), managed by current-org admins in Setup (`src/app/(crm)/setup/rules/`), and enforced on create and update of the five objects through `prepareWrite` → `enforceValidationRules`. Tests: `validationRules.test.ts`, `orgs.test.ts`, `setup/actions.test.ts`. Criteria use the fixed list-view operators (1–5 AND conditions); no formula language, OR, or cross-object criteria.
+- **Implementation:** `src/lib/crm/validationRules.ts`, `src/lib/crm/prepareWrite.ts`.
 - **Acceptance:** Create a rule "Close Date cannot be in the past" in Setup, submit a bad opportunity in the browser, see the message, confirm the row is unchanged.
 - **Latest:** not run.
 - **Gaps:** —
@@ -191,8 +191,8 @@ tracks the gap. It does not block other rows.
 - **Source:** Data import wizard, data loader behavior, duplicate rules, merge, recycle bin.
 - **Expected:** CSV import creates records or reports row errors. Export of a list is the same rows the user can read. Duplicate rules block or warn. Merge keeps one survivor and reparents children. Recycle bin restores a soft-deleted record and its children that were deleted with it.
 - **Dependencies:** PLAT-ORG-001, IAM-ENFORCE-001.
-- **Status:** PARTIAL. `deleted_at` is written and filtered. Report CSV export works for reports. No recycle UI, undelete, import, duplicate rules, or merge.
-- **Implementation:** delete paths in domain modules; `src/app/(crm)/reports/[id]/export/route.ts`.
+- **Status:** PARTIAL (audited 2026-10-12). On main: `deleted_at` is written and filtered; report CSV export; recycle bin list and undelete gated by delete permission (`src/lib/crm/recycle.ts`, `recycle.test.ts`, `/recycle` page); exact-match duplicate rules managed in Setup and enforced on save (`src/lib/crm/duplicateRules.ts`, `duplicateRules.test.ts`). Account CSV import IN PR #14. No purge, list export, or merge. Undelete does not restore cascaded tasks.
+- **Implementation:** delete paths in domain modules; `src/lib/crm/recycle.ts`; `src/lib/crm/duplicateRules.ts`; `src/app/(crm)/reports/[id]/export/route.ts`.
 - **Acceptance:** Delete an account with no children, see it in the recycle bin, restore it, confirm tasks come back.
 - **Latest:** not run for restore.
 - **Gaps:** Junction roles are hard-deleted. Tasks cascade-soft-delete.
@@ -226,7 +226,7 @@ tracks the gap. It does not block other rows.
 - **Source:** Salesforce username/password login and session lifetime. MFA is a separate row.
 - **Expected:** Username and password authenticate against scrypt hashes. Session cookie is httpOnly. Expired and forged sessions do not enter the CRM. Logout destroys the server session.
 - **Dependencies:** none.
-- **Status:** PARTIAL. Works for two demo users. The session stores `active_org_id`.
+- **Status:** PARTIAL. Works for two demo users. The session stores `active_org_id`. Login lockout (5 failures, 15 minutes) IN PR #11.
 - **Implementation:** `src/lib/crm/users.ts`, `sessions.ts`, `src/app/login/`, `src/proxy.ts`.
 - **Acceptance:** `sessions.test.ts`, `users.test.ts`. Browser login as `operator`.
 - **Latest:** 2026-10-10 browser login as `operator` on port 3002 reached Home. `sessions.test.ts` checks `active_org_id` and membership removal.
@@ -270,7 +270,7 @@ tracks the gap. It does not block other rows.
 - **Source:** Organization-wide defaults, role hierarchy, owner/criteria/manual sharing, teams, queues, enterprise territory management.
 - **Expected:** Private OWD hides records the user does not own and does not receive via hierarchy or a rule. Queues own work items. Territory rules assign accounts.
 - **Dependencies:** IAM-SHARE-001.
-- **Status:** PARTIAL. Organization-wide defaults, the role hierarchy, and criteria-based sharing rules work for the five objects. Teams, queues, territories, manual shares, and owner-based rules do not.
+- **Status:** PARTIAL. Organization-wide defaults, the role hierarchy, and criteria-based sharing rules work for the five objects. Teams, queues, territories, manual shares, and owner-based rules do not. Territories IN PR #22.
 - **Implementation:** `drizzle/0014_sharing.sql` and `drizzle/meta/0014_snapshot.json` (the SQL was already journaled; the snapshot, including `roles_org_name_uidx`, was added 2026-10-11 so `drizzle-kit generate` does not emit a second copy). `src/lib/crm/sharing.ts` enforces reads in SQL and on get. Edit and delete use the same record check after the profile allows the action. Setup pages under `src/app/(crm)/setup/sharing/`. Default is Public Read Only. `sharing_rules.owner_id` is the user who owns the rule row, not an owner-based share. Grant hierarchy includes delete. Opportunity contact roles, duplicate probes, related labels, and parent task deletes use the same visibility.
 - **Acceptance:** Private account OWD: user B does not list user A's account, cannot open it by id, and a report run as B omits it. A criteria rule for Billing State = AZ grants it, and removing the rule revokes it.
 - **Latest:** 2026-10-11 review pass. `sharing.test.ts` covers the private-OWD acceptance, plus list/search/report for hierarchy, `not_equals`, blank checks, and money cents. `npm run verify` exit 0 at 12:16 EDT (34 files, 403 tests). HTML fetch on a throwaway database: the hierarchy checkbox says see, edit, and delete, and a private account id is absent from the contact, opportunity, and task pages. Chrome DevTools did not connect, so no viewport pass. Details in `STATUS.md`.
@@ -318,17 +318,17 @@ Rows that already have code are partial. The rest are the Sales Cloud / Agentfor
 |---|---|---|---|
 | SALES-ACC-001 | Account CRUD, parent hierarchy, address, type, industry, money in cents | PARTIAL | No roll-ups. UI shipping address not on the edit form. |
 | SALES-CON-001 | Contact CRUD, one account, reports-to, direct reports | PARTIAL | Picker is a full `<select>`. |
-| SALES-LEAD-001 | Lead CRUD, status path, frozen after convert | PARTIAL | Clear-on-edit bug. No assignment rules, web-to-lead, or duplicate match. |
+| SALES-LEAD-001 | Lead CRUD, status path, frozen after convert | PARTIAL | Clear-on-edit bug. Lead assignment rules (`assignmentRules.ts`) and exact-match duplicate rules (`duplicateRules.ts`) are on main with tests. No web-to-lead. |
 | SALES-LEAD-002 | Convert creates account, contact, optional opportunity, primary decision-maker role, one transaction | PARTIAL | Always new account. Custom fields do not map. |
 | SALES-OPP-001 | Opportunity stages, probability, amount, close date, account | PARTIAL | No path UI, kanban, or products. Account id is typed. |
 | SALES-OCR-001 | Contact roles, one primary, contact must be on the opportunity's account | PARTIAL | `src/lib/crm/opportunityContactRoles.ts`. |
 | SALES-TASK-001 | Tasks on one related record, complete/reopen, cascade soft-delete | PARTIAL | Not WhoId + WhatId. No reminders or recurrence. |
-| SALES-ACT-001 | Events, calendar, log a call, email | NOT STARTED | — |
+| SALES-ACT-001 | Events, calendar, log a call, email | NOT STARTED | Activity timeline on lead, contact, account IN PR #20. No events, calendar, call log, or email. |
 | SALES-TEAM-001 | Account, opportunity, and case teams | NOT STARTED | — |
 | SALES-PERSON-001 | Person accounts: one record that is both account and contact | NOT STARTED | — |
 | SALES-PROD-001 | Products, price books, standard price, opportunity line items | PARTIAL | Standard price book and entries, integer cents, org isolation, profile and owner checks, and field permissions (2026-10-11). The price permission is `standardPriceCents`. No custom price books. Opportunity line items (2026-10-12, `0020_opportunity_line_items`, `opportunityLineItems.ts`): quantity and integer-cent unit price defaulting to the standard price, edit on the opportunity required, hidden or cross-org opportunities and products are not found; server actions exist but the opportunity page does not render lines yet, and lines do not roll into Amount. Not in search, reports, or the recycle bin. |
-| SALES-FCST-001 | Forecast categories, quotas, manager roll-up | NOT STARTED | — |
-| SALES-TERR-001 | Territory model, assignment, forecast by territory | NOT STARTED | Depends on IAM-SHARE-002. |
+| SALES-FCST-001 | Forecast categories, quotas, manager roll-up | IN PR #19 (partial) | Forecast by owner and close month with running totals. No quotas or manager roll-up. |
+| SALES-TERR-001 | Territory model, assignment, forecast by territory | IN PR #22 (partial) | Org-scoped territories and account assignment. No forecast by territory. |
 | SALES-ENG-001 | Cadences, work queues, email engagement tracked locally (no send) | NOT STARTED | Winter '27 notes push notifications; Rex will record a sink, not deliver. |
 | SALES-PRM-001 | Partner users sell only their shared accounts and deals | NOT STARTED | Depends on EXP-PORTAL-001. |
 | SALES-ENB-001 | Enablement programs, outcomes, exercise completion | NOT STARTED | — |
@@ -349,7 +349,7 @@ The required journey is lead → qualified opportunity → configured quote → 
 | REV-CAT-001 | Product catalog with attributes, selling models (one-time, term, evergreen) | NOT STARTED |
 | REV-BND-001 | Bundles, options, constraints that reject an invalid configuration | NOT STARTED |
 | REV-PRICE-001 | Price books, discount schedules, integer money, no floats | NOT STARTED |
-| REV-QUOTE-001 | Quote from an opportunity, versions, status draft → approved | NOT STARTED |
+| REV-QUOTE-001 | Quote from an opportunity, versions, status draft → approved | IN PR #25–#28 (stacked: quote math, quotes, quote lines, quote pages). No versions or approval |
 | REV-APR-001 | Approval request blocks "accepted" until an approver acts | NOT STARTED |
 | REV-ORD-001 | Accepted quote creates an order and lines | NOT STARTED |
 | REV-SUB-001 | Subscription with start, end, quantity, status | NOT STARTED |
@@ -358,7 +358,7 @@ The required journey is lead → qualified opportunity → configured quote → 
 | REV-PAY-001 | Payment adapter interface. Local fake gateway records a charge id and never contacts a network | NOT STARTED |
 | REV-USE-001 | Usage records rate into an invoice line | NOT STARTED |
 | REV-COLL-001 | Collections state when an invoice is past due | NOT STARTED |
-| REV-CONTRACT-001 | Contract linked to the account, quote, and order | NOT STARTED |
+| REV-CONTRACT-001 | Contract linked to the account, quote, and order | IN PR #23 (contract on the account with term end date; no quote or order link) |
 | REV-TAX-001 | Tax is a pure function of line, rate, and address. No external tax call in tests | NOT STARTED |
 
 **Acceptance (journey):** one test seeds a lead, converts it, configures a bundle, submits approval, approves, orders, invoices, renews, and asserts each money total by hand. A second run is idempotent. **Latest:** not run.
@@ -369,12 +369,12 @@ Source: Service Cloud and Field Service on the product map; Winter '27 service a
 
 | ID | Expected | Status |
 |---|---|---|
-| SVC-CASE-001 | Case on an account/contact, status, origin, owner or queue | NOT STARTED |
+| SVC-CASE-001 | Case on an account/contact, status, origin, owner or queue | IN PR #16 (case basics with status rules) |
 | SVC-INTAKE-001 | Web form and a local email sink create cases | NOT STARTED |
 | SVC-ROUTE-001 | Assignment and escalation rules move cases | NOT STARTED |
 | SVC-OMNI-001 | Omni-style routing assigns work to an agent with capacity | NOT STARTED |
 | SVC-MACRO-001 | A macro applies a defined set of field updates | NOT STARTED |
-| SVC-KNOW-001 | Knowledge article draft → published, search returns only published | NOT STARTED |
+| SVC-KNOW-001 | Knowledge article draft → published, search returns only published | IN PR #21 (draft/published/archived, admin publish) |
 | SVC-ENT-001 | Entitlement and a SLA clock that pauses on the documented statuses | NOT STARTED |
 | SVC-ASSET-001 | Assets, warranties, service contracts | NOT STARTED |
 | SVC-WO-001 | Work order from a case, line items | NOT STARTED |
@@ -393,13 +393,13 @@ Source: Marketing Cloud on the product map; Marketing Cloud Next Winter '27 note
 
 | ID | Expected | Status |
 |---|---|---|
-| MKT-CAMP-001 | Campaigns and members with status | NOT STARTED |
+| MKT-CAMP-001 | Campaigns and members with status | IN PR #17 (campaigns) and #18 (members) |
 | MKT-CONSENT-001 | Channel consent, preference center, suppression. Sends skip suppressed addresses | NOT STARTED |
 | MKT-SEG-001 | A segment is a saved filter over contacts or a Data 360-style profile | NOT STARTED |
 | MKT-SCORE-001 | Score and grade change from explicit events | NOT STARTED |
 | MKT-JOUR-001 | A journey waits, branches, and survives a process restart without sending twice | NOT STARTED |
 | MKT-SEND-001 | Email, SMS, and push adapters append to a local sink | NOT STARTED |
-| MKT-CONTENT-001 | Templates, landing page, form post creates a lead or campaign member | NOT STARTED |
+| MKT-CONTENT-001 | Templates, landing page, form post creates a lead or campaign member | NOT STARTED. Email templates only, IN PR #24 |
 | MKT-EXP-001 | An experiment assigns a variant and records the outcome | NOT STARTED |
 | MKT-ATTR-001 | Campaign influence attributes revenue on the opportunity | NOT STARTED |
 
@@ -488,12 +488,12 @@ Source: architect metadata chapter (order of execution, metadata-driven runtime)
 
 | ID | Expected | Status |
 |---|---|---|
-| FLOW-REC-001 | A record-triggered flow runs on create/update in the same transaction, or after commit when marked async | NOT STARTED |
+| FLOW-REC-001 | A record-triggered flow runs on create/update in the same transaction, or after commit when marked async | PARTIAL on main: one-field automation rules run on create/update in the save path, no chaining, a failed validation rolls back (`automationRules.ts`, `prepareWrite.ts`, `automationRules.test.ts`). No async path or multi-step flows |
 | FLOW-SCH-001 | A scheduled path runs from a durable job table | NOT STARTED |
 | FLOW-EVT-001 | A platform event starts a flow | NOT STARTED |
 | FLOW-SCR-001 | A screen flow collects input and writes records | NOT STARTED |
 | FLOW-LOGIC-001 | Decision, loop, and subflow | NOT STARTED |
-| FLOW-APR-001 | Approval steps with approve and reject | NOT STARTED |
+| FLOW-APR-001 | Approval steps with approve and reject | IN PR #15 (opportunity approval requests) |
 | FLOW-ORDER-001 | Documented order: validation, before-save, after-save, workflow. A test locks the order | NOT STARTED |
 | FLOW-JOB-001 | Durable job survives crash, retries, and does not apply a side effect twice | NOT STARTED |
 | FLOW-EVT-002 | Event bus with change data capture, outbox, and dead letter | NOT STARTED |
