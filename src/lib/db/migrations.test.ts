@@ -176,6 +176,28 @@ describe("drizzle journal", () => {
 
   it("applies the newest migration onto a database that already has the previous one", () => {
     const journal = readJournal();
+    const prior = journal.entries.slice(0, -1);
+    expect(prior.length).toBe(journal.entries.length - 1);
+    const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-"));
+    const sqlite = new Database(path.join(dir, "rex.sqlite"));
+    try {
+      sqlite.pragma("foreign_keys = ON");
+      applyEntries(sqlite, prior);
+      insertLegacyRows(sqlite);
+      const tablesBefore = sqlite.prepare("SELECT count(*) AS n FROM sqlite_master").get() as { n: number };
+      migrate(drizzle(sqlite), { migrationsFolder });
+      const tablesAfter = sqlite.prepare("SELECT count(*) AS n FROM sqlite_master").get() as { n: number };
+      expect(tablesAfter.n).toBeGreaterThan(tablesBefore.n);
+      const account = sqlite.prepare("SELECT org_id FROM accounts WHERE id = ?").get("001MIGRATE") as { org_id: string };
+      expect(account.org_id).toBe("00D000000000LOCALORG0001");
+    } finally {
+      sqlite.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("applies 0015_sharing onto a database that stopped at 0014_products", () => {
+    const journal = readJournal();
     const stop = journal.entries.findIndex((entry) => entry.tag === "0014_products");
     const prior = journal.entries.slice(0, stop + 1);
     expect(prior.at(-1)?.tag).toBe("0014_products");
