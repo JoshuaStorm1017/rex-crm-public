@@ -690,3 +690,40 @@ export const priceBookEntries = sqliteTable(
     index("price_book_entries_product_idx").on(table.productId),
   ],
 );
+
+const orgRef = () => text("org_id").notNull().references(() => organizations.id);
+
+export const territories = sqliteTable(
+  "territories",
+  {
+    id: text("id").primaryKey(),
+    orgId: orgRef(),
+    name: text("name").notNull(),
+    regions: text("regions").notNull(),
+    createdAt: integer("created_at").notNull(),
+    createdBy: text("created_by").notNull(),
+  },
+  (table) => [uniqueIndex("territories_org_name_uidx").on(table.orgId, table.name)],
+);
+
+const territoryRef = () => text("territory_id").notNull().references(() => territories.id);
+
+export const territoryMembers = sqliteTable(
+  "territory_members",
+  { id: text("id").primaryKey(), orgId: orgRef(), territoryId: territoryRef(),
+    userId: text("user_id").notNull().references(() => users.id) },
+  (table) => [
+    uniqueIndex("territory_members_territory_user_uidx").on(table.territoryId, table.userId),
+    index("territory_members_org_idx").on(table.orgId),
+  ],
+);
+
+export const territoryAccounts = sqliteTable(
+  "territory_accounts",
+  { id: text("id").primaryKey(), orgId: orgRef(), territoryId: territoryRef(),
+    accountId: text("account_id").notNull().references(() => accounts.id) },
+  (table) => [
+    uniqueIndex("territory_accounts_account_uidx").on(table.accountId),
+    index("territory_accounts_territory_idx").on(table.territoryId),
+  ],
+);
