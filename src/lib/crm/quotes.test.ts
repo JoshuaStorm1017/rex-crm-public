@@ -316,6 +316,41 @@ describe("quote isolation and permissions", () => {
   });
 });
 
+describe("quote writes touch only the target quote (same org)", () => {
+  function twoQuotes() {
+    const { db, opp, quote: a } = setup();
+    const b = createQuote(db, LOCAL_ACTOR, { opportunityId: opp.id, name: "Anvil Quote B", expirationDate: "2026-12-15" });
+    db.update(quotes).set({ updatedAt: 1_000, updatedBy: RILEY_USER_ID }).where(eq(quotes.id, b.id)).run();
+    insertLine(db, b.id, { description: "B line", quantity: 2, unitPriceCents: 250 });
+    const rowB = () => db.select().from(quotes).where(eq(quotes.id, b.id)).all();
+    const linesB = () => db.select().from(quoteLineItems).where(eq(quoteLineItems.quoteId, b.id)).all();
+    return { db, a, b, rowB, linesB };
+  }
+
+  it("W1-update: updating quote A leaves quote B's fields and updatedAt/updatedBy unchanged", () => {
+    const { db, a, rowB, linesB } = twoQuotes();
+    const beforeB = rowB();
+    const beforeLines = linesB();
+    expect(beforeB[0]!.updatedAt).toBe(1_000);
+    updateQuote(db, LOCAL_ACTOR, a.id, { name: "A renamed", status: "Presented", expirationDate: "2027-01-31" });
+    expect(rowB()).toEqual(beforeB);
+    expect(linesB()).toEqual(beforeLines);
+  });
+
+  it("W1-delete: deleting quote A leaves quote B and its lines intact", () => {
+    const { db, a, rowB, linesB } = twoQuotes();
+    insertLine(db, a.id, { description: "A line", quantity: 1, unitPriceCents: 100 });
+    const beforeB = rowB();
+    const beforeLines = linesB();
+    deleteQuote(db, LOCAL_ACTOR, a.id);
+    expect(db.select().from(quotes).where(eq(quotes.id, a.id)).all()).toHaveLength(0);
+    expect(db.select().from(quoteLineItems).where(eq(quoteLineItems.quoteId, a.id)).all()).toHaveLength(0);
+    expect(rowB()).toEqual(beforeB);
+    expect(linesB()).toEqual(beforeLines);
+    expect(beforeLines).toHaveLength(1);
+  });
+});
+
 describe("quote org filters (forged cross-org rows)", () => {
   /** A raw quote row in another org that points at this org's opportunity. */
   function forgeForeignQuote(db: Db, orgId: string, opportunityId: string, userId: string, id = "0Q0FORGED") {
@@ -344,6 +379,24 @@ describe("quote org filters (forged cross-org rows)", () => {
     expectRefused(db, () => updateQuote(db, LOCAL_ACTOR, forged, { name: "x" }), "NOT_FOUND");
     expectRefused(db, () => editableQuote(db, LOCAL_ACTOR, forged), "NOT_FOUND");
     expectRefused(db, () => deleteQuote(db, LOCAL_ACTOR, forged), "NOT_FOUND");
+  });
+
+  it("O1-update: updateQuote on another org's quote id is NOT_FOUND and leaves their row unchanged", () => {
+    const { db, opp } = setup();
+    const other = otherOrg(db);
+    const forged = forgeForeignQuote(db, other.actor.orgId, opp.id, other.actor.userId);
+    const before = db.select().from(quotes).where(eq(quotes.id, forged)).all();
+    expectRefused(db, () => updateQuote(db, LOCAL_ACTOR, forged, { name: "Hijacked" }), "NOT_FOUND");
+    expect(db.select().from(quotes).where(eq(quotes.id, forged)).all()).toEqual(before);
+  });
+
+  it("O1-delete: deleteQuote on another org's quote id is NOT_FOUND and leaves their row unchanged", () => {
+    const { db, opp } = setup();
+    const other = otherOrg(db);
+    const forged = forgeForeignQuote(db, other.actor.orgId, opp.id, other.actor.userId);
+    const before = db.select().from(quotes).where(eq(quotes.id, forged)).all();
+    expectRefused(db, () => deleteQuote(db, LOCAL_ACTOR, forged), "NOT_FOUND");
+    expect(db.select().from(quotes).where(eq(quotes.id, forged)).all()).toEqual(before);
   });
 
   it("O9: updating my quote leaves another org's quote updatedAt/updatedBy unchanged", () => {

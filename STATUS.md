@@ -2138,10 +2138,12 @@ fresh verification evidence for each slice.
 
 ## 2026-10-13 — s018b quote domain (PR #26, not merged)
 
-- WORKS (verified 2026-10-13, `npm run verify` exit 0, 951 tests): quote
+- WORKS (verified 2026-10-13, `npm run verify` exit 0, 957 tests): quote
   header CRUD with integer-cent totals. A quote is visible only when its
   opportunity is readable; writes need opportunity edit. Quote and line
   reads/writes are org-scoped, including forged cross-org rows.
-- The row helpers `rawQuote`, `rawLines` and `touch` are no longer
-  exported; `touch` uses server time.
+- The row helpers `rawQuote` and `rawLines` are no longer exported.
+  `touch` was removed: `updateQuote` writes directly with an id + org
+  WHERE and server time. `editableQuote` is the only gate for update and
+  delete (the duplicate `assertActor` in `deleteQuote` is gone).
 - Not done: line item mutators and UI (#27, #28).
