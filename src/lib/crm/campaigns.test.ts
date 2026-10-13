@@ -467,5 +467,24 @@ describe("refuses inactive or outside actors on every campaign read with FORBIDD
       expectRefused(db, () => listCampaignMembers(db, made.actor, campaignId), "FORBIDDEN");
       expectRefused(db, () => listCampaignMembers(db, made.actor, UNKNOWN_CAMPAIGN_ID), "FORBIDDEN");
     });
+
+    it(`refuses every campaign write for ${label}, writing no rows`, () => {
+      const db = memory();
+      const campaign = createCampaign(db, LOCAL_ACTOR, SPRING);
+      const lead = createLead(db, LOCAL_ACTOR, { lastName: "Writer", company: "Example Widgets" });
+      const spare = createLead(db, LOCAL_ACTOR, { lastName: "Spare", company: "Example Widgets" });
+      const member = addCampaignMember(db, LOCAL_ACTOR, campaign.id, { leadId: lead.id });
+      const made = make(db);
+      const campaignId = made.campaignId ?? campaign.id;
+      const UNKNOWN_MEMBER_ID = "00v000000000000UNKNOWN";
+      expectRefused(db, () => createCampaign(db, made.actor, { name: "Forbidden Fair" }), "FORBIDDEN");
+      for (const id of [campaignId, UNKNOWN_CAMPAIGN_ID]) {
+        expectRefused(db, () => updateCampaign(db, made.actor, id, { name: "Renamed" }), "FORBIDDEN");
+        expectRefused(db, () => deleteCampaign(db, made.actor, id), "FORBIDDEN");
+        expectRefused(db, () => addCampaignMember(db, made.actor, id, { leadId: spare.id }), "FORBIDDEN");
+        expectRefused(db, () => removeCampaignMember(db, made.actor, id, member.id), "FORBIDDEN");
+        expectRefused(db, () => removeCampaignMember(db, made.actor, id, UNKNOWN_MEMBER_ID), "FORBIDDEN");
+      }
+    });
   }
 });
