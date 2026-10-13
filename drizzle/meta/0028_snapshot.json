@@ -2,7 +2,7 @@
   "version": "6",
   "dialect": "sqlite",
   "id": "7ec84cdb-cb43-46f3-965c-f53d82f0a4ef",
-  "prevId": "9cb900e4-3008-4b5f-9dbb-c14694d1b80a",
+  "prevId": "46d983cc-3377-4d79-a6e1-7c1be6572407",
   "tables": {
     "accounts": {
       "name": "accounts",
@@ -3609,6 +3609,21 @@
         },
         "deleted_at": {
           "name": "deleted_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "failed_login_count": {
+          "name": "failed_login_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "locked_until": {
+          "name": "locked_until",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
