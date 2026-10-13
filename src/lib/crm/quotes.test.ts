@@ -391,6 +391,10 @@ describe("quote org filters (forged cross-org rows)", () => {
     const foreign = db.select().from(quoteLineItems).where(eq(quoteLineItems.id, "0QLFORGEDDEL")).all();
     expect(foreign).toHaveLength(1);
     expect(foreign[0]!.orgId).toBe(other.actor.orgId);
+    // Rollback is complete: our quote and our own line were not half-deleted.
+    expect(db.select().from(quotes).where(eq(quotes.id, quote.id)).all()).toHaveLength(1);
+    const mine = db.select().from(quoteLineItems).where(eq(quoteLineItems.quoteId, quote.id)).all();
+    expect(mine.map((l) => l.description).sort()).toEqual(["Foreign", "Mine"]);
   });
 
   it("O3: listQuotesForOpportunity does not list a forged quote from another org", () => {
