@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { openMemoryDb } from "../db/client";
 import {
   accounts,
+  contacts,
   customFieldValues,
   customFields,
   opportunities,
@@ -338,5 +339,112 @@ describe("recycle bin purge: side rows are org scoped", () => {
     expect(db.select().from(customFieldValues).where(eq(customFieldValues.recordId, account.id)).all()).toHaveLength(0);
     const left = db.select().from(customFieldValues).where(eq(customFieldValues.orgId, LOCAL_ORG_ID)).all();
     expect(left.map((row) => [row.id, row.recordId, row.value])).toEqual([["cfv_keep", keeper.id, "keep me"]]);
+  });
+});
+
+describe("recycle bin purge: child checks and cleanup stay inside the org and the transaction", () => {
+  type TestDb = ReturnType<typeof openMemoryDb>["db"];
+
+  function outsiderOrg(db: TestDb, tag: string) {
+    const outsider = createUser(db, {
+      name: `Outsider ${tag}`,
+      email: `outsider-${tag}@example.invalid`,
+      username: `outsider_${tag}`,
+      password: "long-enough",
+    });
+    return { outsider, other: createOrganization(db, `Elsewhere ${tag} Fictional`, outsider.id) };
+  }
+
+  it("is not blocked by another org's contact that points at the same account id", () => {
+    const { db, sqlite } = openMemoryDb();
+    const { other } = outsiderOrg(db, "m21");
+    const account = createAccount(db, LOCAL_ACTOR, { name: "M21 Fixture Co" });
+    const contact = createContact(db, LOCAL_ACTOR, { accountId: account.id, lastName: "Elsewhere" });
+    db.update(contacts).set({ orgId: other.id }).where(eq(contacts.id, contact.id)).run();
+    deleteAccount(db, LOCAL_ACTOR, account.id);
+    // FK enforcement off so only the explicit, org-scoped child check can refuse.
+    sqlite.pragma("foreign_keys = OFF");
+    purgeRecord(db, LOCAL_ACTOR, "account", account.id);
+    expect(rowExists(db, account.id)).toBe(false);
+    expect(db.select().from(contacts).where(eq(contacts.id, contact.id)).get()?.orgId).toBe(other.id);
+  });
+
+  it("is not blocked by another org's line item that points at the same opportunity id", () => {
+    const { db, sqlite } = openMemoryDb();
+    const { other } = outsiderOrg(db, "m22");
+    const account = createAccount(db, LOCAL_ACTOR, { name: "M22 Fixture Co" });
+    const opp = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "M22 Restock",
+      stage: "Prospecting",
+      closeDate: "2026-10-31",
+    });
+    const product = createProduct(db, LOCAL_ACTOR, { name: "M22 Widget", standardPriceCents: 700 });
+    const line = addLineItem(db, LOCAL_ACTOR, { opportunityId: opp.id, productId: product.id, quantity: 1 });
+    db.update(opportunityLineItems).set({ orgId: other.id }).where(eq(opportunityLineItems.id, line.id)).run();
+    db.update(opportunities).set({ deletedAt: Date.now() }).where(eq(opportunities.id, opp.id)).run();
+    sqlite.pragma("foreign_keys = OFF");
+    purgeRecord(db, LOCAL_ACTOR, "opportunity", opp.id);
+    expect(db.select().from(opportunities).where(eq(opportunities.id, opp.id)).get()).toBeUndefined();
+    expect(db.select().from(opportunityLineItems).where(eq(opportunityLineItems.id, line.id)).get()?.orgId).toBe(
+      other.id,
+    );
+  });
+
+  it("leaves another org's records in the same table alone", () => {
+    const db = openMemoryDb().db;
+    const { outsider, other } = outsiderOrg(db, "m5");
+    const otherAdmin = actorFor(outsider.id, other.id);
+    const theirs = createAccount(db, otherAdmin, { name: "Theirs Fixture Co" });
+    deleteAccount(db, otherAdmin, theirs.id);
+    const ours = deletedAccount(db, "Ours Fixture Co");
+    purgeRecord(db, LOCAL_ACTOR, "account", ours.id);
+    expect(rowExists(db, ours.id)).toBe(false);
+    expect(db.select().from(accounts).where(eq(accounts.id, theirs.id)).get()?.orgId).toBe(other.id);
+  });
+
+  it("rolls back recently-viewed and custom-field-value cleanup when the record delete fails", () => {
+    const { db, sqlite } = openMemoryDb();
+    const account = deletedAccount(db, "Rollback Fixture Co");
+    const ts = Date.now();
+    db.insert(customFields)
+      .values({
+        id: "cf_rollback",
+        orgId: LOCAL_ORG_ID,
+        objectType: "account",
+        apiName: "cf_rollback__c",
+        label: "Fixture rollback",
+        type: "text",
+        ownerId: LOCAL_USER_ID,
+        createdAt: ts,
+        updatedAt: ts,
+        createdBy: LOCAL_USER_ID,
+        updatedBy: LOCAL_USER_ID,
+      })
+      .run();
+    db.insert(customFieldValues)
+      .values({
+        id: "cfv_rollback",
+        orgId: LOCAL_ORG_ID,
+        fieldId: "cf_rollback",
+        recordId: account.id,
+        objectType: "account",
+        value: "keep on failure",
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .run();
+    db.insert(recentlyViewed)
+      .values({ orgId: LOCAL_ORG_ID, userId: LOCAL_USER_ID, recordId: account.id, objectType: "account", viewedAt: ts })
+      .run();
+    sqlite.exec(
+      "CREATE TRIGGER fixture_block_account_delete BEFORE DELETE ON accounts BEGIN SELECT RAISE(ABORT, 'fixture delete blocked'); END;",
+    );
+    expect(() => purgeRecord(db, LOCAL_ACTOR, "account", account.id)).toThrow(/fixture delete blocked/);
+    expect(rowExists(db, account.id)).toBe(true);
+    expect(db.select().from(recentlyViewed).where(eq(recentlyViewed.recordId, account.id)).all()).toHaveLength(1);
+    expect(db.select().from(customFieldValues).where(eq(customFieldValues.recordId, account.id)).get()?.value).toBe(
+      "keep on failure",
+    );
   });
 });
