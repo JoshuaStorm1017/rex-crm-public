@@ -11,7 +11,7 @@ import { createAccount } from "../accounts";
 import { LOCAL_ACTOR, actorFor } from "../actor";
 import { RILEY_USER_ID } from "../constants";
 import { DomainError } from "../errors";
-import { createOpportunity } from "../opportunities";
+import { createOpportunity, deleteOpportunity } from "../opportunities";
 import { addMember, createOrganization } from "../orgs";
 import { createProfile, setObjectPermission } from "../profiles";
 import { createUser } from "../users";
@@ -61,6 +61,17 @@ function refuse(db: Db, run: () => unknown, code: string) {
 }
 
 describe("opportunity approvals", () => {
+  it("refuses to decide after the opportunity is deleted, leaving rows unchanged", () => {
+    const { db, opp } = seed();
+    const o = opp(RILEY);
+    const req = submitForApproval(db, RILEY, o.id);
+    deleteOpportunity(db, LOCAL_ACTOR, o.id);
+    refuse(db, () => decideApproval(db, LOCAL_ACTOR, req.id, "approved"), "NOT_FOUND");
+    const row = db.select().from(approvalRequests).all().find((r) => r.id === req.id);
+    expect(row?.status).toBe("pending");
+    expect(row?.decidedBy).toBeNull();
+  });
+
   it("submits, then another org admin approves; history is listed", () => {
     const { db, opp } = seed();
     const o = opp(RILEY);
@@ -172,7 +183,7 @@ describe("opportunity approvals", () => {
 
   it("upgrades a database that stopped at 0015_sharing", () => {
     const src = path.resolve(process.cwd(), "drizzle");
-    const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-0031-"));
+    const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-0028-"));
     const partial = path.join(dir, "mig");
     mkdirSync(path.join(partial, "meta"), { recursive: true });
     for (const f of readdirSync(src)) if (f.endsWith(".sql")) copyFileSync(path.join(src, f), path.join(partial, f));
