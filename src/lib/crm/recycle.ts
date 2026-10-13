@@ -7,6 +7,7 @@ import {
   leads,
   opportunities,
   opportunityContactRoles,
+  opportunityLineItems,
   recentlyViewed,
   tasks,
 } from "../db/schema";
@@ -169,35 +170,66 @@ function tableFor(objectType: RecordObjectType): RecordTable {
   return tasks;
 }
 
-/** Any row, live or deleted, that still points at this record. */
-function hasDependents(db: Db, objectType: RecordObjectType, id: string): boolean {
+/**
+ * Any row in the actor's org, live or deleted, that still points at this
+ * record. Every lookup is scoped by org so another org's rows are never read.
+ */
+function hasDependents(db: Db, orgId: string, objectType: RecordObjectType, id: string): boolean {
   const refs: Array<() => unknown> = [
-    () => db.select({ id: tasks.id }).from(tasks).where(eq(tasks.relatedRecordId, id)).get(),
+    () =>
+      db.select({ id: tasks.id }).from(tasks)
+        .where(and(eq(tasks.relatedRecordId, id), eq(tasks.orgId, orgId))).get(),
   ];
   if (objectType === "account") {
     refs.push(
-      () => db.select({ id: accounts.id }).from(accounts).where(eq(accounts.parentAccountId, id)).get(),
-      () => db.select({ id: contacts.id }).from(contacts).where(eq(contacts.accountId, id)).get(),
-      () => db.select({ id: opportunities.id }).from(opportunities).where(eq(opportunities.accountId, id)).get(),
-      () => db.select({ id: leads.id }).from(leads).where(eq(leads.convertedAccountId, id)).get(),
+      () =>
+        db.select({ id: accounts.id }).from(accounts)
+          .where(and(eq(accounts.parentAccountId, id), eq(accounts.orgId, orgId))).get(),
+      () =>
+        db.select({ id: contacts.id }).from(contacts)
+          .where(and(eq(contacts.accountId, id), eq(contacts.orgId, orgId))).get(),
+      () =>
+        db.select({ id: opportunities.id }).from(opportunities)
+          .where(and(eq(opportunities.accountId, id), eq(opportunities.orgId, orgId))).get(),
+      () =>
+        db.select({ id: leads.id }).from(leads)
+          .where(and(eq(leads.convertedAccountId, id), eq(leads.orgId, orgId))).get(),
     );
   } else if (objectType === "contact") {
     refs.push(
-      () => db.select({ id: contacts.id }).from(contacts).where(eq(contacts.reportsToId, id)).get(),
-      () => db.select({ id: leads.id }).from(leads).where(eq(leads.convertedContactId, id)).get(),
+      () =>
+        db.select({ id: contacts.id }).from(contacts)
+          .where(and(eq(contacts.reportsToId, id), eq(contacts.orgId, orgId))).get(),
+      () =>
+        db.select({ id: leads.id }).from(leads)
+          .where(and(eq(leads.convertedContactId, id), eq(leads.orgId, orgId))).get(),
       () =>
         db.select({ id: opportunityContactRoles.id }).from(opportunityContactRoles)
-          .where(eq(opportunityContactRoles.contactId, id)).get(),
+          .where(and(eq(opportunityContactRoles.contactId, id), eq(opportunityContactRoles.orgId, orgId))).get(),
     );
   } else if (objectType === "opportunity") {
     refs.push(
-      () => db.select({ id: leads.id }).from(leads).where(eq(leads.convertedOpportunityId, id)).get(),
+      () =>
+        db.select({ id: leads.id }).from(leads)
+          .where(and(eq(leads.convertedOpportunityId, id), eq(leads.orgId, orgId))).get(),
       () =>
         db.select({ id: opportunityContactRoles.id }).from(opportunityContactRoles)
-          .where(eq(opportunityContactRoles.opportunityId, id)).get(),
+          .where(and(eq(opportunityContactRoles.opportunityId, id), eq(opportunityContactRoles.orgId, orgId))).get(),
+      () =>
+        db.select({ id: opportunityLineItems.id }).from(opportunityLineItems)
+          .where(and(eq(opportunityLineItems.opportunityId, id), eq(opportunityLineItems.orgId, orgId))).get(),
     );
   }
   return refs.some((ref) => ref() !== undefined);
+}
+
+function isForeignKeyViolation(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === "SQLITE_CONSTRAINT_FOREIGNKEY";
+}
+
+function hasChildren(): DomainError {
+  return new DomainError("HAS_CHILDREN", "Purge the records that reference this one first");
 }
 
 /**
@@ -222,18 +254,22 @@ export function purgeRecord(db: Db, actor: Actor, objectType: string, id: string
       .where(and(eq(table.id, id), eq(table.orgId, actor.orgId), isNotNull(table.deletedAt)))
       .get();
     if (!existing) throw new DomainError("NOT_FOUND", "Record not found");
-    if (hasDependents(tx as unknown as Db, objectType, id)) {
-      throw new DomainError("HAS_CHILDREN", "Purge the records that reference this one first");
-    }
+    if (hasDependents(tx as unknown as Db, actor.orgId, objectType, id)) throw hasChildren();
     tx.delete(recentlyViewed)
       .where(and(eq(recentlyViewed.recordId, id), eq(recentlyViewed.orgId, actor.orgId)))
       .run();
     tx.delete(customFieldValues)
       .where(and(eq(customFieldValues.recordId, id), eq(customFieldValues.orgId, actor.orgId)))
       .run();
-    tx.delete(table)
-      .where(and(eq(table.id, id), eq(table.orgId, actor.orgId), isNotNull(table.deletedAt)))
-      .run();
+    try {
+      tx.delete(table)
+        .where(and(eq(table.id, id), eq(table.orgId, actor.orgId), isNotNull(table.deletedAt)))
+        .run();
+    } catch (error) {
+      // A row outside this org (never read above) can still hold a foreign key.
+      if (isForeignKeyViolation(error)) throw hasChildren();
+      throw error;
+    }
   });
 }
 
