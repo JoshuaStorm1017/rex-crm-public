@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
 import { quoteLineItems, quotes } from "../db/schema";
@@ -355,5 +356,44 @@ describe("quote line isolation and permissions", () => {
     const detail = addQuoteLine(db, editor, quote.id, { description: "B", quantity: 2, unitPriceCents: 50 });
     expect(detail.totals.totalCents).toBe(200);
     expect(detail.updatedBy).not.toBe(LOCAL_ACTOR.userId);
+  });
+});
+
+describe("quote line writes stay scoped to their own quote and org", () => {
+  it("adding, updating and deleting a line on quote A leaves quote B's row unchanged", () => {
+    const { db, opp, quote: a } = setup();
+    const b = createQuote(db, LOCAL_ACTOR, { opportunityId: opp.id, name: "Anvil Quote B" });
+    db.update(quotes).set({ updatedAt: 1_000, updatedBy: RILEY_USER_ID }).where(eq(quotes.id, b.id)).run();
+    const rowB = () => db.select().from(quotes).where(eq(quotes.id, b.id)).all();
+    const before = rowB();
+    const added = addQuoteLine(db, LOCAL_ACTOR, a.id, { description: "Anvil", quantity: 1, unitPriceCents: 100 });
+    expect(rowB()).toEqual(before);
+    const lineId = added.lines[0]!.id;
+    updateQuoteLine(db, LOCAL_ACTOR, lineId, { description: "Anvil", quantity: 2, unitPriceCents: 100 });
+    expect(rowB()).toEqual(before);
+    deleteQuoteLine(db, LOCAL_ACTOR, lineId);
+    expect(rowB()).toEqual(before);
+  });
+
+  it("a forged other-org line pointing at my quote does not count toward my line order", () => {
+    const { db, quote } = setup();
+    const other = otherOrg(db);
+    const ts = Date.now();
+    db.insert(quoteLineItems)
+      .values({
+        id: "0QLFORGEDORDER",
+        orgId: other.actor.orgId,
+        quoteId: quote.id,
+        description: "Foreign",
+        quantity: 1,
+        unitPriceCents: 5,
+        discountBasisPoints: 0,
+        sortOrder: 0,
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .run();
+    const detail = addQuoteLine(db, LOCAL_ACTOR, quote.id, { description: "Mine", quantity: 1, unitPriceCents: 100 });
+    expect(detail.lines.map((l) => [l.description, l.sortOrder])).toEqual([["Mine", 0]]);
   });
 });

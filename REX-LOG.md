@@ -1,5 +1,62 @@
 # Rex log
 
+## 2026-10-13 12:25 EDT
+
+Fix F1 from proposal PR #38: `sharing.ts:recordAllows` returned true for
+every non-read action under Public Read/Write, so any member with the
+object delete permission could delete, and undelete from the recycle bin,
+another user's account, contact, lead, opportunity or task. Reproduced on
+main (60 failing refusal tests). Now, matching Salesforce, Public
+Read/Write grants edit only; delete and restore still need owner,
+role-hierarchy superior, or Modify All. One-line fix covers every object
+on that path (products never used it). Existing sharing test that asserted
+the old behavior now expects FORBIDDEN. No migration.
+
+New `sharing.publicRwDelete.test.ts` (66 tests): six non-owner actors
+(two plain members, subordinate, sibling-role peer, two read/write
+sharing-rule recipients) x 5 objects x delete and restore, FORBIDDEN with
+no row changes; owner, manager and Modify-All admin still can.
+Mutation: 9/9 killed (auth removal on deleteAccount, deleteContact,
+deleteLead, deleteOpportunity, deleteTask, undeleteRecord; reverting the
+branch; removing the delete rejection; removing the PRW edit grant).
+
+## 2026-10-12 22:55 EDT
+
+Team Q, PLAT-META-010 recycle bin. Main already lists and undeletes
+(`recycle.ts`, re-checks sharing and delete access). This adds the gap:
+`purgeRecord` permanently deletes a soft-deleted account, contact, lead,
+opportunity or task. Only modify-all org admins may purge (FORBIDDEN
+otherwise, including a member's own record); live, unknown, or other-org
+rows are NOT_FOUND; suspended orgs are refused by `assertActor`. A record
+that any row (live or deleted) still references is refused with
+`HAS_CHILDREN`. Recently-viewed and custom field values for it are removed
+in the same transaction. No audit table exists, so purge is not audited.
+No migration: existing `deleted_at` columns are used. Purge button on
+`/recycle` for admins only.
+
+New `recycle.purge.test.ts` (7 tests) and two `purgeAction` tests.
+Mutation: 9/9 killed (admin gate, org filter, deleted filter, dependents
+check, assertActor, canPurge, recently-viewed cleanup, task and contact
+dependent checks).
+
+## 2026-10-12 18:50 EDT
+
+Rex Reviewer's non-blocking finding: deleting a parent skipped related
+tasks the actor could not read, leaving them live under a deleted
+parent. Per the parent agent's design decision, any hidden related task
+now refuses the parent delete with `HAS_CHILDREN` and nothing is written.
+Hidden means unreadable by sharing or by a profile without task read
+(found while mutation-testing: a delete-without-read profile could
+delete a task it could not see).
+
+New `tasks.orphans.test.ts` (13 tests) across account, contact, lead and
+opportunity; updated the old skip case in `tasks.test.ts`. Mutation:
+restoring the skip fails 10, dropping the profile-read clause fails 1,
+the delete clause 13, the whole check 14. The sharing-read clause was an
+equivalent mutant and was removed.
+
+Next: review the PR. Rex does not merge.
+
 ## 2026-10-12 18:30 EDT
 
 Merged main (05c70a4, PR #6 record and create controls) into the Change
@@ -582,3 +639,27 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Why:** Rex Reviewer found a surviving deleteSharingRule mutant; main moved ahead with migration 0014.
 - **Verify:** 48 files, 493 tests, build OK. Removing the admin assert from each of the 9 sharing mutators fails the suite.
 - **Next:** Re-review; no merge from Rex.
+
+## 2026-10-12 — orphan fix: reviewer mutants on 35e77e7
+- Added tests that kill three surviving mutants: "delete"→"edit" in the task check (edit-but-not-delete actor refused, nothing written); org filter dropped from the related-task query (a task in another org with the same record ID doesn't block the delete and isn't deleted); task id added to the error message (the message test now asserts no task id).
+- Mutation results: delete→edit killed (1 failure), org filter killed (1), id in message killed (4). Earlier mutants are still killed (10/1/14/15). 610 tests.
+
+## 2026-10-13 12:30 EDT — s018b quote domain, PR #26 review fixes (Reviewer 2 on 0c577ec)
+- **What:** `rawQuote`, `rawLines` and `touch` in `src/lib/crm/quotes.ts` are no longer exported. `rawQuote`/`rawLines` were removed (the private `quoteRow`/`lineRows` loaders remain); `editableQuote` now runs `assertActor` itself before loading. `touch` is module-private, stamps `updatedAt` with server time (no caller timestamp), and is the single write path for `updateQuote`. Tests that imported the three helpers now go through the public API. Replaced the stale "unchecked row loads" comment.
+- **Tests:** new forged cross-org row tests in `quotes.test.ts`: O1 (get/update/editable/delete of another org's quote id → NOT_FOUND), O3 (listQuotesForOpportunity/listQuotes skip a forged other-org quote), O8 (deleteQuote leaves another org's line row that points at the quote; the FK blocks the delete and the transaction rolls back), O9 (another org's quotes keep updatedAt/updatedBy), and a server-time check for touch.
+- **Mutation (scratch copy):** O1, O3, O8 killed. O9 (drop org filter from touch's WHERE) survives and is equivalent: quote ids are a global primary key and touch only receives ids already org-checked by `editableQuote`; a touch that ignores the id and writes all rows is killed. All 10 money spot-checks and auth-removal mutants on getQuote, listQuotes, listQuotesForOpportunity, createQuote, updateQuote, editableQuote and the edit check are killed; deleteQuote's own `assertActor` is equivalent (editableQuote asserts first).
+- **Verify:** `npm run verify` exit 0 on Node 22.23.3: 96 files, 951 tests, build OK.
+
+## 2026-10-13 14:00 EDT — s018b quote domain, PR #26 Reviewer 2 follow-ups
+- **What:** removed the private `touch` helper; `updateQuote` now does the update itself, after `editableQuote`, with `WHERE id = quote.id AND orgId = actor.orgId` and server-time `updatedAt`/`updatedBy`. Removed the duplicate `assertActor` from `deleteQuote`, so `editableQuote` is its only gate. Merged main `04ef93a` (#42).
+- **Tests:** same-org W1-update (updating A leaves B's fields, updatedAt/updatedBy and lines unchanged) and W1-delete (deleting A leaves B and its lines). Split cross-org O1-update and O1-delete into their own blocks (NOT_FOUND, other org's row unchanged); each fails alone under the O1 mutant via `-t`.
+- **Mutation (scratch copy):** W1 (update WHERE drops id), D1 (quote delete WHERE drops id), D2 (line delete WHERE drops quote id), O1, O3, O8, editableQuote assertActor/edit-check removal, deleteQuote without editableQuote, and 17 quoteMath money mutants are killed. O9 (drop org filter in the update WHERE) and the quote delete's org filter survive and are equivalent: quote ids are a global primary key and both writes only receive an id `editableQuote` already org-checked.
+- **Verify:** `npm run verify` exit 0 on Node 22: 96 files, 957 tests, build OK.
+- **Verify after merging main `216574c` (#43):** `npm run verify` exit 0 on Node 22: 99 files, 1169/1169 tests (957 included main as of `04ef93a`; the rest are #43's tests).
+
+## 2026-10-13 15:00 EDT — s018b2 quote line mutators, PR #27 merged with main ac47ae8
+- **Merge:** normal merge of main `ac47ae8` (#26 squash). Conflicts in SALESFORCE-PARITY.md, drizzle/meta/_journal.json, quotes.ts, quotes.test.ts, quoteMath.test.ts, migrations.quotes.test.ts, migrations.test.ts and schema.ts were all pre-squash copies of #25/#26 work; took main's versions. Removed the stale `drizzle/0040_quotes.sql` and `meta/0040_snapshot.json` (byte-identical SQL to main's `0054_quotes.sql`). #27 itself adds no migration, so none was renumbered; the journal ends at idx 27 `0054_quotes`.
+- **What:** `quoteLines.ts` no longer imports `rawQuote`, `rawLines` or `touch` (gone from main). `editableLine` now gates through `editableQuote` (NOT_FOUND remapped to "Quote line not found"); a private `linesOf` loads lines by quote id + org; a private `stampQuote` sets the parent quote's `updatedAt`/`updatedBy` with `WHERE id AND orgId` inside each line write's transaction.
+- **Tests:** two new: line writes on quote A leave quote B unchanged; a forged other-org line on my quote does not affect my line order.
+- **Mutation (scratch copy):** stamp WHERE drops id, `linesOf` drops org filter, and `editableLine` skipping `editableQuote` are killed. Stamp WHERE drops org filter survives and is equivalent (same argument as #26 O9: global primary-key id already org-checked by `editableQuote`).
+- **Verify:** `npm run verify` exit 0 on Node 22: 100 files, 1185/1185 tests, build OK.

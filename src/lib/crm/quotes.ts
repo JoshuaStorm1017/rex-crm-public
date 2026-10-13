@@ -108,7 +108,12 @@ export function assertOpportunityEditable(db: Db, actor: Actor, id: string, miss
   return opportunity;
 }
 
-export function rawQuote(db: Db, actor: Actor, id: string): Quote | undefined {
+/**
+ * Unchecked, org-scoped row loads. Module-private: every exported caller runs
+ * assertActor first, and the opportunity read check (edit check for writes)
+ * before returning or writing anything.
+ */
+function quoteRow(db: Db, actor: Actor, id: string): Quote | undefined {
   return db
     .select()
     .from(quotes)
@@ -116,7 +121,7 @@ export function rawQuote(db: Db, actor: Actor, id: string): Quote | undefined {
     .get();
 }
 
-export function rawLines(db: Db, actor: Actor, quoteId: string): QuoteLineItem[] {
+function lineRows(db: Db, actor: Actor, quoteId: string): QuoteLineItem[] {
   return db
     .select()
     .from(quoteLineItems)
@@ -128,11 +133,11 @@ export function rawLines(db: Db, actor: Actor, quoteId: string): QuoteLineItem[]
 /** A quote is visible only when its opportunity is visible to the actor. */
 export function getQuote(db: Db, actor: Actor, id: string): QuoteDetail | undefined {
   assertActor(db, actor);
-  const quote = rawQuote(db, actor, id);
+  const quote = quoteRow(db, actor, id);
   if (!quote) return undefined;
   const opportunity = readableOpportunity(db, actor, quote.opportunityId);
   if (!opportunity) return undefined;
-  const lines = rawLines(db, actor, quote.id).map((line) => ({
+  const lines = lineRows(db, actor, quote.id).map((line) => ({
     ...line,
     ...computeLineTotals(line),
   }));
@@ -189,14 +194,15 @@ export function listQuotes(db: Db, actor: Actor): QuoteListItem[] {
 
 export function listQuotesForOpportunity(db: Db, actor: Actor, opportunityId: string): QuoteListItem[] {
   assertActor(db, actor);
-  const opportunity = readableOpportunity(db, actor, opportunityId);
-  if (!opportunity) return [];
   const rows = db
     .select()
     .from(quotes)
     .where(and(eq(quotes.opportunityId, opportunityId), eq(quotes.orgId, actor.orgId)))
     .orderBy(desc(quotes.updatedAt))
     .all();
+  if (rows.length === 0) return [];
+  const opportunity = readableOpportunity(db, actor, opportunityId);
+  if (!opportunity) return [];
   return toListItems(db, actor, rows, new Map([[opportunity.id, opportunity.name]]));
 }
 
@@ -227,7 +233,8 @@ export function createQuote(db: Db, actor: Actor, input: QuoteCreateInput): Quot
 
 /** Visible + opportunity editable, or NOT_FOUND / FORBIDDEN before any write. */
 export function editableQuote(db: Db, actor: Actor, id: string): Quote {
-  const quote = rawQuote(db, actor, id);
+  assertActor(db, actor);
+  const quote = quoteRow(db, actor, id);
   if (!quote) throw new DomainError("NOT_FOUND", QUOTE_NOT_FOUND);
   assertOpportunityEditable(db, actor, quote.opportunityId, QUOTE_NOT_FOUND);
   return quote;
@@ -237,13 +244,6 @@ export function assertOpen(quote: Quote) {
   if ((CLOSED_QUOTE_STATUSES as readonly string[]).includes(quote.status)) {
     throw new DomainError("LOCKED", "This quote is closed and cannot be changed");
   }
-}
-
-export function touch(db: Db, actor: Actor, quoteId: string, ts: number) {
-  db.update(quotes)
-    .set({ updatedAt: ts, updatedBy: actor.userId })
-    .where(and(eq(quotes.id, quoteId), eq(quotes.orgId, actor.orgId)))
-    .run();
 }
 
 export function updateQuote(db: Db, actor: Actor, id: string, input: QuoteUpdateInput): QuoteDetail {
@@ -270,7 +270,6 @@ export function updateQuote(db: Db, actor: Actor, id: string, input: QuoteUpdate
 }
 
 export function deleteQuote(db: Db, actor: Actor, id: string): void {
-  assertActor(db, actor);
   const quote = editableQuote(db, actor, id);
   db.transaction((tx) => {
     tx.delete(quoteLineItems)

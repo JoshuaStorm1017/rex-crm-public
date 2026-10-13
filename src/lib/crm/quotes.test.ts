@@ -1,6 +1,7 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
-import { quoteLineItems, quotes } from "../db/schema";
+import { organizations, quoteLineItems, quotes, users } from "../db/schema";
 import { LOCAL_ACTOR, actorFor, type Actor } from "./actor";
 import { createAccount } from "./accounts";
 import { LOCAL_ORG_ID, RILEY_USER_ID } from "./constants";
@@ -11,6 +12,7 @@ import { createProfile, setObjectPermission } from "./profiles";
 import {
   createQuote,
   deleteQuote,
+  editableQuote,
   getQuote,
   isQuoteExpired,
   listQuotes,
@@ -18,7 +20,7 @@ import {
   updateQuote,
 } from "./quotes";
 import { setOrgWideDefault } from "./sharing";
-import { createUser } from "./users";
+import { createUser, disableUser } from "./users";
 
 const riley = actorFor(RILEY_USER_ID);
 const FULL = { canCreate: true, canRead: true, canUpdate: true, canDelete: true } as const;
@@ -312,4 +314,283 @@ describe("quote isolation and permissions", () => {
     expect(() => deleteQuote(db, actorFor(stranger.id), quote.id)).toThrow();
     expect(snapshot(db)).toBe(before);
   });
+});
+
+describe("quote writes touch only the target quote (same org)", () => {
+  function twoQuotes() {
+    const { db, opp, quote: a } = setup();
+    const b = createQuote(db, LOCAL_ACTOR, { opportunityId: opp.id, name: "Anvil Quote B", expirationDate: "2026-12-15" });
+    db.update(quotes).set({ updatedAt: 1_000, updatedBy: RILEY_USER_ID }).where(eq(quotes.id, b.id)).run();
+    insertLine(db, b.id, { description: "B line", quantity: 2, unitPriceCents: 250 });
+    const rowB = () => db.select().from(quotes).where(eq(quotes.id, b.id)).all();
+    const linesB = () => db.select().from(quoteLineItems).where(eq(quoteLineItems.quoteId, b.id)).all();
+    return { db, a, b, rowB, linesB };
+  }
+
+  it("W1-update: updating quote A leaves quote B's fields and updatedAt/updatedBy unchanged", () => {
+    const { db, a, rowB, linesB } = twoQuotes();
+    const beforeB = rowB();
+    const beforeLines = linesB();
+    expect(beforeB[0]!.updatedAt).toBe(1_000);
+    updateQuote(db, LOCAL_ACTOR, a.id, { name: "A renamed", status: "Presented", expirationDate: "2027-01-31" });
+    expect(rowB()).toEqual(beforeB);
+    expect(linesB()).toEqual(beforeLines);
+  });
+
+  it("W1-delete: deleting quote A leaves quote B and its lines intact", () => {
+    const { db, a, rowB, linesB } = twoQuotes();
+    insertLine(db, a.id, { description: "A line", quantity: 1, unitPriceCents: 100 });
+    const beforeB = rowB();
+    const beforeLines = linesB();
+    deleteQuote(db, LOCAL_ACTOR, a.id);
+    expect(db.select().from(quotes).where(eq(quotes.id, a.id)).all()).toHaveLength(0);
+    expect(db.select().from(quoteLineItems).where(eq(quoteLineItems.quoteId, a.id)).all()).toHaveLength(0);
+    expect(rowB()).toEqual(beforeB);
+    expect(linesB()).toEqual(beforeLines);
+    expect(beforeLines).toHaveLength(1);
+  });
+});
+
+describe("quote org filters (forged cross-org rows)", () => {
+  /** A raw quote row in another org that points at this org's opportunity. */
+  function forgeForeignQuote(db: Db, orgId: string, opportunityId: string, userId: string, id = "0Q0FORGED") {
+    db.insert(quotes)
+      .values({
+        id,
+        orgId,
+        opportunityId,
+        name: "Forged Quote",
+        status: "Draft",
+        expirationDate: null,
+        createdAt: 1_000,
+        updatedAt: 1_000,
+        createdBy: userId,
+        updatedBy: userId,
+      })
+      .run();
+    return id;
+  }
+
+  it("O1: get, update and delete of another org's quote id are NOT_FOUND", () => {
+    const { db, opp } = setup();
+    const other = otherOrg(db);
+    const forged = forgeForeignQuote(db, other.actor.orgId, opp.id, other.actor.userId);
+    expect(getQuote(db, LOCAL_ACTOR, forged)).toBeUndefined();
+    expectRefused(db, () => updateQuote(db, LOCAL_ACTOR, forged, { name: "x" }), "NOT_FOUND");
+    expectRefused(db, () => editableQuote(db, LOCAL_ACTOR, forged), "NOT_FOUND");
+    expectRefused(db, () => deleteQuote(db, LOCAL_ACTOR, forged), "NOT_FOUND");
+  });
+
+  it("O1-update: updateQuote on another org's quote id is NOT_FOUND and leaves their row unchanged", () => {
+    const { db, opp } = setup();
+    const other = otherOrg(db);
+    const forged = forgeForeignQuote(db, other.actor.orgId, opp.id, other.actor.userId);
+    const before = db.select().from(quotes).where(eq(quotes.id, forged)).all();
+    expectRefused(db, () => updateQuote(db, LOCAL_ACTOR, forged, { name: "Hijacked" }), "NOT_FOUND");
+    expect(db.select().from(quotes).where(eq(quotes.id, forged)).all()).toEqual(before);
+  });
+
+  it("O1-delete: deleteQuote on another org's quote id is NOT_FOUND and leaves their row unchanged", () => {
+    const { db, opp } = setup();
+    const other = otherOrg(db);
+    const forged = forgeForeignQuote(db, other.actor.orgId, opp.id, other.actor.userId);
+    const before = db.select().from(quotes).where(eq(quotes.id, forged)).all();
+    expectRefused(db, () => deleteQuote(db, LOCAL_ACTOR, forged), "NOT_FOUND");
+    expect(db.select().from(quotes).where(eq(quotes.id, forged)).all()).toEqual(before);
+  });
+
+  it("O9: updating my quote leaves another org's quote updatedAt/updatedBy unchanged", () => {
+    const { db, opp, quote } = setup();
+    const other = otherOrg(db);
+    const theirs = createQuote(db, other.actor, { opportunityId: other.opp.id, name: "Gadget Quote" });
+    const forged = forgeForeignQuote(db, other.actor.orgId, opp.id, other.actor.userId);
+    const before = db.select().from(quotes).where(eq(quotes.orgId, other.actor.orgId)).all();
+    const updated = updateQuote(db, LOCAL_ACTOR, quote.id, { name: "Mine" });
+    expect(updated.updatedBy).toBe(LOCAL_ACTOR.userId);
+    expect(db.select().from(quotes).where(eq(quotes.orgId, other.actor.orgId)).all()).toEqual(before);
+    expect(before.map((q) => q.id).sort()).toEqual([forged, theirs.id].sort());
+  });
+
+  it("updateQuote stamps server time, not a caller value", () => {
+    const { db, quote } = setup();
+    const t0 = Date.now();
+    const updated = updateQuote(db, LOCAL_ACTOR, quote.id, {});
+    expect(updated.updatedAt).toBeGreaterThanOrEqual(t0);
+    expect(updated.updatedAt).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("O8: deleteQuote never deletes another org's line row that points at this quote", () => {
+    const { db, quote } = setup();
+    const other = otherOrg(db);
+    insertLine(db, quote.id, { description: "Mine", quantity: 1, unitPriceCents: 100 });
+    const ts = Date.now();
+    db.insert(quoteLineItems)
+      .values({
+        id: "0QLFORGEDDEL",
+        orgId: other.actor.orgId,
+        quoteId: quote.id,
+        description: "Foreign",
+        quantity: 1,
+        unitPriceCents: 5,
+        discountBasisPoints: 0,
+        sortOrder: 1,
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .run();
+    // The foreign row still references the quote, so the foreign key blocks the
+    // quote delete and the transaction rolls back; nothing in either org is lost.
+    expect(() => deleteQuote(db, LOCAL_ACTOR, quote.id)).toThrow();
+    const foreign = db.select().from(quoteLineItems).where(eq(quoteLineItems.id, "0QLFORGEDDEL")).all();
+    expect(foreign).toHaveLength(1);
+    expect(foreign[0]!.orgId).toBe(other.actor.orgId);
+    // Rollback is complete: our quote and our own line were not half-deleted.
+    expect(db.select().from(quotes).where(eq(quotes.id, quote.id)).all()).toHaveLength(1);
+    const mine = db.select().from(quoteLineItems).where(eq(quoteLineItems.quoteId, quote.id)).all();
+    expect(mine.map((l) => l.description).sort()).toEqual(["Foreign", "Mine"]);
+  });
+
+  it("O3: listQuotesForOpportunity does not list a forged quote from another org", () => {
+    const { db, opp, quote } = setup();
+    const other = otherOrg(db);
+    forgeForeignQuote(db, other.actor.orgId, opp.id, other.actor.userId);
+    expect(listQuotesForOpportunity(db, LOCAL_ACTOR, opp.id).map((q) => q.id)).toEqual([quote.id]);
+    expect(listQuotes(db, LOCAL_ACTOR).map((q) => q.id)).toEqual([quote.id]);
+  });
+});
+
+describe("quote reads refuse inactive or outside actors with FORBIDDEN (existing and unknown ids)", () => {
+  const UNKNOWN_QUOTE_ID = "0Q0000000000000UNKNOWN";
+  const UNKNOWN_OPP_ID = "006000000000000UNKNOWN";
+  type Made = { actor: Actor; quoteId?: string; oppId?: string };
+  function plainUser(db: Db, username: string) {
+    return createUser(db, { name: username, email: `${username}@example.invalid`, username, password: "long-enough" });
+  }
+  function localMember(db: Db, username: string): Actor {
+    const u = plainUser(db, username);
+    addMember(db, LOCAL_ORG_ID, u.id, "member");
+    return actorFor(u.id);
+  }
+  const actorCases: Array<[string, (db: Db) => Made]> = [
+    ["a non-member of the org", (db) => ({ actor: actorFor(plainUser(db, "quote_outsider").id) })],
+    [
+      "a deleted user",
+      (db) => {
+        const actor = localMember(db, "quote_deleted");
+        db.update(users).set({ deletedAt: Date.now() }).where(eq(users.id, actor.userId)).run();
+        return { actor };
+      },
+    ],
+    [
+      "a disabled user",
+      (db) => {
+        const actor = localMember(db, "quote_disabled");
+        disableUser(db, actor.userId);
+        return { actor };
+      },
+    ],
+    [
+      "a disabled user (no login)",
+      (db) => {
+        const actor = localMember(db, "quote_nologin");
+        db.update(users).set({ username: null, passwordHash: null }).where(eq(users.id, actor.userId)).run();
+        return { actor };
+      },
+    ],
+    [
+      "a user in a suspended org",
+      (db) => {
+        const owner = plainUser(db, "quote_susp_owner");
+        const org = createOrganization(db, "Suspended Sprocket Co", owner.id);
+        const actor = actorFor(owner.id, org.id);
+        const acct = createAccount(db, actor, { name: "Sprocket Supply" });
+        const opp = createOpportunity(db, actor, { accountId: acct.id, name: "Sprocket Restock", stage: "Prospecting", closeDate: "2026-10-31" });
+        const own = createQuote(db, actor, { opportunityId: opp.id, name: "Sprocket Quote" });
+        db.update(organizations).set({ status: "suspended" }).where(eq(organizations.id, org.id)).run();
+        return { actor, quoteId: own.id, oppId: opp.id };
+      },
+    ],
+    [
+      "an outside-org owner reading into this org",
+      (db) => {
+        const owner = plainUser(db, "quote_other_owner");
+        createOrganization(db, "Other Gadgets Org", owner.id);
+        return { actor: actorFor(owner.id, LOCAL_ORG_ID) };
+      },
+    ],
+  ];
+
+  it("control: the same invalid inputs give INVALID_INPUT to an active, permitted actor", () => {
+    const { db, opp, quote } = setup();
+    for (const input of [
+      { opportunityId: opp.id, name: "" },
+      { opportunityId: "", name: "Valid Quote" },
+      { opportunityId: opp.id, name: "Valid Quote", status: "Bogus" },
+      { opportunityId: UNKNOWN_OPP_ID, name: "x".repeat(10_000) },
+    ]) {
+      expectRefused(db, () => createQuote(db, LOCAL_ACTOR, input as never), "INVALID_INPUT");
+    }
+    for (const id of [quote.id, UNKNOWN_QUOTE_ID]) {
+      for (const patch of [{ name: "" }, { status: "Bogus" }, { expirationDate: "not-a-date" }, { name: "x".repeat(10_000) }]) {
+        expectRefused(db, () => updateQuote(db, LOCAL_ACTOR, id, patch as never), "INVALID_INPUT");
+      }
+    }
+  });
+
+  for (const [label, make] of actorCases) {
+    it(`refuses getQuote, listQuotes and listQuotesForOpportunity for ${label}`, () => {
+      const { db, opp, quote } = setup();
+      const made = make(db);
+      const quoteId = made.quoteId ?? quote.id;
+      const oppId = made.oppId ?? opp.id;
+      expectRefused(db, () => listQuotes(db, made.actor), "FORBIDDEN");
+      for (const id of [quoteId, UNKNOWN_QUOTE_ID]) {
+        expectRefused(db, () => getQuote(db, made.actor, id), "FORBIDDEN");
+      }
+      for (const id of [oppId, UNKNOWN_OPP_ID]) {
+        expectRefused(db, () => listQuotesForOpportunity(db, made.actor, id), "FORBIDDEN");
+      }
+    });
+
+    it(`refuses every quote write (create, update, status change, delete) for ${label} without writing`, () => {
+      const { db, opp, quote } = setup();
+      const made = make(db);
+      const quoteId = made.quoteId ?? quote.id;
+      const oppId = made.oppId ?? opp.id;
+      for (const id of [oppId, UNKNOWN_OPP_ID]) {
+        expectRefused(db, () => createQuote(db, made.actor, { opportunityId: id, name: "Refused Quote" }), "FORBIDDEN");
+      }
+      for (const id of [quoteId, UNKNOWN_QUOTE_ID]) {
+        expectRefused(db, () => updateQuote(db, made.actor, id, { name: "Refused rename" }), "FORBIDDEN");
+        expectRefused(db, () => updateQuote(db, made.actor, id, { status: "Accepted" }), "FORBIDDEN");
+        expectRefused(db, () => updateQuote(db, made.actor, id, { expirationDate: "2027-01-31" }), "FORBIDDEN");
+        expectRefused(db, () => deleteQuote(db, made.actor, id), "FORBIDDEN");
+        expectRefused(db, () => editableQuote(db, made.actor, id), "FORBIDDEN");
+      }
+    });
+
+    it(`refuses invalid input with FORBIDDEN (auth before validation) on createQuote, updateQuote and deleteQuote for ${label}`, () => {
+      const { db, opp, quote } = setup();
+      const made = make(db);
+      const quoteId = made.quoteId ?? quote.id;
+      const oppId = made.oppId ?? opp.id;
+      const badCreates = [
+        { opportunityId: oppId, name: "" },
+        { opportunityId: "", name: "Refused Quote" },
+        { opportunityId: oppId, name: "Refused Quote", status: "Bogus" },
+        { opportunityId: UNKNOWN_OPP_ID, name: "x".repeat(10_000) },
+      ];
+      for (const input of badCreates) {
+        expectRefused(db, () => createQuote(db, made.actor, input as never), "FORBIDDEN");
+      }
+      for (const id of [quoteId, UNKNOWN_QUOTE_ID]) {
+        for (const patch of [{ name: "" }, { status: "Bogus" }, { expirationDate: "not-a-date" }, { name: "x".repeat(10_000) }]) {
+          expectRefused(db, () => updateQuote(db, made.actor, id, patch as never), "FORBIDDEN");
+        }
+      }
+      for (const id of [quoteId, UNKNOWN_QUOTE_ID, ""]) {
+        expectRefused(db, () => deleteQuote(db, made.actor, id), "FORBIDDEN");
+      }
+    });
+  }
 });

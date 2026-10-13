@@ -1,7 +1,7 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client";
-import { quoteLineItems } from "../db/schema";
+import { quoteLineItems, quotes } from "../db/schema";
 import type { Actor } from "./actor";
 import { assertActor } from "./actor";
 import { DomainError } from "./errors";
@@ -10,14 +10,12 @@ import { getProduct } from "./products";
 import { computeQuoteTotals, MAX_QUOTE_QUANTITY, MAX_UNIT_PRICE_CENTS } from "./quoteMath";
 import {
   assertOpen,
-  assertOpportunityEditable,
   editableQuote,
   getQuote,
   parseOrInvalid,
-  rawLines,
-  rawQuote,
-  touch,
+  type Quote,
   type QuoteDetail,
+  type QuoteLineItem,
 } from "./quotes";
 
 export const MAX_LINES_PER_QUOTE = 200;
@@ -81,13 +79,34 @@ function now(): number {
   return Date.now();
 }
 
+/**
+ * Org-scoped line load. Module-private: only called with a quote id that
+ * editableQuote has already checked (org, actor, opportunity edit).
+ */
+function linesOf(db: Db, actor: Actor, quoteId: string): QuoteLineItem[] {
+  return db
+    .select()
+    .from(quoteLineItems)
+    .where(and(eq(quoteLineItems.quoteId, quoteId), eq(quoteLineItems.orgId, actor.orgId)))
+    .orderBy(asc(quoteLineItems.sortOrder), asc(quoteLineItems.createdAt))
+    .all();
+}
+
+/** Stamps the parent quote inside the line write's transaction; id + org scoped. */
+function stampQuote(tx: Db, actor: Actor, quote: Quote, ts: number): void {
+  tx.update(quotes)
+    .set({ updatedAt: ts, updatedBy: actor.userId })
+    .where(and(eq(quotes.id, quote.id), eq(quotes.orgId, actor.orgId)))
+    .run();
+}
+
 export function addQuoteLine(db: Db, actor: Actor, quoteId: string, input: QuoteLineInput): QuoteDetail {
   assertActor(db, actor);
   const parsed = parseOrInvalid(quoteLineSchema, input);
   const quote = editableQuote(db, actor, quoteId);
   assertOpen(quote);
   const line = resolveLine(db, actor, parsed);
-  const existing = rawLines(db, actor, quote.id);
+  const existing = linesOf(db, actor, quote.id);
   if (existing.length >= MAX_LINES_PER_QUOTE) {
     throw new DomainError("INVALID_INPUT", `A quote can have at most ${MAX_LINES_PER_QUOTE} lines`);
   }
@@ -105,7 +124,7 @@ export function addQuoteLine(db: Db, actor: Actor, quoteId: string, input: Quote
         updatedAt: ts,
       })
       .run();
-    touch(tx as unknown as Db, actor, quote.id, ts);
+    stampQuote(tx as unknown as Db, actor, quote, ts);
   });
   const detail = getQuote(db, actor, quote.id);
   if (!detail) throw new DomainError("WRITE_FAILED", "Quote line was not persisted");
@@ -119,9 +138,16 @@ function editableLine(db: Db, actor: Actor, lineId: string) {
     .where(and(eq(quoteLineItems.id, lineId), eq(quoteLineItems.orgId, actor.orgId)))
     .get();
   if (!line) throw new DomainError("NOT_FOUND", LINE_NOT_FOUND);
-  const quote = rawQuote(db, actor, line.quoteId);
-  if (!quote) throw new DomainError("NOT_FOUND", LINE_NOT_FOUND);
-  assertOpportunityEditable(db, actor, quote.opportunityId, LINE_NOT_FOUND);
+  let quote: Quote;
+  try {
+    // Same gate as quote header writes: actor, org-scoped row, opportunity edit.
+    quote = editableQuote(db, actor, line.quoteId);
+  } catch (error) {
+    if (error instanceof DomainError && error.code === "NOT_FOUND") {
+      throw new DomainError("NOT_FOUND", LINE_NOT_FOUND);
+    }
+    throw error;
+  }
   assertOpen(quote);
   return { line, quote };
 }
@@ -131,7 +157,7 @@ export function updateQuoteLine(db: Db, actor: Actor, lineId: string, input: Quo
   const parsed = parseOrInvalid(quoteLineSchema, input);
   const { line, quote } = editableLine(db, actor, lineId);
   const next = resolveLine(db, actor, parsed);
-  const others = rawLines(db, actor, quote.id).filter((l) => l.id !== line.id);
+  const others = linesOf(db, actor, quote.id).filter((l) => l.id !== line.id);
   computeQuoteTotals([...others, next]);
   const ts = now();
   db.transaction((tx) => {
@@ -142,7 +168,7 @@ export function updateQuoteLine(db: Db, actor: Actor, lineId: string, input: Quo
       })
       .where(and(eq(quoteLineItems.id, line.id), eq(quoteLineItems.orgId, actor.orgId)))
       .run();
-    touch(tx as unknown as Db, actor, quote.id, ts);
+    stampQuote(tx as unknown as Db, actor, quote, ts);
   });
   const detail = getQuote(db, actor, quote.id);
   if (!detail) throw new DomainError("WRITE_FAILED", "Quote line was not persisted");
@@ -157,7 +183,7 @@ export function deleteQuoteLine(db: Db, actor: Actor, lineId: string): QuoteDeta
     tx.delete(quoteLineItems)
       .where(and(eq(quoteLineItems.id, line.id), eq(quoteLineItems.orgId, actor.orgId)))
       .run();
-    touch(tx as unknown as Db, actor, quote.id, ts);
+    stampQuote(tx as unknown as Db, actor, quote, ts);
   });
   const detail = getQuote(db, actor, quote.id);
   if (!detail) throw new DomainError("WRITE_FAILED", "Quote was not persisted");
