@@ -51,10 +51,11 @@ describe("contract dates and money", () => {
   it("parses money to integer cents and refuses bad values", () => {
     expect(parseContractValue("1,234.56")).toBe(123456);
     expect(parseContractValue("$0.10")).toBe(10);
-    expect(parseContractValue("0.105")).toBe(11);
+    expect(parseContractValue("1234.5")).toBe(123450);
+    expect(parseContractValue(" $1,000,000 ")).toBe(100000000);
     expect(parseContractValue("0")).toBe(0);
     expect(parseContractValue("10000000000")).toBe(VALUE_MAX_CENTS);
-    for (const bad of ["", "  ", "abc", "-1", "10000000000.01", "1e400"]) {
+    for (const bad of ["", "  ", "abc", "-1", "10000000000.01", "1e400", "0x10", "1e3", "1E2", "1.005", "0.105", "1,2,3", "12,34", ",123", "123,", "1,,000", "$-1", "-0.01", "1.", ".5", "$", "Infinity", "1 000"]) {
       expect(() => parseContractValue(bad)).toThrow(expect.objectContaining({ code: "INVALID_MONEY" }));
     }
     expect(() => parseContractValue(5 as unknown)).toThrow(expect.objectContaining({ code: "INVALID_MONEY" }));
@@ -94,7 +95,7 @@ describe("contracts (SALES-CONTRACT-001)", () => {
     }
     for (const termMonths of [0, -1, 121, 1.5, "12a", NaN]) expectRefused(db, mk({ termMonths }), "INVALID_VALUE");
     expectRefused(db, mk({ value: "" }), "INVALID_MONEY");
-    expectRefused(db, mk({ value: "-5" }), "INVALID_MONEY");
+    for (const value of ["-5", "0x10", "1e3", "1.005", "1,23", "12,,345", "   ", "\t"]) expectRefused(db, mk({ value }), "INVALID_MONEY");
     expectRefused(db, () => createContract(db, LOCAL_ACTOR, { ...base, accountId: "001MISSING" }), "NOT_FOUND", "001MISSING");
     expect(mk({ startDate: "2028-02-29", termMonths: 120, value: "10000000000" })().endDate).toBe("2038-02-27");
     const draft = mk({})();
@@ -114,6 +115,9 @@ describe("contracts (SALES-CONTRACT-001)", () => {
     expectRefused(db, () => createContract(db, viewer, { accountId: account.id, ...base }), "FORBIDDEN", account.id);
     expectRefused(db, () => setContractStatus(db, viewer, row.id, "Activated"), "FORBIDDEN", row.id);
     setContractStatus(db, LOCAL_ACTOR, row.id, "Activated");
+    // A legal move (Activated -> Expired) that needs no admin: only the account edit check stops the viewer.
+    expectRefused(db, () => setContractStatus(db, viewer, row.id, "Expired"), "FORBIDDEN", row.id, account.id);
+    expect(getContract(db, viewer, row.id)?.status).toBe("Activated");
     expect(setContractStatus(db, rep, row.id, "Expired").status).toBe("Expired");
   });
 

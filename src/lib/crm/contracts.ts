@@ -57,8 +57,16 @@ function parseTerm(raw: unknown): number {
   return n;
 }
 
+/** Plain dollars only: optional $, digits (commas only as 3-digit groups), at most 2 decimals. */
+const STRICT_USD = /^\$?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?$/;
+
 export function parseContractValue(raw: unknown): number {
-  const cents = parseUsdToCents(typeof raw === "string" ? raw : undefined);
+  const text = typeof raw === "string" ? raw.trim() : "";
+  if (text === "") throw new DomainError("INVALID_MONEY", "Contract value is required");
+  if (!STRICT_USD.test(text)) {
+    throw new DomainError("INVALID_MONEY", "Contract value must be a plain amount like 1234.56");
+  }
+  const cents = parseUsdToCents(text);
   if (cents === undefined) throw new DomainError("INVALID_MONEY", "Contract value is required");
   if (cents > VALUE_MAX_CENTS) throw new DomainError("INVALID_MONEY", "Contract value is too large");
   return cents;
