@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { requireActor } from "@/lib/crm/currentUser";
 import { recordLabel } from "@/lib/crm/objects";
-import { listDeletedRecords } from "@/lib/crm/recycle";
+import { canPurge, listDeletedRecords } from "@/lib/crm/recycle";
 import { getDb } from "@/lib/db/client";
-import { undeleteAction } from "./actions";
+import { purgeAction, undeleteAction } from "./actions";
 
 export default async function RecyclePage({
   searchParams,
@@ -12,14 +12,17 @@ export default async function RecyclePage({
 }) {
   const { notice } = await searchParams;
   const actor = await requireActor();
-  const rows = listDeletedRecords(getDb(), actor);
+  const db = getDb();
+  const rows = listDeletedRecords(db, actor);
+  const purgeAllowed = canPurge(db, actor);
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Recycle Bin</h1>
         <p className="mt-1 max-w-2xl text-sm text-[#5c564c]">
           Undelete restores a record you are allowed to delete. Tasks deleted
-          with a parent stay deleted. There is no empty-bin action.
+          with a parent stay deleted. Organization admins can purge a record,
+          which removes it permanently.
         </p>
         {notice ? (
           <p className="mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">{notice}</p>
@@ -50,6 +53,15 @@ export default async function RecyclePage({
                         Undelete
                       </button>
                     </form>
+                    {purgeAllowed ? (
+                      <form action={purgeAction} className="mt-1">
+                        <input type="hidden" name="objectType" value={row.objectType} />
+                        <input type="hidden" name="id" value={row.id} />
+                        <button type="submit" className="text-sm text-red-700 hover:underline">
+                          Purge permanently
+                        </button>
+                      </form>
+                    ) : null}
                   </td>
                 </tr>
               ))}

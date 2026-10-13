@@ -16,7 +16,7 @@ describe("quotes migration", () => {
     const stop = journal.entries.findIndex((entry) => entry.tag.endsWith("_quotes"));
     expect(stop).toBeGreaterThan(0);
     const prior = journal.entries.slice(0, stop);
-    expect(prior.at(-1)?.tag).toBe("0020_opportunity_line_items");
+    expect(prior.at(-1)?.tag).toBe("0053_campaign_members");
     const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-quotes-"));
     const sqlite = new Database(path.join(dir, "rex.sqlite"));
     try {
