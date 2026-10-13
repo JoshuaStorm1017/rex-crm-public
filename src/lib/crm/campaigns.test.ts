@@ -185,6 +185,33 @@ describe("campaigns", () => {
     expectRefused(db, () => deleteCampaign(db, riley, owned.id), "NOT_FOUND");
   });
 
+  it("refuses delete to an owner whose profile can edit but not delete, changing no rows", () => {
+    const db = memory();
+    const riley = actorFor(RILEY_USER_ID);
+    const owned = createCampaign(db, riley, { name: "Riley Mailer" });
+    const editNoDelete = createProfile(db, LOCAL_ACTOR, "Edit No Delete");
+    setObjectPermission(db, LOCAL_ACTOR, editNoDelete, "lead", {
+      canCreate: true,
+      canRead: true,
+      canUpdate: true,
+      canDelete: false,
+    });
+    assignProfile(db, LOCAL_ACTOR, RILEY_USER_ID, editNoDelete);
+    expect(updateCampaign(db, riley, owned.id, { name: "Riley Mailer II" }).name).toBe("Riley Mailer II");
+    expectRefused(db, () => deleteCampaign(db, riley, owned.id), "FORBIDDEN");
+    expect(getCampaign(db, riley, owned.id)?.deletedAt ?? null).toBeNull();
+  });
+
+  it("saves a new budget on update and keeps the old one when budget is omitted", () => {
+    const db = memory();
+    const created = createCampaign(db, LOCAL_ACTOR, SPRING);
+    const rebudgeted = updateCampaign(db, LOCAL_ACTOR, created.id, { name: SPRING.name, budgetCents: 410000 });
+    expect(rebudgeted.budgetCents).toBe(410000);
+    const kept = updateCampaign(db, LOCAL_ACTOR, created.id, { name: "Renamed Fair" });
+    expect(kept.budgetCents).toBe(410000);
+    expect(getCampaign(db, LOCAL_ACTOR, created.id)?.budgetCents).toBe(410000);
+  });
+
   it("does not add or show a lead the actor cannot see through sharing", () => {
     const db = memory();
     setOrgWideDefault(db, LOCAL_ACTOR, "lead", "private", false);
