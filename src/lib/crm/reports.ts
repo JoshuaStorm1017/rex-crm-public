@@ -11,7 +11,7 @@ import {
   users,
 } from "../db/schema";
 import type { Actor } from "./actor";
-import { assertActor } from "./actor";
+import { assertActor, isCurrentOrgAdmin } from "./actor";
 import { assertCanPerform, canReadField } from "./permissions";
 import { readRestrictionSql } from "./sharing";
 import {
@@ -842,10 +842,22 @@ export function updateReport(
   return updated;
 }
 
+/**
+ * Any org member can see a report, but only its owner or a current-org
+ * admin may delete it. Visible but not allowed is FORBIDDEN; another org
+ * or a missing report is NOT_FOUND.
+ */
 export function deleteReport(db: Db, actor: Actor, id: string): void {
   assertActor(db, actor);
-  if (!getReport(db, actor, id)) {
+  const report = getReport(db, actor, id);
+  if (!report) {
     throw new DomainError("NOT_FOUND", "Report not found");
+  }
+  if (report.ownerId !== actor.userId && !isCurrentOrgAdmin(db, actor)) {
+    throw new DomainError(
+      "FORBIDDEN",
+      "Only the report owner or an organization admin can delete this report",
+    );
   }
   const ts = now();
   db.update(reports)
