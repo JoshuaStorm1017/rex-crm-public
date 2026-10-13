@@ -246,14 +246,6 @@ export function assertOpen(quote: Quote) {
   }
 }
 
-/** Stamps updatedAt/updatedBy with server time. Callers must pass an id from editableQuote. */
-function touch(db: Db, actor: Actor, quoteId: string, fields: Partial<Pick<Quote, "name" | "status" | "expirationDate">> = {}) {
-  db.update(quotes)
-    .set({ ...fields, updatedAt: now(), updatedBy: actor.userId })
-    .where(and(eq(quotes.id, quoteId), eq(quotes.orgId, actor.orgId)))
-    .run();
-}
-
 export function updateQuote(db: Db, actor: Actor, id: string, input: QuoteUpdateInput): QuoteDetail {
   assertActor(db, actor);
   const parsed = parseOrInvalid(quoteUpdateSchema, input);
@@ -262,18 +254,22 @@ export function updateQuote(db: Db, actor: Actor, id: string, input: QuoteUpdate
     parsed.status !== undefined &&
     !(CLOSED_QUOTE_STATUSES as readonly string[]).includes(parsed.status);
   if (!reopening) assertOpen(quote);
-  touch(db, actor, quote.id, {
-    ...(parsed.name !== undefined ? { name: parsed.name } : {}),
-    ...(parsed.status !== undefined ? { status: parsed.status } : {}),
-    ...(parsed.expirationDate !== undefined ? { expirationDate: parsed.expirationDate } : {}),
-  });
+  db.update(quotes)
+    .set({
+      ...(parsed.name !== undefined ? { name: parsed.name } : {}),
+      ...(parsed.status !== undefined ? { status: parsed.status } : {}),
+      ...(parsed.expirationDate !== undefined ? { expirationDate: parsed.expirationDate } : {}),
+      updatedAt: now(),
+      updatedBy: actor.userId,
+    })
+    .where(and(eq(quotes.id, quote.id), eq(quotes.orgId, actor.orgId)))
+    .run();
   const updated = getQuote(db, actor, id);
   if (!updated) throw new DomainError("WRITE_FAILED", "Quote was not persisted");
   return updated;
 }
 
 export function deleteQuote(db: Db, actor: Actor, id: string): void {
-  assertActor(db, actor);
   const quote = editableQuote(db, actor, id);
   db.transaction((tx) => {
     tx.delete(quoteLineItems)

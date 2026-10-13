@@ -358,7 +358,7 @@ describe("quote org filters (forged cross-org rows)", () => {
     expect(before.map((q) => q.id).sort()).toEqual([forged, theirs.id].sort());
   });
 
-  it("touch stamps server time, not a caller value", () => {
+  it("updateQuote stamps server time, not a caller value", () => {
     const { db, quote } = setup();
     const t0 = Date.now();
     const updated = updateQuote(db, LOCAL_ACTOR, quote.id, {});
