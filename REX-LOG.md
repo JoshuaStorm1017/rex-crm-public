@@ -1,5 +1,24 @@
 # Rex log
 
+## 2026-10-12 22:55 EDT
+
+Team Q, PLAT-META-010 recycle bin. Main already lists and undeletes
+(`recycle.ts`, re-checks sharing and delete access). This adds the gap:
+`purgeRecord` permanently deletes a soft-deleted account, contact, lead,
+opportunity or task. Only modify-all org admins may purge (FORBIDDEN
+otherwise, including a member's own record); live, unknown, or other-org
+rows are NOT_FOUND; suspended orgs are refused by `assertActor`. A record
+that any row (live or deleted) still references is refused with
+`HAS_CHILDREN`. Recently-viewed and custom field values for it are removed
+in the same transaction. No audit table exists, so purge is not audited.
+No migration: existing `deleted_at` columns are used. Purge button on
+`/recycle` for admins only.
+
+New `recycle.purge.test.ts` (7 tests) and two `purgeAction` tests.
+Mutation: 9/9 killed (admin gate, org filter, deleted filter, dependents
+check, assertActor, canPurge, recently-viewed cleanup, task and contact
+dependent checks).
+
 ## 2026-10-12 18:50 EDT
 
 Rex Reviewer's non-blocking finding: deleting a parent skipped related

@@ -1,8 +1,17 @@
 import { and, eq, isNotNull } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { accounts, contacts, leads, opportunities, tasks } from "../db/schema";
+import {
+  accounts,
+  contacts,
+  customFieldValues,
+  leads,
+  opportunities,
+  opportunityContactRoles,
+  recentlyViewed,
+  tasks,
+} from "../db/schema";
 import type { Actor } from "./actor";
-import { assertActor } from "./actor";
+import { assertActor, hasModifyAllData } from "./actor";
 import { RECORD_OBJECT_TYPES, type RecordObjectType } from "./constants";
 import { DomainError } from "./errors";
 import { assertCanAccessRecord, canAccessRecord, canPerform } from "./permissions";
@@ -143,4 +152,91 @@ function restore(
     .set({ deletedAt: null, updatedAt: ts })
     .where(and(eq(table.id, id), eq(table.orgId, actor.orgId)))
     .run();
+}
+
+type RecordTable =
+  | typeof accounts
+  | typeof contacts
+  | typeof leads
+  | typeof opportunities
+  | typeof tasks;
+
+function tableFor(objectType: RecordObjectType): RecordTable {
+  if (objectType === "account") return accounts;
+  if (objectType === "contact") return contacts;
+  if (objectType === "lead") return leads;
+  if (objectType === "opportunity") return opportunities;
+  return tasks;
+}
+
+/** Any row, live or deleted, that still points at this record. */
+function hasDependents(db: Db, objectType: RecordObjectType, id: string): boolean {
+  const refs: Array<() => unknown> = [
+    () => db.select({ id: tasks.id }).from(tasks).where(eq(tasks.relatedRecordId, id)).get(),
+  ];
+  if (objectType === "account") {
+    refs.push(
+      () => db.select({ id: accounts.id }).from(accounts).where(eq(accounts.parentAccountId, id)).get(),
+      () => db.select({ id: contacts.id }).from(contacts).where(eq(contacts.accountId, id)).get(),
+      () => db.select({ id: opportunities.id }).from(opportunities).where(eq(opportunities.accountId, id)).get(),
+      () => db.select({ id: leads.id }).from(leads).where(eq(leads.convertedAccountId, id)).get(),
+    );
+  } else if (objectType === "contact") {
+    refs.push(
+      () => db.select({ id: contacts.id }).from(contacts).where(eq(contacts.reportsToId, id)).get(),
+      () => db.select({ id: leads.id }).from(leads).where(eq(leads.convertedContactId, id)).get(),
+      () =>
+        db.select({ id: opportunityContactRoles.id }).from(opportunityContactRoles)
+          .where(eq(opportunityContactRoles.contactId, id)).get(),
+    );
+  } else if (objectType === "opportunity") {
+    refs.push(
+      () => db.select({ id: leads.id }).from(leads).where(eq(leads.convertedOpportunityId, id)).get(),
+      () =>
+        db.select({ id: opportunityContactRoles.id }).from(opportunityContactRoles)
+          .where(eq(opportunityContactRoles.opportunityId, id)).get(),
+    );
+  }
+  return refs.some((ref) => ref() !== undefined);
+}
+
+/**
+ * Permanently remove a record from the recycle bin. Only an actor with
+ * modify-all data in this org may purge. Live records, other orgs' rows and
+ * unknown ids are NOT_FOUND. A record that anything still references is
+ * refused with HAS_CHILDREN; purge those first.
+ */
+export function purgeRecord(db: Db, actor: Actor, objectType: string, id: string): void {
+  assertActor(db, actor);
+  if (!hasModifyAllData(db, actor)) {
+    throw new DomainError("FORBIDDEN", "Only an organization admin can purge records");
+  }
+  if (!isObjectType(objectType)) {
+    throw new DomainError("NOT_FOUND", "Record not found");
+  }
+  const table = tableFor(objectType);
+  db.transaction((tx) => {
+    const existing = tx
+      .select({ id: table.id, deletedAt: table.deletedAt })
+      .from(table)
+      .where(and(eq(table.id, id), eq(table.orgId, actor.orgId), isNotNull(table.deletedAt)))
+      .get();
+    if (!existing) throw new DomainError("NOT_FOUND", "Record not found");
+    if (hasDependents(tx as unknown as Db, objectType, id)) {
+      throw new DomainError("HAS_CHILDREN", "Purge the records that reference this one first");
+    }
+    tx.delete(recentlyViewed)
+      .where(and(eq(recentlyViewed.recordId, id), eq(recentlyViewed.orgId, actor.orgId)))
+      .run();
+    tx.delete(customFieldValues)
+      .where(and(eq(customFieldValues.recordId, id), eq(customFieldValues.orgId, actor.orgId)))
+      .run();
+    tx.delete(table)
+      .where(and(eq(table.id, id), eq(table.orgId, actor.orgId), isNotNull(table.deletedAt)))
+      .run();
+  });
+}
+
+export function canPurge(db: Db, actor: Actor): boolean {
+  return hasModifyAllData(db, actor);
 }

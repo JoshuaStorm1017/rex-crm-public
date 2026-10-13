@@ -191,7 +191,7 @@ tracks the gap. It does not block other rows.
 - **Source:** Data import wizard, data loader behavior, duplicate rules, merge, recycle bin.
 - **Expected:** CSV import creates records or reports row errors. Export of a list is the same rows the user can read. Duplicate rules block or warn. Merge keeps one survivor and reparents children. Recycle bin restores a soft-deleted record and its children that were deleted with it.
 - **Dependencies:** PLAT-ORG-001, IAM-ENFORCE-001.
-- **Status:** PARTIAL. `deleted_at` is written and filtered. Report CSV export works for reports. No recycle UI, undelete, import, duplicate rules, or merge.
+- **Status:** PARTIAL. `deleted_at` is written and filtered. Report CSV export works for reports. Recycle Bin (`/recycle`) lists and undeletes records the actor may delete; org admins with modify-all can purge a deleted record permanently (refused with HAS_CHILDREN while anything references it). No import or merge.
 - **Implementation:** delete paths in domain modules; `src/app/(crm)/reports/[id]/export/route.ts`.
 - **Acceptance:** Delete an account with no children, see it in the recycle bin, restore it, confirm tasks come back.
 - **Latest:** not run for restore.
