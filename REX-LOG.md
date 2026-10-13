@@ -3,9 +3,10 @@
 ## 2026-10-13 18:45 EDT
 
 Docs-only follow-up on fresh main 9af1c19, branch `rex/docs-review-rules`.
-- CODING-STANDARDS §7: `package.json` and lockfiles named as needing all three verdicts, never the fast lane; #39's template change still needs a full review.
+- CODING-STANDARDS §7: `package.json` and lockfiles named as needing all three verdicts, never the fast lane; the PR template as of #44 (including #39's and #44's edits) still needs its full three-review pass.
 - docs/ci.md: any push voids earlier gates (verdicts, mutation, CI are per head SHA); mutation bar (70%+ killed, every security and money mutant killed; equivalence only when reviewers propose and independently verify it); `.github/` changes need code, security and mutation reviews.
-- #44's PR body test count: checked; it already reads 1193/1193 (101 files), so no PATCH was made.
+- #44 merged at 1200/1200 across 102 files. Its PR body said 1193/1193 (101 files), which was incorrect (1193 was the count after #27); the body was corrected to 1200/1200 in 102 files.
+- Gate name used consistently as `mutation` (was `mutation/process`) in CODING-STANDARDS §7 and docs/ci.md.
 - No `.github/` files changed.
 
 ## 2026-10-13 12:25 EDT

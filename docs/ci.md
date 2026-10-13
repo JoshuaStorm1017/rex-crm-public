@@ -32,7 +32,7 @@ The docs-only check sorts PRs; it never rejects them. Any doubt means the full p
 
 A PR that changes anything under `.github/`, `package.json` or a lockfile is never in the
 fast lane, even if the changed files are `.md`. A `.github/` change needs all three reviews
-(code, security, mutation/process) at the current head SHA before merge.
+(code, security, mutation) at the current head SHA before merge.
 
 If the docs-only job reports `true`, the PR needs only:
 
@@ -61,5 +61,5 @@ the reviewers verify it independently. The author's own claim of equivalence is 
 ## `.github/` changes
 
 Any change under `.github/` needs all three reviews (code, security, mutation) at the current
-head SHA. Do not change `.github/workflows/*` from the bot (no workflow scope). #39's PR
-template change still needs a full three-review pass.
+head SHA. Do not change `.github/workflows/*` from the bot (no workflow scope). The PR template
+as of #44 (including #39's and #44's edits) still needs its full three-review pass.
