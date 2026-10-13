@@ -5,7 +5,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
-import { accounts, cases, organizations } from "../db/schema";
+import { accounts, cases, organizations, users } from "../db/schema";
 import { LOCAL_ACTOR, actorFor, type Actor } from "./actor";
 import { createAccount } from "./accounts";
 import { canMoveCase, createCase, getCase, listCases, setCaseStatus } from "./cases";
@@ -178,6 +178,72 @@ describe("cases (SVC-CASE-001)", () => {
       expectRefused(db, () => listCases(db, actor), "FORBIDDEN");
     }
     expect(db.select().from(cases).where(eq(cases.id, row.id)).get()?.status).toBe("New");
+  });
+
+  describe("refuses inactive or outside actors on every read with FORBIDDEN (existing and unknown ids)", () => {
+    const UNKNOWN_CASE_ID = "500000000000000UNKNOWN";
+    type Made = { actor: Actor; caseId?: string };
+    const actorCases: Array<[string, (db: Db) => Made]> = [
+      ["a non-member of the org", (db) => ({ actor: actorFor(user(db, "case_outsider").id) })],
+      [
+        "a deleted user",
+        (db) => {
+          const actor = member(db, "case_deleted");
+          db.update(users).set({ deletedAt: Date.now() }).where(eq(users.id, actor.userId)).run();
+          return { actor };
+        },
+      ],
+      [
+        "a disabled user",
+        (db) => {
+          const actor = member(db, "case_disabled_read");
+          disableUser(db, actor.userId);
+          return { actor };
+        },
+      ],
+      [
+        "a disabled user (no login)",
+        (db) => {
+          const actor = member(db, "case_nologin");
+          db.update(users).set({ username: null, passwordHash: null }).where(eq(users.id, actor.userId)).run();
+          return { actor };
+        },
+      ],
+      [
+        "a user in a suspended org",
+        (db) => {
+          const owner = user(db, "case_susp_owner");
+          const org = createOrganization(db, "Suspended Spindle Co", owner.id);
+          const actor = actorFor(owner.id, org.id);
+          const acct = createAccount(db, actor, { name: "Spindle Supply" });
+          const own = createCase(db, actor, { accountId: acct.id, subject: "Spindle snapped" });
+          db.update(organizations).set({ status: "suspended" }).where(eq(organizations.id, org.id)).run();
+          return { actor, caseId: own.id };
+        },
+      ],
+      [
+        "an outside-org owner reading into this org",
+        (db) => {
+          const owner = user(db, "case_other_owner");
+          createOrganization(db, "Other Widgets Org", owner.id);
+          return { actor: actorFor(owner.id, LOCAL_ORG_ID) };
+        },
+      ],
+    ];
+
+    for (const [label, make] of actorCases) {
+      it(`refuses listCases and getCase for ${label}`, () => {
+        const { db } = openMemoryDb();
+        const account = createAccount(db, LOCAL_ACTOR, { name: "Acme Anvils" });
+        const row = createCase(db, LOCAL_ACTOR, { accountId: account.id, subject: "Anvil dropped" });
+        const made = make(db);
+        const caseId = made.caseId ?? row.id;
+        expectRefused(db, () => listCases(db, made.actor), "FORBIDDEN");
+        expectRefused(db, () => getCase(db, made.actor, caseId), "FORBIDDEN");
+        expectRefused(db, () => getCase(db, made.actor, UNKNOWN_CASE_ID), "FORBIDDEN");
+        expectRefused(db, () => setCaseStatus(db, made.actor, UNKNOWN_CASE_ID, "Working"), "FORBIDDEN");
+      });
+    }
   });
 
   it("0029_cases upgrades a database that stopped at the migration before it", () => {
