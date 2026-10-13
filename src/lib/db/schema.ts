@@ -408,6 +408,9 @@ export const assignmentRules = sqliteTable(
       .references(() => users.id),
     sortOrder: integer("sort_order").notNull().default(1),
     criteria: text("criteria").notNull(),
+    assignMode: text("assign_mode").notNull().default("user"),
+    poolUserIds: text("pool_user_ids").notNull().default("[]"),
+    rrCursor: integer("rr_cursor").notNull().default(0),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
     createdBy: text("created_by").notNull(),
@@ -714,6 +717,22 @@ export const opportunityLineItems = sqliteTable(
   (table) => [
     index("opportunity_line_items_org_opp_idx").on(table.orgId, table.opportunityId),
   ],
+);
+
+export const approvalRequests = sqliteTable(
+  "approval_requests",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    opportunityId: text("opportunity_id").notNull(),
+    submittedBy: text("submitted_by").notNull(),
+    status: text("status").notNull(),
+    comment: text("comment").notNull().default(""),
+    decidedBy: text("decided_by"),
+    createdAt: integer("created_at").notNull(),
+    decidedAt: integer("decided_at"),
+  },
+  (t) => [index("approval_requests_org_opp_idx").on(t.orgId, t.opportunityId)],
 );
 
 export const dashboards = sqliteTable(

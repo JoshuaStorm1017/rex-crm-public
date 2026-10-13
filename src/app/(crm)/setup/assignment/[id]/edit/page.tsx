@@ -35,6 +35,8 @@ export default async function EditAssignmentRulePage({
           assignToId={rule.assignToId}
           sortOrder={rule.sortOrder}
           criteria={rule.criteria}
+          mode={rule.mode}
+          poolUserIds={rule.poolUserIds}
         />
       </div>
     </div>

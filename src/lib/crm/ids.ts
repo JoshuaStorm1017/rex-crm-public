@@ -32,6 +32,7 @@ export const ID_PREFIX = {
   role: "00E",
   sharingRule: "0sr",
   activity: "00U",
+  approvalRequest: "04g",
 } as const;
 
 export type IdPrefix = (typeof ID_PREFIX)[keyof typeof ID_PREFIX];

@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "aacc9b6d-272f-4a49-a081-c7781089eae1",
-  "prevId": "49639a65-08bd-4dc8-895e-00cb589f6c3a",
+  "id": "494c98e8-06d8-4d15-9e38-791e5dbdf87d",
+  "prevId": "7ec84cdb-cb43-46f3-965c-f53d82f0a4ef",
   "tables": {
     "accounts": {
       "name": "accounts",
@@ -239,8 +239,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "activities": {
-      "name": "activities",
+    "approval_requests": {
+      "name": "approval_requests",
       "columns": {
         "id": {
           "name": "id",
@@ -256,53 +256,40 @@
           "notNull": true,
           "autoincrement": false
         },
-        "parent_type": {
-          "name": "parent_type",
+        "opportunity_id": {
+          "name": "opportunity_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "parent_id": {
-          "name": "parent_id",
+        "submitted_by": {
+          "name": "submitted_by",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "kind": {
-          "name": "kind",
+        "status": {
+          "name": "status",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "subject": {
-          "name": "subject",
+        "comment": {
+          "name": "comment",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": false,
+          "default": "''"
         },
-        "notes": {
-          "name": "notes",
+        "decided_by": {
+          "name": "decided_by",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false
-        },
-        "occurred_at": {
-          "name": "occurred_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "logged_by": {
-          "name": "logged_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
           "autoincrement": false
         },
         "created_at": {
@@ -311,35 +298,26 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "decided_at": {
+          "name": "decided_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
-        "activities_org_parent_idx": {
-          "name": "activities_org_parent_idx",
+        "approval_requests_org_opp_idx": {
+          "name": "approval_requests_org_opp_idx",
           "columns": [
             "org_id",
-            "parent_type",
-            "parent_id",
-            "occurred_at"
+            "opportunity_id"
           ],
           "isUnique": false
         }
       },
-      "foreignKeys": {
-        "activities_logged_by_users_id_fk": {
-          "name": "activities_logged_by_users_id_fk",
-          "tableFrom": "activities",
-          "tableTo": "users",
-          "columnsFrom": [
-            "logged_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
@@ -455,6 +433,30 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "assign_mode": {
+          "name": "assign_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'user'"
+        },
+        "pool_user_ids": {
+          "name": "pool_user_ids",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "rr_cursor": {
+          "name": "rr_cursor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         }
       },
       "indexes": {
