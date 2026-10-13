@@ -360,6 +360,43 @@ describe("quote line isolation and permissions", () => {
 });
 
 describe("quote line writes stay scoped to their own quote and org", () => {
+  function twoQuotesWithLines() {
+    const { db, opp, quote: a } = setup();
+    const b = createQuote(db, LOCAL_ACTOR, { opportunityId: opp.id, name: "Anvil Quote B" });
+    const add = (quoteId: string, description: string) =>
+      addQuoteLine(db, LOCAL_ACTOR, quoteId, { description, quantity: 1, unitPriceCents: 100 });
+    const target = add(a.id, "A target").lines[0]!;
+    add(a.id, "A other 1");
+    add(a.id, "A other 2");
+    add(b.id, "B line 1");
+    add(b.id, "B line 2");
+    const linesFor = (quoteId: string) =>
+      db.select().from(quoteLineItems).where(eq(quoteLineItems.quoteId, quoteId)).all();
+    const aOthers = () => linesFor(a.id).filter((l) => l.id !== target.id);
+    return { db, a, b, target, aOthers, bLines: () => linesFor(b.id) };
+  }
+
+  it("L-update: updating one line leaves quote A's other lines and all of quote B's lines unchanged", () => {
+    const { db, target, aOthers, bLines } = twoQuotesWithLines();
+    const beforeA = aOthers();
+    const beforeB = bLines();
+    expect(beforeA).toHaveLength(2);
+    expect(beforeB).toHaveLength(2);
+    updateQuoteLine(db, LOCAL_ACTOR, target.id, { description: "A target edited", quantity: 7, unitPriceCents: 333 });
+    expect(aOthers()).toEqual(beforeA);
+    expect(bLines()).toEqual(beforeB);
+  });
+
+  it("L-delete: deleting one line leaves quote A's other lines and all of quote B's lines unchanged", () => {
+    const { db, target, aOthers, bLines } = twoQuotesWithLines();
+    const beforeA = aOthers();
+    const beforeB = bLines();
+    deleteQuoteLine(db, LOCAL_ACTOR, target.id);
+    expect(db.select().from(quoteLineItems).where(eq(quoteLineItems.id, target.id)).all()).toHaveLength(0);
+    expect(aOthers()).toEqual(beforeA);
+    expect(bLines()).toEqual(beforeB);
+  });
+
   it("adding, updating and deleting a line on quote A leaves quote B's row unchanged", () => {
     const { db, opp, quote: a } = setup();
     const b = createQuote(db, LOCAL_ACTOR, { opportunityId: opp.id, name: "Anvil Quote B" });
