@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
-import { contracts } from "../db/schema";
+import { eq } from "drizzle-orm";
+import { accounts, contracts, organizations } from "../db/schema";
 import { LOCAL_ACTOR, actorFor, type Actor } from "./actor";
 import { createAccount } from "./accounts";
 import { LOCAL_ORG_ID } from "./constants";
@@ -11,7 +12,7 @@ import { DomainError } from "./errors";
 import { addMember, createOrganization } from "./orgs";
 import { createProfile, setObjectPermission } from "./profiles";
 import { setOrgWideDefault } from "./sharing";
-import { createUser } from "./users";
+import { createUser, disableUser } from "./users";
 
 const user = (db: Db, username: string) =>
   createUser(db, { name: username, email: `${username}@example.invalid`, username, password: "long-enough" });
@@ -157,6 +158,43 @@ describe("contracts (SALES-CONTRACT-001)", () => {
     expect(listContracts(db, LOCAL_ACTOR).map((c) => c.id)).toEqual([row.id]);
     expectRefused(db, () => setContractStatus(db, LOCAL_ACTOR, `${row.id}Y`, "Activated"), "NOT_FOUND", row.id);
     expectRefused(db, () => setContractStatus(db, other, `${row.id}Y`, "Activated"), "NOT_FOUND", row.id);
+  });
+
+  it("refuses a disabled user and members of a suspended org, writing nothing", () => {
+    const { db } = openMemoryDb();
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Bluth Company" });
+    const row = createContract(db, LOCAL_ACTOR, { accountId: account.id, ...base });
+    const u = user(db, "contract_disabled");
+    addMember(db, LOCAL_ORG_ID, u.id, "admin");
+    const disabled = actorFor(u.id);
+    expect(listContracts(db, disabled).map((c) => c.id)).toEqual([row.id]);
+    disableUser(db, u.id);
+    expectRefused(db, () => getContract(db, disabled, row.id), "FORBIDDEN");
+    expectRefused(db, () => listContracts(db, disabled), "FORBIDDEN");
+    expectRefused(db, () => createContract(db, disabled, { accountId: account.id, ...base }), "FORBIDDEN");
+    expectRefused(db, () => setContractStatus(db, disabled, row.id, "Activated"), "FORBIDDEN");
+
+    const active = member(db, "contract_suspended_org");
+    db.update(organizations).set({ status: "suspended" }).where(eq(organizations.id, LOCAL_ORG_ID)).run();
+    for (const actor of [active, LOCAL_ACTOR]) {
+      expectRefused(db, () => getContract(db, actor, row.id), "FORBIDDEN");
+      expectRefused(db, () => listContracts(db, actor), "FORBIDDEN");
+      expectRefused(db, () => createContract(db, actor, { accountId: account.id, ...base }), "FORBIDDEN");
+      expectRefused(db, () => setContractStatus(db, actor, row.id, "Activated"), "FORBIDDEN");
+    }
+    expect(db.select().from(contracts).where(eq(contracts.id, row.id)).get()?.status).toBe("Draft");
+  });
+
+  it("hides contracts on a soft-deleted account and refuses writes to it", () => {
+    const { db } = openMemoryDb();
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Sitwell Enterprises" });
+    const row = createContract(db, LOCAL_ACTOR, { accountId: account.id, ...base });
+    db.update(accounts).set({ deletedAt: Date.now() }).where(eq(accounts.id, account.id)).run();
+    expect(getContract(db, LOCAL_ACTOR, row.id)).toBeUndefined();
+    expect(listContracts(db, LOCAL_ACTOR)).toEqual([]);
+    expectRefused(db, () => setContractStatus(db, LOCAL_ACTOR, row.id, "Activated"), "NOT_FOUND", account.id);
+    expectRefused(db, () => createContract(db, LOCAL_ACTOR, { accountId: account.id, ...base }), "NOT_FOUND", account.id);
+    expect(db.select().from(contracts).where(eq(contracts.id, row.id)).get()?.status).toBe("Draft");
   });
 
   it("0030_contracts upgrades a database that stopped at the migration before it", () => {
