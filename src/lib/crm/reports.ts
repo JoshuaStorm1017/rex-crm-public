@@ -780,11 +780,7 @@ export function updateReport(
   id: string,
   input: ReportUpdateInput,
 ): Report {
-  assertActor(db, actor);
-  const existing = getReport(db, actor, id);
-  if (!existing) {
-    throw new DomainError("NOT_FOUND", "Report not found");
-  }
+  const existing = getManageableReport(db, actor, id, "edit");
   const parsed = reportUpdateSchema.parse(input);
   if (parsed.objectType && parsed.objectType !== existing.objectType) {
     throw new DomainError(
@@ -844,10 +840,16 @@ export function updateReport(
 
 /**
  * Any org member can see a report, but only its owner or a current-org
- * admin may delete it. Visible but not allowed is FORBIDDEN; another org
- * or a missing report is NOT_FOUND.
+ * admin may edit or delete it. Visible but not allowed is FORBIDDEN; another
+ * org or a missing report is NOT_FOUND. Inactive orgs and removed members
+ * are refused by assertActor.
  */
-export function deleteReport(db: Db, actor: Actor, id: string): void {
+function getManageableReport(
+  db: Db,
+  actor: Actor,
+  id: string,
+  verb: "edit" | "delete",
+): Report {
   assertActor(db, actor);
   const report = getReport(db, actor, id);
   if (!report) {
@@ -856,9 +858,14 @@ export function deleteReport(db: Db, actor: Actor, id: string): void {
   if (report.ownerId !== actor.userId && !isCurrentOrgAdmin(db, actor)) {
     throw new DomainError(
       "FORBIDDEN",
-      "Only the report owner or an organization admin can delete this report",
+      `Only the report owner or an organization admin can ${verb} this report`,
     );
   }
+  return report;
+}
+
+export function deleteReport(db: Db, actor: Actor, id: string): void {
+  getManageableReport(db, actor, id, "delete");
   const ts = now();
   db.update(reports)
     .set({ deletedAt: ts, updatedAt: ts })

@@ -86,13 +86,11 @@ describe("report delete needs owner or org admin", () => {
     refused(s, () => deleteReport(s.db, actorFor(user.id, LOCAL_ORG_ID), theirs.id), "FORBIDDEN");
   });
 
-  it("still lets a member edit a report they cannot delete", () => {
+  it("refuses a member editing a report they cannot delete", () => {
     const s = setup();
     const theirs = report(s.db, LOCAL_ACTOR, "Operator Accounts");
-    const edited = updateReport(s.db, RILEY, theirs.id, { name: "Operator Accounts v2" });
-    expect(edited.name).toBe("Operator Accounts v2");
+    refused(s, () => updateReport(s.db, RILEY, theirs.id, { name: "Operator Accounts v2" }), "FORBIDDEN");
     refused(s, () => deleteReport(s.db, RILEY, theirs.id), "FORBIDDEN");
-    expect(getReport(s.db, RILEY, theirs.id)?.name).toBe("Operator Accounts v2");
   });
 
   it("refuses a missing report with NOT_FOUND", () => {
