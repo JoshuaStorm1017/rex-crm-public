@@ -103,16 +103,18 @@ function stampQuote(tx: Db, actor: Actor, quote: Quote, ts: number): void {
 export function addQuoteLine(db: Db, actor: Actor, quoteId: string, input: QuoteLineInput): QuoteDetail {
   assertActor(db, actor);
   const parsed = parseOrInvalid(quoteLineSchema, input);
-  const quote = editableQuote(db, actor, quoteId);
-  assertOpen(quote);
-  const line = resolveLine(db, actor, parsed);
-  const existing = linesOf(db, actor, quote.id);
-  if (existing.length >= MAX_LINES_PER_QUOTE) {
-    throw new DomainError("INVALID_INPUT", `A quote can have at most ${MAX_LINES_PER_QUOTE} lines`);
-  }
-  computeQuoteTotals([...existing, line]);
-  const ts = now();
-  db.transaction((tx) => {
+  // Gate, reads and writes share one transaction, so the check and the write happen together.
+  const id = db.transaction((txRaw) => {
+    const tx = txRaw as unknown as Db;
+    const quote = editableQuote(tx, actor, quoteId);
+    assertOpen(quote);
+    const line = resolveLine(tx, actor, parsed);
+    const existing = linesOf(tx, actor, quote.id);
+    if (existing.length >= MAX_LINES_PER_QUOTE) {
+      throw new DomainError("INVALID_INPUT", `A quote can have at most ${MAX_LINES_PER_QUOTE} lines`);
+    }
+    computeQuoteTotals([...existing, line]);
+    const ts = now();
     tx.insert(quoteLineItems)
       .values({
         id: newId(ID_PREFIX.quoteLineItem),
@@ -124,13 +126,15 @@ export function addQuoteLine(db: Db, actor: Actor, quoteId: string, input: Quote
         updatedAt: ts,
       })
       .run();
-    stampQuote(tx as unknown as Db, actor, quote, ts);
+    stampQuote(tx, actor, quote, ts);
+    return quote.id;
   });
-  const detail = getQuote(db, actor, quote.id);
+  const detail = getQuote(db, actor, id);
   if (!detail) throw new DomainError("WRITE_FAILED", "Quote line was not persisted");
   return detail;
 }
 
+/** Call only inside the write's transaction, passing that transaction as db. */
 function editableLine(db: Db, actor: Actor, lineId: string) {
   const line = db
     .select()
@@ -155,12 +159,13 @@ function editableLine(db: Db, actor: Actor, lineId: string) {
 export function updateQuoteLine(db: Db, actor: Actor, lineId: string, input: QuoteLineInput): QuoteDetail {
   assertActor(db, actor);
   const parsed = parseOrInvalid(quoteLineSchema, input);
-  const { line, quote } = editableLine(db, actor, lineId);
-  const next = resolveLine(db, actor, parsed);
-  const others = linesOf(db, actor, quote.id).filter((l) => l.id !== line.id);
-  computeQuoteTotals([...others, next]);
-  const ts = now();
-  db.transaction((tx) => {
+  const id = db.transaction((txRaw) => {
+    const tx = txRaw as unknown as Db;
+    const { line, quote } = editableLine(tx, actor, lineId);
+    const next = resolveLine(tx, actor, parsed);
+    const others = linesOf(tx, actor, quote.id).filter((l) => l.id !== line.id);
+    computeQuoteTotals([...others, next]);
+    const ts = now();
     tx.update(quoteLineItems)
       .set({
         ...next,
@@ -168,24 +173,26 @@ export function updateQuoteLine(db: Db, actor: Actor, lineId: string, input: Quo
       })
       .where(and(eq(quoteLineItems.id, line.id), eq(quoteLineItems.orgId, actor.orgId)))
       .run();
-    stampQuote(tx as unknown as Db, actor, quote, ts);
+    stampQuote(tx, actor, quote, ts);
+    return quote.id;
   });
-  const detail = getQuote(db, actor, quote.id);
+  const detail = getQuote(db, actor, id);
   if (!detail) throw new DomainError("WRITE_FAILED", "Quote line was not persisted");
   return detail;
 }
 
 export function deleteQuoteLine(db: Db, actor: Actor, lineId: string): QuoteDetail {
   assertActor(db, actor);
-  const { line, quote } = editableLine(db, actor, lineId);
-  const ts = now();
-  db.transaction((tx) => {
+  const id = db.transaction((txRaw) => {
+    const tx = txRaw as unknown as Db;
+    const { line, quote } = editableLine(tx, actor, lineId);
     tx.delete(quoteLineItems)
       .where(and(eq(quoteLineItems.id, line.id), eq(quoteLineItems.orgId, actor.orgId)))
       .run();
-    stampQuote(tx as unknown as Db, actor, quote, ts);
+    stampQuote(tx, actor, quote, now());
+    return quote.id;
   });
-  const detail = getQuote(db, actor, quote.id);
+  const detail = getQuote(db, actor, id);
   if (!detail) throw new DomainError("WRITE_FAILED", "Quote was not persisted");
   return detail;
 }
