@@ -7,6 +7,8 @@ export const ID_PREFIX = {
   opportunity: "006",
   opportunityContactRole: "00K",
   opportunityLineItem: "00k",
+  quote: "0Q0",
+  quoteLineItem: "0QL",
   product: "01t",
   priceBook: "01s",
   priceBookEntry: "01u",

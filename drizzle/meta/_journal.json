@@ -120,6 +120,13 @@
       "when": 1791855382291,
       "tag": "0020_opportunity_line_items",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1791857658433,
+      "tag": "0040_quotes",
+      "breakpoints": true
     }
   ]
 }
