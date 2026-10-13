@@ -718,3 +718,40 @@ export const opportunityLineItems = sqliteTable(
     index("opportunity_line_items_org_opp_idx").on(table.orgId, table.opportunityId),
   ],
 );
+
+export const dashboards = sqliteTable(
+  "dashboards",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    name: text("name").notNull(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    deletedAt: integer("deleted_at"),
+  },
+  (table) => [index("dashboards_org_idx").on(table.orgId)],
+);
+
+export const dashboardComponents = sqliteTable(
+  "dashboard_components",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    dashboardId: text("dashboard_id")
+      .notNull()
+      .references(() => dashboards.id),
+    reportId: text("report_id")
+      .notNull()
+      .references(() => reports.id),
+    title: text("title").notNull(),
+    position: integer("position").notNull(),
+  },
+  (table) => [
+    index("dashboard_components_org_dash_idx").on(table.orgId, table.dashboardId),
+  ],
+);
