@@ -17,6 +17,9 @@ conventions already in `src/`, so new code should look like the code around it.
 Names: functions are verbs (`deleteContact`, `assertCurrentOrgAdmin`); guards start with
 `assert`/`can`/`has`; types are PascalCase; constants are SCREAMING_SNAKE. Ids come from
 `newId(ID_PREFIX.x)` only. Money is integer cents, parsed with `parseUsdToCents`, shown with `formatUsd`.
+Known exception: `products.ts` `parseStandardPrice` (~L108) is its own parser for the
+standard price; do not copy it. New money code uses `money.ts`, and moving
+`parseStandardPrice` onto it is welcome as a separate small PR.
 
 ## 2. Folder ownership (sprint teams)
 
@@ -43,16 +46,26 @@ increasing journal timestamps. Ranges are pre-allocated so teams never collide:
 | C. Reports & dashboards | 0025–0027 |
 | D. Import/export + API | 0028–0030 |
 
-Merges land in numeric order. If your number is above an unmerged lower one, rebase and
-regenerate after it merges (the architect sequences this). Never edit a merged migration;
-add a new one. Migrations must upgrade an existing DB (add a test like the 0011 upgrade test).
+Generating at a reserved number: rebase on latest `main`, edit `schema.ts`, then run
+`npx drizzle-kit generate --name <topic>`. drizzle-kit takes the next free index, so if
+`main` stops below your range, rename the `.sql`, its `meta/NNNN_snapshot.json`, and the
+journal `tag`/`idx` to your reserved number. Before pushing, check the chain is in order:
+journal `idx` 0..n with no gaps and strictly increasing `when`, and each snapshot's
+`prevId` equals the previous snapshot's `id`. If another team's migration merges first,
+rebase and regenerate yours on top; never hand-merge snapshots. Never edit a merged
+migration; add a new one. Migrations must upgrade an existing DB (add a test like the
+0011 upgrade test), and upgrade tests pick their stopping point by tag, not `slice(0, -1)`.
 
 ## 4. Errors
 
 - Throw `DomainError(code, message)` from `errors.ts`. Codes are SCREAMING_SNAKE and stable:
   reuse existing ones (`NOT_FOUND`, `FORBIDDEN`, `HAS_CHILDREN`, `INVALID_RULE`, `INVALID_MONEY`,
   `INVALID_OWNER`, `LOCKED`, `FROZEN`, `DUPLICATE`, `WRITE_FAILED`, ...) before inventing one.
-- A record the actor may not see is `NOT_FOUND`, never `FORBIDDEN`: do not confirm it exists.
+- `NOT_FOUND` only for a record the actor cannot see (wrong org, sharing, or no profile
+  read). `FORBIDDEN` for a record the actor can see but may not change, as in
+  `assertCanAccessRecord` (`permissions.ts` ~L133-137) and change-owner (`ownership.ts`
+  ~L172-178: object edit is checked first, then a missing row is `NOT_FOUND`).
+  `HAS_CHILDREN` is the one deliberate signal that hidden children exist; do not add others.
 - Messages never contain ids, other orgs' data, SQL, or stack traces. Server actions turn
   `DomainError` into a user message and rethrow anything else.
 
@@ -71,12 +84,22 @@ add a new one. Migrations must upgrade an existing DB (add a test like the 0011 
 - Vitest, `src/**/*.test.ts`, colocated with the code. Fix-up files may use a suffix
   (`tasks.orphans.test.ts`).
 - Every guard gets a refusal test: wrong org, non-member, no permission, not owner, invalid
-  input, each asserting the exact error code.
+  input, each asserting the exact error code, and asserting the message carries no record id
+  (e.g. `expect(message).not.toMatch(/00T/)` for the object's prefix).
+- Refusal tests snapshot the affected tables before and after (`JSON.stringify` of the
+  rows) and assert nothing was written.
+- Mixed permissions: test edit-not-delete and delete-not-edit profiles, each with the DB
+  snapshot check.
+- Any query that takes a related id gets a cross-org test: a row in another org with the
+  same id (or the same related id) must not be read, matched, or written.
 - UI: action/page tests under `src/app/(crm)/...` that drive the real server action/page,
   plus the QE tester's manual run of the real UI recorded in the PR.
 - Mutation audit by the first-level reviewer: 5–10 mutants of the key functions, ≥70% killed,
   and **every** security, isolation or money mutant killed. List them in the PR comment.
-- `npm run verify` (typegen, tsc, eslint, vitest, build) must exit 0 before push.
+  The coder's own mutation runs are useful but do not count toward approval.
+- `npm run verify` (typegen, tsc, eslint, vitest, build) must exit 0 before push, on
+  Node 22 (`package.json` engines `>=22 <23`, `.nvmrc`). The reviewer reruns it at the
+  exact head SHA under review.
 
 ## 7. PRs and commits
 
@@ -85,6 +108,8 @@ add a new one. Migrations must upgrade an existing DB (add a test like the 0011 
 - Commit subject: imperative, ≤72 chars, says what changed (`Refuse cross-org parent on tasks`).
   Body says why and what was run. No "WIP" on submitted branches.
 - PR body: what changed, what was run with exit codes, gitleaks result, mutation table, open items.
+- Every review verdict names the exact head SHA it covers. A new head (any push, rebase or
+  amend) voids earlier verdicts and needs a re-review before merge.
 - Never push to `main`; only Rex Approver / the architect merges (squash). Never merge red.
 
 ## 8. Data
