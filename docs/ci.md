@@ -26,6 +26,7 @@ The docs-only check sorts PRs; it never rejects them. Any doubt means the full p
 - A PR touching anything outside `docs/` or `*.md` falls back to the full verify and full review. It is not rejected.
 - Any change to `.github/`, `package.json`, or a lockfile (`package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock`, `pnpm-lock.yaml`) always runs the full verify, even if the file is `.md`.
 - If the changed-file filter errors, or the diff is empty, the PR runs the full verify.
+- If the base SHA is missing or all zeros (`0000000…`, e.g. the first push of a new branch), the PR or push runs the full verify.
 
 ## Docs-only fast lane
 
