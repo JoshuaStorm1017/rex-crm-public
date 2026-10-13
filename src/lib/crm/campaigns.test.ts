@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb } from "../db/client";
-import { campaignMembers, campaigns, organizations, profiles } from "../db/schema";
+import { campaignMembers, campaigns, orgMemberships, organizations, profiles, users } from "../db/schema";
 import { LOCAL_ACTOR, actorFor } from "./actor";
 import {
   addCampaignMember,
@@ -18,7 +18,8 @@ import { createAccount } from "./accounts";
 import { createContact } from "./contacts";
 import { DomainError } from "./errors";
 import { createLead } from "./leads";
-import { createOrganization } from "./orgs";
+import { addMember, createOrganization } from "./orgs";
+import { createUser } from "./users";
 import { READ_ONLY_PROFILE_NAME, assignProfile, createProfile } from "./profiles";
 import { setOrgWideDefault } from "./sharing";
 
@@ -321,6 +322,41 @@ describe("campaigns", () => {
     expectRefused(db, () => addCampaignMember(db, LOCAL_ACTOR, campaign.id, { leadId: other.id }), "FORBIDDEN");
     expectRefused(db, () => removeCampaignMember(db, LOCAL_ACTOR, campaign.id, member.id), "FORBIDDEN");
     expect(db.select().from(campaignMembers).all().map((m) => m.id)).toEqual([member.id]);
+  });
+
+  it("refuses add and remove by a removed, deleted or disabled user, changing no rows", () => {
+    const cases: [string, (db: Db, userId: string) => void][] = [
+      ["removed", (db, userId) => {
+        db.delete(orgMemberships)
+          .where(and(eq(orgMemberships.orgId, LOCAL_ORG_ID), eq(orgMemberships.userId, userId)))
+          .run();
+      }],
+      ["deleted", (db, userId) => {
+        db.update(users).set({ deletedAt: Date.now() }).where(eq(users.id, userId)).run();
+      }],
+      ["disabled", (db, userId) => {
+        db.update(users).set({ passwordHash: null }).where(eq(users.id, userId)).run();
+      }],
+    ];
+    for (const [label, revoke] of cases) {
+      const db = memory();
+      const user = createUser(db, {
+        name: `Campaign ${label}`,
+        email: `campaign-${label}@example.invalid`,
+        username: `campaign_${label}`,
+        password: "long-enough",
+      });
+      addMember(db, LOCAL_ORG_ID, user.id, "admin");
+      const actor = actorFor(user.id);
+      const campaign = createCampaign(db, actor, SPRING);
+      const lead = createLead(db, LOCAL_ACTOR, { lastName: `Kept ${label}`, company: "Example Widgets" });
+      const other = createLead(db, LOCAL_ACTOR, { lastName: `Waiting ${label}`, company: "Example Widgets" });
+      const member = addCampaignMember(db, actor, campaign.id, { leadId: lead.id });
+      revoke(db, user.id);
+      expectRefused(db, () => addCampaignMember(db, actor, campaign.id, { leadId: other.id }), "FORBIDDEN");
+      expectRefused(db, () => removeCampaignMember(db, actor, campaign.id, member.id), "FORBIDDEN");
+      expect(db.select().from(campaignMembers).all().map((m) => m.id)).toEqual([member.id]);
+    }
   });
 
   it("lists no members for a deleted campaign", () => {
