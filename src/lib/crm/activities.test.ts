@@ -110,6 +110,39 @@ describe("activity timeline", () => {
     ).toEqual(["Real"]);
   });
 
+  it("keeps each contact's timeline to its own rows, and hides a private one", () => {
+    const { db, parents } = setup();
+    const viewer = member(db, "twin");
+    const mine = createContact(db, viewer, {
+      accountId: parents.account, lastName: "Fernwhistle", email: "fern@example.com",
+    });
+    const hidden = createContact(db, LOCAL_ACTOR, {
+      accountId: parents.account, lastName: "Mossgrove", email: "moss@example.com",
+    });
+    setOrgWideDefault(db, LOCAL_ACTOR, "contact", "private", false);
+    for (const [id, subject] of [[mine.id, "Mine call"], [hidden.id, "Hidden call"]]) {
+      logActivity(db, LOCAL_ACTOR, {
+        parentType: "contact", parentId: id, kind: "call", subject, occurredAt: 1_000,
+      });
+    }
+    // Same org, same type, same kind: only the parentId filter separates them.
+    expect(
+      listActivities(db, viewer, "contact", mine.id).map((r) => r.subject),
+    ).toEqual(["Mine call"]);
+    expect(
+      listActivities(db, LOCAL_ACTOR, "contact", hidden.id).map((r) => r.subject),
+    ).toEqual(["Hidden call"]);
+    expect(listActivities(db, viewer, "contact", hidden.id)).toEqual([]);
+    const before = snapshot(db);
+    expectCode(
+      () => logActivity(db, viewer, {
+        parentType: "contact", parentId: hidden.id, kind: "call", subject: "x",
+      }),
+      "NOT_FOUND",
+    );
+    expect(snapshot(db)).toBe(before);
+  });
+
   it("rejects invalid input without writing", () => {
     const { db, parents } = setup();
     const before = snapshot(db);
