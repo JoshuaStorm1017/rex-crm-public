@@ -176,7 +176,8 @@ describe("drizzle journal", () => {
 
   it("applies the newest migration onto a database that already has the previous one", () => {
     const journal = readJournal();
-    const prior = journal.entries.slice(0, -1);
+    const stop = journal.entries.findIndex((entry) => entry.tag === "0014_products");
+    const prior = journal.entries.slice(0, stop + 1);
     expect(prior.at(-1)?.tag).toBe("0014_products");
     const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-"));
     const sqlite = new Database(path.join(dir, "rex.sqlite"));
@@ -234,6 +235,34 @@ describe("drizzle journal", () => {
         .prepare("SELECT id FROM organizations")
         .get() as { id: string };
       expect(org.id).toBe("00D000000000LOCALORG0001");
+    } finally {
+      sqlite.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("upgrades a database that stopped at 0015 with email templates", () => {
+    const journal = readJournal();
+    const stop = journal.entries.findIndex((entry) => entry.tag === "0015_sharing");
+    expect(stop).toBeGreaterThan(0);
+    const prior = journal.entries.slice(0, stop + 1);
+    const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-0015-"));
+    const sqlite = new Database(path.join(dir, "rex.sqlite"));
+    const hasTable = () =>
+      sqlite
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'email_templates'")
+        .get();
+    try {
+      sqlite.pragma("foreign_keys = ON");
+      applyEntries(sqlite, prior);
+      insertLegacyRows(sqlite);
+      expect(hasTable()).toBeUndefined();
+      migrate(drizzle(sqlite), { migrationsFolder });
+      expect(hasTable()).toEqual({ name: "email_templates" });
+      const account = sqlite
+        .prepare("SELECT org_id FROM accounts WHERE id = ?")
+        .get("001MIGRATE") as { org_id: string };
+      expect(account.org_id).toBe("00D000000000LOCALORG0001");
     } finally {
       sqlite.close();
       rmSync(dir, { recursive: true, force: true });
