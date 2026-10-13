@@ -867,3 +867,52 @@ export const cases = sqliteTable(
     index("cases_account_idx").on(table.accountId),
   ],
 );
+
+export const campaigns = sqliteTable(
+  "campaigns",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull().default(LOCAL_ORG_ID),
+    name: text("name").notNull(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id),
+    status: text("status").notNull().default("planned"),
+    startDate: text("start_date"),
+    endDate: text("end_date"),
+    budgetCents: integer("budget_cents"),
+    description: text("description"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    deletedAt: integer("deleted_at"),
+  },
+  (table) => [index("campaigns_org_idx").on(table.orgId)],
+);
+
+export const campaignMembers = sqliteTable(
+  "campaign_members",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull().default(LOCAL_ORG_ID),
+    campaignId: text("campaign_id")
+      .notNull()
+      .references(() => campaigns.id),
+    leadId: text("lead_id").references(() => leads.id),
+    contactId: text("contact_id").references(() => contacts.id),
+    status: text("status").notNull().default("sent"),
+    createdAt: integer("created_at").notNull(),
+    createdBy: text("created_by").notNull(),
+  },
+  (table) => [
+    index("campaign_members_org_idx").on(table.orgId),
+    index("campaign_members_campaign_idx").on(table.campaignId),
+    uniqueIndex("campaign_members_lead_uidx")
+      .on(table.orgId, table.campaignId, table.leadId)
+      .where(sql`lead_id is not null`),
+    uniqueIndex("campaign_members_contact_uidx")
+      .on(table.orgId, table.campaignId, table.contactId)
+      .where(sql`contact_id is not null`),
+  ],
+);

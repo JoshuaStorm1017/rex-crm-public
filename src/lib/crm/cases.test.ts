@@ -180,6 +180,52 @@ describe("cases (SVC-CASE-001)", () => {
     expect(db.select().from(cases).where(eq(cases.id, row.id)).get()?.status).toBe("New");
   });
 
+  it("refuses moving a Closed case back to New and leaves it Closed", () => {
+    const { db } = openMemoryDb();
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Globex" });
+    const row = createCase(db, LOCAL_ACTOR, { accountId: account.id, subject: "Doorbell jammed" });
+    setCaseStatus(db, LOCAL_ACTOR, row.id, "Closed");
+    expect(canMoveCase("Closed", "New")).toBe(false);
+    expectRefused(db, () => setCaseStatus(db, LOCAL_ACTOR, row.id, "New"), "INVALID_VALUE", row.id);
+    expect(getCase(db, LOCAL_ACTOR, row.id)?.status).toBe("Closed");
+  });
+
+  it("createCase by an actor without account read fails NOT_FOUND with exactly \"Case not found\"", () => {
+    const { db } = openMemoryDb();
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Hooli" });
+    const profileId = createProfile(db, LOCAL_ACTOR, "No Accounts Either");
+    setObjectPermission(db, LOCAL_ACTOR, profileId, "account", { canRead: false, canCreate: false, canUpdate: false, canDelete: false });
+    const blind = member(db, "caseblind_msg", profileId);
+    const before = snapshot(db);
+    let caught: unknown;
+    try {
+      createCase(db, blind, { accountId: account.id, subject: "Probe" });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(DomainError);
+    expect((caught as DomainError).code).toBe("NOT_FOUND");
+    expect((caught as DomainError).message).toBe("Case not found");
+    expect(snapshot(db)).toBe(before);
+  });
+
+  it("createCase by a read-only member fails FORBIDDEN with exactly the add-cases message", () => {
+    const { db } = openMemoryDb();
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Vandelay Industries" });
+    const viewer = member(db, "caseviewer_msg");
+    const before = snapshot(db);
+    let caught: unknown;
+    try {
+      createCase(db, viewer, { accountId: account.id, subject: "Latex order" });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(DomainError);
+    expect((caught as DomainError).code).toBe("FORBIDDEN");
+    expect((caught as DomainError).message).toBe("You do not have permission to add cases to this account");
+    expect(snapshot(db)).toBe(before);
+  });
+
   describe("refuses inactive or outside actors on every read with FORBIDDEN (existing and unknown ids)", () => {
     const UNKNOWN_CASE_ID = "500000000000000UNKNOWN";
     type Made = { actor: Actor; caseId?: string };

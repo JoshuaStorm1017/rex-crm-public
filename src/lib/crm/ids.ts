@@ -36,6 +36,8 @@ export const ID_PREFIX = {
   approvalRequest: "04g",
   contract: "800",
   case: "500",
+  campaign: "701",
+  campaignMember: "00v",
 } as const;
 
 export type IdPrefix = (typeof ID_PREFIX)[keyof typeof ID_PREFIX];

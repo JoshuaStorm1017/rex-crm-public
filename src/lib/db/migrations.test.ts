@@ -199,6 +199,7 @@ describe("drizzle journal", () => {
   it("applies 0015_sharing onto a database that stopped at 0014_products", () => {
     const journal = readJournal();
     const stop = journal.entries.findIndex((entry) => entry.tag === "0014_products");
+    expect(stop).toBeGreaterThan(0);
     const prior = journal.entries.slice(0, stop + 1);
     expect(prior.at(-1)?.tag).toBe("0014_products");
     const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-"));
@@ -318,6 +319,37 @@ describe("drizzle journal", () => {
         .prepare("SELECT org_id FROM accounts WHERE id = ?")
         .get("001MIGRATE") as { org_id: string };
       expect(account.org_id).toBe("00D000000000LOCALORG0001");
+    } finally {
+      sqlite.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("adds campaigns to a database that stopped at 0015 and keeps its rows", () => {
+    const journal = readJournal();
+    const stop = journal.entries.findIndex((entry) => entry.tag === "0015_sharing");
+    expect(stop).toBeGreaterThan(0);
+    const prior = journal.entries.slice(0, stop + 1);
+    expect(journal.entries.some((entry) => entry.tag === "0052_campaigns")).toBe(true);
+    const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-0015-"));
+    const sqlite = new Database(path.join(dir, "rex.sqlite"));
+    try {
+      sqlite.pragma("foreign_keys = ON");
+      applyEntries(sqlite, prior);
+      insertLegacyRows(sqlite);
+      const tableExists = (name: string) =>
+        sqlite
+          .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+          .get(name);
+      expect(tableExists("campaigns")).toBeUndefined();
+      expect(tableExists("campaign_members")).toBeUndefined();
+      migrate(drizzle(sqlite), { migrationsFolder });
+      expect(tableExists("campaigns")).toBeDefined();
+      expect(tableExists("campaign_members")).toBeDefined();
+      const account = sqlite
+        .prepare("SELECT name FROM accounts WHERE id = ?")
+        .get("001MIGRATE") as { name: string };
+      expect(account.name).toBe("Existing Account");
     } finally {
       sqlite.close();
       rmSync(dir, { recursive: true, force: true });

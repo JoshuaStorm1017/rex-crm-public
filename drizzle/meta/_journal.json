@@ -176,6 +176,20 @@
       "when": 1791865441994,
       "tag": "0051_cases",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1791865500000,
+      "tag": "0052_campaigns",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1791865560000,
+      "tag": "0053_campaign_members",
+      "breakpoints": true
     }
   ]
 }
