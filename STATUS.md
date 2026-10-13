@@ -2161,7 +2161,7 @@ fresh verification evidence for each slice.
 
 ## 2026-10-13 — s018c quote pages (PR #28, not merged)
 
-- WORKS (verified 2026-10-13, `npm run verify` exit 0, 1197/1197 tests
+- WORKS (verified 2026-10-13, `npm run verify` exit 0, 1200/1200 tests
   across 102 files, after merging main a79c06f): `/quotes` list and
   `/quotes/[id]` detail pages. Read-only; they call only the gated
   `listQuotes`/`getQuote` (opportunity read + org filter); an unreadable or
