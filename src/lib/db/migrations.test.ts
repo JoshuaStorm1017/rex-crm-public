@@ -176,9 +176,7 @@ describe("drizzle journal", () => {
 
   it("applies the newest migration onto a database that already has the previous one", () => {
     const journal = readJournal();
-    const stop = journal.entries.findIndex(
-      (entry) => entry.tag === "0014_products",
-    );
+    const stop = journal.entries.findIndex((entry) => entry.tag === "0014_products");
     const prior = journal.entries.slice(0, stop + 1);
     expect(prior.at(-1)?.tag).toBe("0014_products");
     const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-"));
