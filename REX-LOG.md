@@ -657,7 +657,7 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 on Node 22: 96 files, 957 tests, build OK.
 - **Verify after merging main `216574c` (#43):** `npm run verify` exit 0 on Node 22: 99 files, 1169/1169 tests (957 included main as of `04ef93a`; the rest are #43's tests).
 
-## 2026-10-13 15:00 EDT — s018b2 quote line mutators, PR #27 rebased onto main by merge (ac47ae8)
+## 2026-10-13 15:00 EDT — s018b2 quote line mutators, PR #27 merged with main ac47ae8
 - **Merge:** normal merge of main `ac47ae8` (#26 squash). Conflicts in SALESFORCE-PARITY.md, drizzle/meta/_journal.json, quotes.ts, quotes.test.ts, quoteMath.test.ts, migrations.quotes.test.ts, migrations.test.ts and schema.ts were all pre-squash copies of #25/#26 work; took main's versions. Removed the stale `drizzle/0040_quotes.sql` and `meta/0040_snapshot.json` (byte-identical SQL to main's `0054_quotes.sql`). #27 itself adds no migration, so none was renumbered; the journal ends at idx 27 `0054_quotes`.
 - **What:** `quoteLines.ts` no longer imports `rawQuote`, `rawLines` or `touch` (gone from main). `editableLine` now gates through `editableQuote` (NOT_FOUND remapped to "Quote line not found"); a private `linesOf` loads lines by quote id + org; a private `stampQuote` sets the parent quote's `updatedAt`/`updatedBy` with `WHERE id AND orgId` inside each line write's transaction.
 - **Tests:** two new: line writes on quote A leave quote B unchanged; a forged other-org line on my quote does not affect my line order.
