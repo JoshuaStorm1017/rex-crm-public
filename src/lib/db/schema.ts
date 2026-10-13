@@ -716,6 +716,43 @@ export const opportunityLineItems = sqliteTable(
   ],
 );
 
+export const dashboards = sqliteTable(
+  "dashboards",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    name: text("name").notNull(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    deletedAt: integer("deleted_at"),
+  },
+  (table) => [index("dashboards_org_idx").on(table.orgId)],
+);
+
+export const dashboardComponents = sqliteTable(
+  "dashboard_components",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    dashboardId: text("dashboard_id")
+      .notNull()
+      .references(() => dashboards.id),
+    reportId: text("report_id")
+      .notNull()
+      .references(() => reports.id),
+    title: text("title").notNull(),
+    position: integer("position").notNull(),
+  },
+  (table) => [
+    index("dashboard_components_org_dash_idx").on(table.orgId, table.dashboardId),
+  ],
+);
+
 /** Service cases. Access is controlled by the parent account (SVC-CASE-001). */
 export const cases = sqliteTable(
   "cases",
