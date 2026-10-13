@@ -2146,4 +2146,15 @@ fresh verification evidence for each slice.
   `touch` was removed: `updateQuote` writes directly with an id + org
   WHERE and server time. `editableQuote` is the only gate for update and
   delete (the duplicate `assertActor` in `deleteQuote` is gone).
-- Not done: line item mutators and UI (#27, #28).
+- Not done: quote pages UI (#28).
+
+## 2026-10-13 — s018b2 quote line mutators (PR #27, not merged)
+
+- WORKS (verified 2026-10-13, `npm run verify` exit 0, 1193/1193 tests
+  across 101 files, after merging main ac47ae8): add, update and delete
+  quote lines with product defaults (description, standard price), line
+  cap of 200, overflow-safe integer-cent totals. Every line write goes
+  through `editableQuote` (actor, org-scoped row, opportunity edit) and
+  refuses closed quotes; line and parent-quote writes are id + org scoped
+  and run in one transaction.
+- Not done: quote pages UI (#28).
