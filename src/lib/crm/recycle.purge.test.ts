@@ -192,7 +192,9 @@ describe("recycle bin purge: line items and org scoping", () => {
       relatedRecordId: lead.id,
     });
     const stored = db.select().from(tasks).where(eq(tasks.id, task.id)).get()!;
-    const forgedId = `${task.id.slice(0, -1)}Z`;
+    // Flip the last char so the forged id always differs from task.id (a fixed "Z" collided ~1/32 runs).
+    const forgedId = `${task.id.slice(0, -1)}${task.id.endsWith("Z") ? "Y" : "Z"}`;
+    expect(forgedId).not.toBe(task.id);
     db.insert(tasks)
       .values({ ...stored, id: forgedId, orgId: other.id, relatedObjectType: "account", relatedRecordId: account.id })
       .run();
