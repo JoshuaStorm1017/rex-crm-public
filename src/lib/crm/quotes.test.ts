@@ -380,6 +380,23 @@ describe("quote reads refuse inactive or outside actors with FORBIDDEN (existing
     ],
   ];
 
+  it("control: the same invalid inputs give INVALID_INPUT to an active, permitted actor", () => {
+    const { db, opp, quote } = setup();
+    for (const input of [
+      { opportunityId: opp.id, name: "" },
+      { opportunityId: "", name: "Valid Quote" },
+      { opportunityId: opp.id, name: "Valid Quote", status: "Bogus" },
+      { opportunityId: UNKNOWN_OPP_ID, name: "x".repeat(10_000) },
+    ]) {
+      expectRefused(db, () => createQuote(db, LOCAL_ACTOR, input as never), "INVALID_INPUT");
+    }
+    for (const id of [quote.id, UNKNOWN_QUOTE_ID]) {
+      for (const patch of [{ name: "" }, { status: "Bogus" }, { expirationDate: "not-a-date" }, { name: "x".repeat(10_000) }]) {
+        expectRefused(db, () => updateQuote(db, LOCAL_ACTOR, id, patch as never), "INVALID_INPUT");
+      }
+    }
+  });
+
   for (const [label, make] of actorCases) {
     it(`refuses getQuote, listQuotes, listQuotesForOpportunity, rawQuote and rawLines for ${label}`, () => {
       const { db, opp, quote } = setup();
@@ -412,6 +429,30 @@ describe("quote reads refuse inactive or outside actors with FORBIDDEN (existing
         expectRefused(db, () => deleteQuote(db, made.actor, id), "FORBIDDEN");
         expectRefused(db, () => touch(db, made.actor, id, Date.now() + 60_000), "FORBIDDEN");
         expectRefused(db, () => editableQuote(db, made.actor, id), "FORBIDDEN");
+      }
+    });
+
+    it(`refuses invalid input with FORBIDDEN (auth before validation) on createQuote, updateQuote and deleteQuote for ${label}`, () => {
+      const { db, opp, quote } = setup();
+      const made = make(db);
+      const quoteId = made.quoteId ?? quote.id;
+      const oppId = made.oppId ?? opp.id;
+      const badCreates = [
+        { opportunityId: oppId, name: "" },
+        { opportunityId: "", name: "Refused Quote" },
+        { opportunityId: oppId, name: "Refused Quote", status: "Bogus" },
+        { opportunityId: UNKNOWN_OPP_ID, name: "x".repeat(10_000) },
+      ];
+      for (const input of badCreates) {
+        expectRefused(db, () => createQuote(db, made.actor, input as never), "FORBIDDEN");
+      }
+      for (const id of [quoteId, UNKNOWN_QUOTE_ID]) {
+        for (const patch of [{ name: "" }, { status: "Bogus" }, { expirationDate: "not-a-date" }, { name: "x".repeat(10_000) }]) {
+          expectRefused(db, () => updateQuote(db, made.actor, id, patch as never), "FORBIDDEN");
+        }
+      }
+      for (const id of [quoteId, UNKNOWN_QUOTE_ID, ""]) {
+        expectRefused(db, () => deleteQuote(db, made.actor, id), "FORBIDDEN");
       }
     });
   }
