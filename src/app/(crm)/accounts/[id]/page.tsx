@@ -4,6 +4,8 @@ import { deleteAccountAction } from "../actions";
 import { ChangeOwnerLink } from "@/components/ChangeOwnerLink";
 import { DeleteButton } from "@/components/DeleteButton";
 import { TasksRelatedList } from "@/components/TasksRelatedList";
+import { ActivityTimeline } from "@/components/ActivityTimeline";
+import { listActivities } from "@/lib/crm/activities";
 import {
   getAccount,
   getAccountHierarchy,
@@ -305,6 +307,13 @@ export default async function AccountDetailPage({
         recordId={account.id}
         tasks={withTaskEditAccess(db, actor, relatedTasks)}
         canCreate={canPerform(db, actor, "task", "create")}
+      />
+
+
+      <ActivityTimeline
+
+        activities={listActivities(db, actor, "account", account.id)}
+
       />
 
       {hierarchy && inHierarchy ? (

@@ -246,15 +246,15 @@ describe("cases (SVC-CASE-001)", () => {
     }
   });
 
-  it("0029_cases upgrades a database that stopped at the migration before it", () => {
+  it("0051_cases upgrades a database that stopped at the migration before it", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "rex-cases-"));
     const sqlite = new Database(path.join(dir, "rex.sqlite"));
     try {
       const journal = JSON.parse(readFileSync("drizzle/meta/_journal.json", "utf8")) as { entries: { tag: string; when: number }[] };
       const tags = journal.entries.map((e) => e.tag);
-      const mine = tags.indexOf("0029_cases");
+      const mine = tags.indexOf("0051_cases");
       const stop = mine - 1;
-      expect(mine).toBeGreaterThan(tags.indexOf("0026_login_lockout"));
+      expect(mine).toBeGreaterThan(tags.indexOf("0050_email_templates"));
       expect(journal.entries[mine].when).toBeGreaterThan(journal.entries[stop].when);
       const run = (tag: string) => {
         for (const s of readFileSync(`drizzle/${tag}.sql`, "utf8").split("--> statement-breakpoint")) {
@@ -263,7 +263,7 @@ describe("cases (SVC-CASE-001)", () => {
       };
       tags.slice(0, stop + 1).forEach(run);
       expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE name = 'cases'").get()).toBeUndefined();
-      run("0029_cases");
+      run("0051_cases");
       const cols = (sqlite.prepare("PRAGMA table_info(cases)").all() as { name: string }[]).map((c) => c.name);
       expect(cols).toEqual(expect.arrayContaining(["org_id", "account_id", "status", "closed_at"]));
     } finally {

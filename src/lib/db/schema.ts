@@ -408,6 +408,9 @@ export const assignmentRules = sqliteTable(
       .references(() => users.id),
     sortOrder: integer("sort_order").notNull().default(1),
     criteria: text("criteria").notNull(),
+    assignMode: text("assign_mode").notNull().default("user"),
+    poolUserIds: text("pool_user_ids").notNull().default("[]"),
+    rrCursor: integer("rr_cursor").notNull().default(0),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
     createdBy: text("created_by").notNull(),
@@ -716,6 +719,22 @@ export const opportunityLineItems = sqliteTable(
   ],
 );
 
+export const approvalRequests = sqliteTable(
+  "approval_requests",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    opportunityId: text("opportunity_id").notNull(),
+    submittedBy: text("submitted_by").notNull(),
+    status: text("status").notNull(),
+    comment: text("comment").notNull().default(""),
+    decidedBy: text("decided_by"),
+    createdAt: integer("created_at").notNull(),
+    decidedAt: integer("decided_at"),
+  },
+  (t) => [index("approval_requests_org_opp_idx").on(t.orgId, t.opportunityId)],
+);
+
 export const dashboards = sqliteTable(
   "dashboards",
   {
@@ -751,6 +770,74 @@ export const dashboardComponents = sqliteTable(
   (table) => [
     index("dashboard_components_org_dash_idx").on(table.orgId, table.dashboardId),
   ],
+);
+
+export const activities = sqliteTable(
+  "activities",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    parentType: text("parent_type").notNull(),
+    parentId: text("parent_id").notNull(),
+    kind: text("kind").notNull(),
+    subject: text("subject").notNull(),
+    notes: text("notes"),
+    occurredAt: integer("occurred_at").notNull(),
+    loggedBy: text("logged_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("activities_org_parent_idx").on(
+      table.orgId,
+      table.parentType,
+      table.parentId,
+      table.occurredAt,
+    ),
+  ],
+);
+
+/** Contracts on an account. Access is controlled by the parent account (SALES-CONTRACT-001). */
+export const contracts = sqliteTable(
+  "contracts",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    status: text("status").notNull(),
+    startDate: text("start_date").notNull(),
+    termMonths: integer("term_months").notNull(),
+    endDate: text("end_date").notNull(),
+    valueCents: integer("value_cents").notNull(),
+    activatedAt: integer("activated_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+  },
+  (table) => [
+    index("contracts_org_idx").on(table.orgId),
+    index("contracts_account_idx").on(table.accountId),
+  ],
+);
+
+export const emailTemplates = sqliteTable(
+  "email_templates",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull().default(LOCAL_ORG_ID),
+    name: text("name").notNull(),
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+  },
+  (table) => [index("email_templates_org_idx").on(table.orgId)],
 );
 
 /** Service cases. Access is controlled by the parent account (SVC-CASE-001). */
