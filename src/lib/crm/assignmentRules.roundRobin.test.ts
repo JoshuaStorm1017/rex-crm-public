@@ -9,6 +9,7 @@ import { LOCAL_ACTOR, actorFor } from "./actor";
 import {
   createAssignmentRule,
   getAssignmentRule,
+  nextRoundRobinAssignee,
   parseAssignmentRuleForm,
   updateAssignmentRule,
 } from "./assignmentRules";
@@ -110,6 +111,25 @@ describe("round-robin assignment", () => {
       .where(eq(assignmentRules.id, rule.id))
       .run();
     expect(owners(db, 3)).toEqual([LOCAL_USER_ID, LOCAL_USER_ID, LOCAL_USER_ID]);
+  });
+
+  it("never advances another org's cursor", () => {
+    const db = openMemoryDb().db;
+    const a = member(db, "a");
+    const b = member(db, "b");
+    const rule = rrRule(db, [a, b]);
+    const before = cursor(db, rule.id);
+    const outsider = createUser(db, {
+      name: "Outsider",
+      email: "outsider2@example.invalid",
+      username: "outsider2",
+      password: "long-enough",
+    });
+    const other = createOrganization(db, "Elsewhere Fictional", outsider.id);
+    expect(nextRoundRobinAssignee(db, other.id, { id: rule.id, poolUserIds: [a, b] })).toBeUndefined();
+    expect(cursor(db, rule.id)).toBe(before);
+    expect(nextRoundRobinAssignee(db, LOCAL_ORG_ID, { id: rule.id, poolUserIds: [a, b] })).toBe(a);
+    expect(cursor(db, rule.id)).toBe(before + 1);
   });
 
   it("rejects bad pools and resets the cursor on edit", () => {
