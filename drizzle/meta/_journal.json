@@ -162,6 +162,13 @@
       "when": 1791865321994,
       "tag": "0049_contracts",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1791865381994,
+      "tag": "0050_email_templates",
+      "breakpoints": true
     }
   ]
 }
