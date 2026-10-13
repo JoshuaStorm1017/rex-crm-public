@@ -6,7 +6,7 @@ import { createAccount } from "./accounts";
 import { LOCAL_ORG_ID } from "./constants";
 import { createContact } from "./contacts";
 import { DomainError } from "./errors";
-import { createLead } from "./leads";
+import { createLead, deleteLead } from "./leads";
 import { addMember, createOrganization } from "./orgs";
 import { createProfile, setObjectPermission } from "./profiles";
 import { setOrgWideDefault } from "./sharing";
@@ -255,15 +255,22 @@ describe("activity timeline", () => {
     ).toBe(writer.userId);
   });
 
-  it("hides a deleted parent's timeline", () => {
+  it("hides a soft-deleted parent's timeline and refuses new activity", () => {
     const { db, parents } = setup();
-    expect(listActivities(db, LOCAL_ACTOR, "lead", "00QDOESNOTEXIST")).toEqual([]);
+    const lead = { id: parents.lead };
+    logActivity(db, LOCAL_ACTOR, {
+      parentType: "lead", parentId: lead.id, kind: "call", subject: "before delete",
+    });
+    expect(listActivities(db, LOCAL_ACTOR, "lead", lead.id)).toHaveLength(1);
+    deleteLead(db, LOCAL_ACTOR, lead.id);
+    expect(listActivities(db, LOCAL_ACTOR, "lead", lead.id)).toEqual([]);
+    const before = snapshot(db);
     expectCode(
       () => logActivity(db, LOCAL_ACTOR, {
-        parentType: "lead", parentId: "00QDOESNOTEXIST", kind: "call", subject: "x",
+        parentType: "lead", parentId: lead.id, kind: "call", subject: "after delete",
       }),
       "NOT_FOUND",
     );
-    expect(parents.lead).toBeTruthy();
+    expect(snapshot(db)).toBe(before);
   });
 });
