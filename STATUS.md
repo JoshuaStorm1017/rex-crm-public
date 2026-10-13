@@ -2157,4 +2157,11 @@ fresh verification evidence for each slice.
   through `editableQuote` (actor, org-scoped row, opportunity edit) and
   refuses closed quotes; line and parent-quote writes are id + org scoped
   and run in one transaction.
-- Not done: quote pages UI (#28).
+- Not merged here: quote pages UI is PR #28.
+
+## 2026-10-13 — s018c quote pages (PR #28, stacked on #27, not merged)
+
+- WORKS (verified 2026-10-13, `npm run verify` exit 0): `/quotes` list and
+  `/quotes/[id]` detail pages. Read-only; they call only the gated
+  `listQuotes`/`getQuote` (opportunity read + org filter); an unreadable or
+  other-org quote is a 404.

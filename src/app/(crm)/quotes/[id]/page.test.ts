@@ -26,10 +26,11 @@ import { LOCAL_ACTOR } from "@/lib/crm/actor";
 import { createAccount } from "@/lib/crm/accounts";
 import { LOCAL_ORG_ID, LOCAL_USER_ID, RILEY_USER_ID } from "@/lib/crm/constants";
 import { createOpportunity } from "@/lib/crm/opportunities";
+import { createOrganization } from "@/lib/crm/orgs";
 import { addQuoteLine } from "@/lib/crm/quoteLines";
 import { createQuote } from "@/lib/crm/quotes";
 import { setOrgWideDefault } from "@/lib/crm/sharing";
-import { getUser } from "@/lib/crm/users";
+import { createUser, getUser } from "@/lib/crm/users";
 import { getDb, openMemoryDb } from "@/lib/db/client";
 import QuotesPage from "../page";
 import QuoteDetailPage from "./page";
@@ -94,6 +95,27 @@ describe("quote pages", () => {
     const { db, quote } = setup();
     setOrgWideDefault(db, LOCAL_ACTOR, "opportunity", "private", true);
     actAs(RILEY_USER_ID);
+    await expect(
+      QuoteDetailPage({ params: Promise.resolve({ id: quote.id }) }),
+    ).rejects.toThrow("NOT_FOUND");
+    const html = renderToStaticMarkup(await QuotesPage());
+    expect(html).not.toContain(quote.id);
+    expect(html).not.toContain("Anvil Quote v1");
+    expect(html).toContain("No quotes yet.");
+  });
+
+  it("is not found and unlisted for an owner of another org", async () => {
+    const { db, quote } = setup();
+    const owner = createUser(db, {
+      name: "Gadget Owner",
+      email: "gadget@example.org",
+      username: "gadgetowner",
+      password: "long-enough",
+    });
+    const org = createOrganization(db, "Gadget Works", owner.id);
+    const user = getUser(db, owner.id);
+    if (!user) throw new Error("user missing");
+    vi.mocked(requireActor).mockResolvedValue({ userId: owner.id, orgId: org.id, user });
     await expect(
       QuoteDetailPage({ params: Promise.resolve({ id: quote.id }) }),
     ).rejects.toThrow("NOT_FOUND");
