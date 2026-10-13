@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { convertLead, createLead, deleteLead, getLead, updateLead } from "@/lib/crm/leads";
+import { convertLead, deleteLead, getLead, persistLeadCreate, updateLead } from "@/lib/crm/leads";
 import { withCustomFieldWrite } from "@/lib/crm/customFields";
 import {
   LEAD_RATINGS,
@@ -73,7 +73,7 @@ export async function createLeadAction(
   try {
     const actor = await requireActor();
     const lead = withCustomFieldWrite(getDb(), actor, "lead", formData, (tx) =>
-      createLead(tx, actor, leadFields(formData)),
+      persistLeadCreate(tx, actor, leadFields(formData)),
     );
     destination = leadDestination(actor, lead.id);
   } catch (error) {
