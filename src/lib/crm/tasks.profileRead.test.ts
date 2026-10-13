@@ -130,3 +130,26 @@ describe("task writes need profile read", () => {
     expect(snapshot()).toBe(before);
   });
 });
+
+describe("completing an already-completed task needs profile read", () => {
+  it("refuses with NOT_FOUND, writes nothing, and returns no task data", () => {
+    const { db, task, snapshot } = setup({
+      canCreate: false,
+      canRead: false,
+      canUpdate: true,
+      canDelete: true,
+    });
+    db.update(tasks).set({ status: "Completed" }).where(eq(tasks.id, task.id)).run();
+    const before = snapshot();
+    let result: unknown;
+    const r = refusal(() => {
+      result = completeTask(db, RILEY, task.id);
+      return result;
+    });
+    expect(r.code).toBe("NOT_FOUND");
+    expect(r.message).not.toMatch(/00T/);
+    expect(r.message).not.toContain("Inspect sample anvil");
+    expect(result).toBeUndefined();
+    expect(snapshot()).toBe(before);
+  });
+});
