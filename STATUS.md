@@ -2150,19 +2150,11 @@ fresh verification evidence for each slice.
 
 ## 2026-10-13 — s018b2 quote line mutators (PR #27, not merged)
 
-- WORKS (verified 2026-10-13, `npm run verify` exit 0, 1185/1185 tests
-  across 100 files, after merging main ac47ae8): add, update and delete
+- WORKS (verified 2026-10-13, `npm run verify` exit 0, 1193/1193 tests
+  across 101 files, after merging main ac47ae8): add, update and delete
   quote lines with product defaults (description, standard price), line
   cap of 200, overflow-safe integer-cent totals. Every line write goes
   through `editableQuote` (actor, org-scoped row, opportunity edit) and
   refuses closed quotes; line and parent-quote writes are id + org scoped
   and run in one transaction.
-- Not merged here: quote pages UI is PR #28.
-
-## 2026-10-13 — s018c quote pages (PR #28, stacked on #27, not merged)
-
-- WORKS (verified 2026-10-13, `npm run verify` exit 0, 1189/1189 tests
-  across 101 files, on #27 head 37340d6): `/quotes` list and
-  `/quotes/[id]` detail pages. Read-only; they call only the gated
-  `listQuotes`/`getQuote` (opportunity read + org filter); an unreadable or
-  other-org quote is a 404.
+- Not done: quote pages UI (#28).
