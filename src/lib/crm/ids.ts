@@ -29,6 +29,7 @@ export const ID_PREFIX = {
   role: "00E",
   sharingRule: "0sr",
   case: "500",
+  caseComment: "00a",
 } as const;
 
 export type IdPrefix = (typeof ID_PREFIX)[keyof typeof ID_PREFIX];
