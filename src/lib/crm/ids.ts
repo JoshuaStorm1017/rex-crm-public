@@ -31,6 +31,7 @@ export const ID_PREFIX = {
   orgWideDefault: "owd",
   role: "00E",
   sharingRule: "0sr",
+  activity: "00U",
   approvalRequest: "04g",
 } as const;
 

@@ -771,3 +771,29 @@ export const dashboardComponents = sqliteTable(
     index("dashboard_components_org_dash_idx").on(table.orgId, table.dashboardId),
   ],
 );
+
+export const activities = sqliteTable(
+  "activities",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    parentType: text("parent_type").notNull(),
+    parentId: text("parent_id").notNull(),
+    kind: text("kind").notNull(),
+    subject: text("subject").notNull(),
+    notes: text("notes"),
+    occurredAt: integer("occurred_at").notNull(),
+    loggedBy: text("logged_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("activities_org_parent_idx").on(
+      table.orgId,
+      table.parentType,
+      table.parentId,
+      table.occurredAt,
+    ),
+  ],
+);
