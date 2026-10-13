@@ -691,7 +691,7 @@ The header Edit and Delete links are still shown for both.
   when grant hierarchy is on, or with modify-all. Modify-all is
   `users.role === "admin"` and an admin membership. A membership
   admin whose user role is `user` does not get it. Public Read/Write
-  lets a member who already has the object permission edit and delete.
+  lets a member who already has the object permission edit, not delete.
   A sharing rule's Read/Write does not grant delete.
 - Private hides another user's record from get, list, count, list
   views, search, reports, the recycle bin, and recently viewed.

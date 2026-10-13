@@ -1,5 +1,25 @@
 # Rex log
 
+## 2026-10-13 12:25 EDT
+
+Fix F1 from proposal PR #38: `sharing.ts:recordAllows` returned true for
+every non-read action under Public Read/Write, so any member with the
+object delete permission could delete, and undelete from the recycle bin,
+another user's account, contact, lead, opportunity or task. Reproduced on
+main (60 failing refusal tests). Now, matching Salesforce, Public
+Read/Write grants edit only; delete and restore still need owner,
+role-hierarchy superior, or Modify All. One-line fix covers every object
+on that path (products never used it). Existing sharing test that asserted
+the old behavior now expects FORBIDDEN. No migration.
+
+New `sharing.publicRwDelete.test.ts` (66 tests): six non-owner actors
+(two plain members, subordinate, sibling-role peer, two read/write
+sharing-rule recipients) x 5 objects x delete and restore, FORBIDDEN with
+no row changes; owner, manager and Modify-All admin still can.
+Mutation: 9/9 killed (auth removal on deleteAccount, deleteContact,
+deleteLead, deleteOpportunity, deleteTask, undeleteRecord; reverting the
+branch; removing the delete rejection; removing the PRW edit grant).
+
 ## 2026-10-12 22:55 EDT
 
 Team Q, PLAT-META-010 recycle bin. Main already lists and undeletes
