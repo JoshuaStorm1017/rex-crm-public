@@ -56,7 +56,7 @@ export default async function AssignmentRuleDetailPage({
         </div>
         <div className="grid gap-1 px-4 py-3 sm:grid-cols-[10rem_1fr]">
           <dt className="text-sm text-[#5c564c]">Assign to</dt>
-          <dd className="text-sm">{ownerLabel(db, rule.assignToId)}</dd>
+          <dd className="text-sm">{rule.mode === "round_robin" ? `Round-robin: ${rule.poolUserIds.map((id) => ownerLabel(db, id)).join(", ")}` : ownerLabel(db, rule.assignToId)}</dd>
         </div>
       </dl>
     </div>
