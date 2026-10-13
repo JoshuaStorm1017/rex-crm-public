@@ -52,7 +52,7 @@ export default async function AssignmentRulesPage() {
                     </Link>
                   </td>
                   <td className="px-4 py-2 text-[#5c564c]">{describeAssignment(rule)}</td>
-                  <td className="px-4 py-2">{ownerLabel(db, rule.assignToId)}</td>
+                  <td className="px-4 py-2">{rule.mode === "round_robin" ? `Round-robin: ${rule.poolUserIds.map((id) => ownerLabel(db, id)).join(", ")}` : ownerLabel(db, rule.assignToId)}</td>
                   <td className="px-4 py-2">{rule.active ? "Yes" : "No"}</td>
                 </tr>
               ))}

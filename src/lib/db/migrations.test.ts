@@ -262,4 +262,37 @@ describe("drizzle journal", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("upgrades a database that stopped at 0015 with the activity timeline", () => {
+    const journal = readJournal();
+    const stop = journal.entries.findIndex(
+      (entry) => entry.tag === "0015_sharing",
+    );
+    const prior = journal.entries.slice(0, stop + 1);
+    expect(prior.at(-1)?.tag).toBe("0015_sharing");
+    const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-0015-"));
+    const sqlite = new Database(path.join(dir, "rex.sqlite"));
+    try {
+      sqlite.pragma("foreign_keys = ON");
+      applyEntries(sqlite, prior);
+      const tableExists = () =>
+        sqlite
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'activities'",
+          )
+          .get();
+      expect(tableExists()).toBeUndefined();
+      migrate(drizzle(sqlite), { migrationsFolder });
+      expect(tableExists()).toBeDefined();
+      const columns = sqlite
+        .prepare("PRAGMA table_info(activities)")
+        .all() as { name: string }[];
+      expect(columns.map((column) => column.name)).toEqual(
+        expect.arrayContaining(["org_id", "parent_type", "parent_id", "occurred_at"]),
+      );
+    } finally {
+      sqlite.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
