@@ -278,6 +278,33 @@ describe("email templates", () => {
         expect(count()).toBe(countBefore);
         expect(db.select().from(emailTemplates).all().some((row) => row.name === "Changed" || row.name === "Nope")).toBe(false);
       });
+
+      it(`refuses list, get and render (existing and unknown ids) for ${label}`, () => {
+        const { db, contact, template } = setup();
+        const made = makeActor(db);
+        const templateId = made.templateId ?? template.id;
+        const contactId = made.contactId ?? contact.id;
+        const unknownId = "00X000000000000UNKNOWN";
+        expectRefused(db, () => listEmailTemplates(db, made.actor), "FORBIDDEN");
+        expectRefused(db, () => getEmailTemplate(db, made.actor, templateId), "FORBIDDEN");
+        expectRefused(db, () => getEmailTemplate(db, made.actor, unknownId), "FORBIDDEN");
+        expectRefused(db, () => renderTemplate(db, made.actor, unknownId, contactId), "FORBIDDEN");
+        expectRefused(db, () => renderTemplate(db, made.actor, templateId, contactId), "FORBIDDEN");
+      });
     }
+  });
+
+  it("caps template names at 80 characters on create and edit", () => {
+    const { db, template } = setup();
+    const ok = "N".repeat(80);
+    const tooLong = "N".repeat(81);
+    expect(createEmailTemplate(db, LOCAL_ACTOR, { ...WELCOME, name: ok }).name).toBe(ok);
+    expectRefused(db, () => createEmailTemplate(db, LOCAL_ACTOR, { ...WELCOME, name: tooLong }), "INVALID_NAME");
+    expect(updateEmailTemplate(db, LOCAL_ACTOR, template.id, { ...WELCOME, name: ok }).name).toBe(ok);
+    expectRefused(
+      db,
+      () => updateEmailTemplate(db, LOCAL_ACTOR, template.id, { ...WELCOME, name: tooLong }),
+      "INVALID_NAME",
+    );
   });
 });
