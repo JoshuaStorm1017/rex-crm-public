@@ -127,6 +127,13 @@
       "when": 1791857273114,
       "tag": "0016_login_lockout",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1791857469518,
+      "tag": "0025_dashboards",
+      "breakpoints": true
     }
   ]
 }
