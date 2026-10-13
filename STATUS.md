@@ -2150,8 +2150,8 @@ fresh verification evidence for each slice.
 
 ## 2026-10-13 — s018b2 quote line mutators (PR #27, not merged)
 
-- WORKS (verified 2026-10-13, `npm run verify` exit 0, 1187/1187 tests
-  across 100 files, after merging main ac47ae8): add, update and delete
+- WORKS (verified 2026-10-13, `npm run verify` exit 0, 1190/1190 tests
+  across 101 files, after merging main ac47ae8): add, update and delete
   quote lines with product defaults (description, standard price), line
   cap of 200, overflow-safe integer-cent totals. Every line write goes
   through `editableQuote` (actor, org-scoped row, opportunity edit) and
