@@ -434,3 +434,80 @@ describe("quote line writes stay scoped to their own quote and org", () => {
     expect(detail.lines.map((l) => [l.description, l.sortOrder])).toEqual([["Mine", 0]]);
   });
 });
+
+describe("quote line money checks use only this quote's lines", () => {
+  /** Seeds n same-org line rows straight into the table for quote `quoteId`. */
+  function seedLines(db: Db, quoteId: string, n: number, money = { quantity: 1, unitPriceCents: 1 }) {
+    const ts = Date.now();
+    for (let i = 0; i < n; i++) {
+      db.insert(quoteLineItems)
+        .values({
+          id: `0QLSEEDB${quoteId}${i}`,
+          orgId: LOCAL_ORG_ID,
+          quoteId,
+          description: `B filler ${i}`,
+          quantity: money.quantity,
+          unitPriceCents: money.unitPriceCents,
+          discountBasisPoints: 0,
+          sortOrder: i,
+          createdAt: ts,
+          updatedAt: ts,
+        })
+        .run();
+    }
+  }
+
+  function twoQuotes() {
+    const { db, opp, quote: a } = setup();
+    const b = createQuote(db, LOCAL_ACTOR, { opportunityId: opp.id, name: "Anvil Quote B" });
+    return { db, a, b };
+  }
+
+  // 1,000,000 x 5,000,000,000 cents = 5e15: more than half of Number.MAX_SAFE_INTEGER (~9.007e15).
+  const HUGE = { quantity: 1_000_000, unitPriceCents: 5_000_000_000 };
+
+  it("adds to quote A while quote B (same org) is at the 200-line cap; sortOrder follows A's own lines", () => {
+    const { db, a, b } = twoQuotes();
+    seedLines(db, b.id, MAX_LINES_PER_QUOTE);
+    addQuoteLine(db, LOCAL_ACTOR, a.id, { description: "A first", quantity: 1, unitPriceCents: 100 });
+    const start = Date.now();
+    const detail = addQuoteLine(db, LOCAL_ACTOR, a.id, { description: "A second", quantity: 2, unitPriceCents: 50 });
+    expect(detail.lines.map((l) => [l.description, l.sortOrder])).toEqual([
+      ["A first", 0],
+      ["A second", 1],
+    ]);
+    expect(detail.totals.totalCents).toBe(200);
+    expect(detail.updatedAt).toBeGreaterThanOrEqual(start);
+    expect(getQuote(db, LOCAL_ACTOR, b.id)!.lines).toHaveLength(MAX_LINES_PER_QUOTE);
+  });
+
+  it("adds a huge line to quote A while quote B (same org) holds a huge total; no false overflow", () => {
+    const { db, a, b } = twoQuotes();
+    seedLines(db, b.id, 1, HUGE);
+    const start = Date.now();
+    const detail = addQuoteLine(db, LOCAL_ACTOR, a.id, { description: "A huge", ...HUGE });
+    expect(detail.totals.totalCents).toBe(5_000_000_000_000_000);
+    expect(detail.lines).toHaveLength(1);
+    expect(detail.updatedAt).toBeGreaterThanOrEqual(start);
+  });
+
+  it("updating a line near the overflow limit to the same or a smaller value succeeds with correct totals", () => {
+    const { db, a } = twoQuotes();
+    const line = addQuoteLine(db, LOCAL_ACTOR, a.id, { description: "Big", ...HUGE }).lines[0]!;
+    let start = Date.now();
+    const same = updateQuoteLine(db, LOCAL_ACTOR, line.id, { description: "Big", ...HUGE });
+    expect(same.totals.totalCents).toBe(5_000_000_000_000_000);
+    expect(same.updatedAt).toBeGreaterThanOrEqual(start);
+    start = Date.now();
+    const smaller = updateQuoteLine(db, LOCAL_ACTOR, line.id, {
+      description: "Big",
+      quantity: 1_000_000,
+      unitPriceCents: 4_600_000_000,
+    });
+    expect(smaller.totals.subtotalCents).toBe(4_600_000_000_000_000);
+    expect(smaller.totals.totalCents).toBe(4_600_000_000_000_000);
+    expect(smaller.lines).toHaveLength(1);
+    expect(smaller.updatedAt).toBeGreaterThanOrEqual(start);
+  });
+});
+
