@@ -8,6 +8,7 @@ import { getContact } from "./contacts";
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
 import { getLead } from "./leads";
+import { findCampaignMember, loadCampaign } from "./campaignRows";
 import { canPerform, type ObjectAction } from "./permissions";
 
 /**
@@ -82,13 +83,6 @@ function canChange(db: Db, actor: Actor, action: ObjectAction, row: Campaign): b
   return row.ownerId === actor.userId || hasModifyAllData(db, actor);
 }
 
-function loadCampaign(db: Db, actor: Actor, id: string): Campaign | undefined {
-  return db
-    .select()
-    .from(campaigns)
-    .where(and(eq(campaigns.id, id), eq(campaigns.orgId, actor.orgId), isNull(campaigns.deletedAt)))
-    .get();
-}
 
 /** Visible, live campaign the actor may change; NOT_FOUND if unseen, FORBIDDEN if seen. */
 function requireChangeable(db: Db, actor: Actor, id: string, action: ObjectAction): Campaign {
@@ -159,7 +153,8 @@ export function updateCampaign(db: Db, actor: Actor, id: string, input: Campaign
 function updateCampaignTx(db: Db, actor: Actor, id: string, input: CampaignInput): Campaign {
   const existing = requireChangeable(db, actor, id, "edit");
   const parsed = parseInput(input);
-  db.update(campaigns)
+  const result = db
+    .update(campaigns)
     .set({
       name: parsed.name,
       status: parsed.status ?? existing.status,
@@ -173,6 +168,8 @@ function updateCampaignTx(db: Db, actor: Actor, id: string, input: CampaignInput
     })
     .where(and(eq(campaigns.id, id), eq(campaigns.orgId, actor.orgId)))
     .run();
+  // The gate already loaded this row; zero changes means it is not in the actor's org.
+  if (result.changes === 0) throw new DomainError("NOT_FOUND", "Campaign not found");
   const updated = loadCampaign(db, actor, id);
   if (!updated) throw new DomainError("WRITE_FAILED", "Campaign update did not persist");
   return updated;
@@ -183,10 +180,12 @@ export function deleteCampaign(db: Db, actor: Actor, id: string): void {
     const tx = txRaw as unknown as Db;
     requireChangeable(tx, actor, id, "delete");
     const ts = Date.now();
-    tx.update(campaigns)
+    const result = tx
+      .update(campaigns)
       .set({ deletedAt: ts, updatedAt: ts, updatedBy: actor.userId })
       .where(and(eq(campaigns.id, id), eq(campaigns.orgId, actor.orgId)))
       .run();
+    if (result.changes === 0) throw new DomainError("NOT_FOUND", "Campaign not found");
   });
 }
 
@@ -267,21 +266,13 @@ export function removeCampaignMember(db: Db, actor: Actor, campaignId: string, m
 
 function removeCampaignMemberTx(db: Db, actor: Actor, campaignId: string, memberId: string): void {
   requireChangeable(db, actor, campaignId, "edit");
-  const row = db
-    .select({ id: campaignMembers.id })
-    .from(campaignMembers)
-    .where(
-      and(
-        eq(campaignMembers.id, memberId),
-        eq(campaignMembers.campaignId, campaignId),
-        eq(campaignMembers.orgId, actor.orgId),
-      ),
-    )
-    .get();
+  const row = findCampaignMember(db, actor, campaignId, memberId);
   if (!row) throw new DomainError("NOT_FOUND", "Campaign member not found");
-  db.delete(campaignMembers)
+  const result = db
+    .delete(campaignMembers)
     .where(and(eq(campaignMembers.id, memberId), eq(campaignMembers.orgId, actor.orgId)))
     .run();
+  if (result.changes === 0) throw new DomainError("NOT_FOUND", "Campaign member not found");
 }
 
 /** Members the actor can see; leads/contacts hidden by sharing are left out. */
