@@ -104,10 +104,29 @@ describe("parent delete never orphans a task the actor cannot read", () => {
       }
     });
 
-    it(`deletes a ${parent} and its tasks once no hidden task remains`, () => {
+    it(`refuses a ${parent} delete when a public read/write task belongs to someone else`, () => {
       const { db, riley, parentId, own, hidden } = setup(parent);
-      // The task's owner can see it; once it is public the delete may proceed.
       setOrgWideDefault(db, LOCAL_ACTOR, "task", "public_read_write", true);
+      expect(getTask(db, riley, hidden.id)).toBeDefined();
+      const before = snapshot(db);
+      expect(() => DELETE[parent](db, riley, parentId)).toThrow(
+        expect.objectContaining({ code: "HAS_CHILDREN" }),
+      );
+      try {
+        DELETE[parent](db, riley, parentId);
+      } catch (error) {
+        expect((error as Error).message).not.toContain(parentId);
+        expect((error as Error).message).not.toContain(own.id);
+        expect((error as Error).message).not.toContain(hidden.id);
+      }
+      expect(snapshot(db)).toBe(before);
+    });
+
+    it(`deletes a ${parent} and its tasks once every task is owned and visible`, () => {
+      const { db, riley, parentId, own, hidden } = setup(parent);
+      setOrgWideDefault(db, LOCAL_ACTOR, "task", "public_read_write", true);
+      // Visibility alone cannot grant cascade delete; ownership can.
+      db.update(tasks).set({ ownerId: riley.userId }).where(eq(tasks.id, hidden.id)).run();
       DELETE[parent](db, riley, parentId);
       const stored = db.select().from(tasks).all();
       expect(stored.find((t) => t.id === own.id)?.deletedAt).not.toBeNull();
@@ -142,8 +161,7 @@ describe("a profile that can delete tasks but not read them", () => {
     });
     addMember(db, LOCAL_ORG_ID, created.id, "member", profileId);
     const pat = actorFor(created.id);
-    // Public read/write: record access would allow the delete; only the
-    // profile's missing task read hides the task.
+    // Ownership allows delete; only the profile's missing task read hides it.
     setOrgWideDefault(db, LOCAL_ACTOR, "task", "public_read_write", true);
     const account = createAccount(db, pat, { name: "Mesa Supply" });
     const hidden = createTask(db, LOCAL_ACTOR, {
@@ -151,6 +169,7 @@ describe("a profile that can delete tasks but not read them", () => {
       relatedObjectType: "account",
       relatedRecordId: account.id,
     });
+    db.update(tasks).set({ ownerId: pat.userId }).where(eq(tasks.id, hidden.id)).run();
     expect(getTask(db, pat, hidden.id)).toBeUndefined();
     const before = snapshot(db);
 
