@@ -28,6 +28,7 @@ export const ID_PREFIX = {
   orgWideDefault: "owd",
   role: "00E",
   sharingRule: "0sr",
+  knowledgeArticle: "ka0",
 } as const;
 
 export type IdPrefix = (typeof ID_PREFIX)[keyof typeof ID_PREFIX];
