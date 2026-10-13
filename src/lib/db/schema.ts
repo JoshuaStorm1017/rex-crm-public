@@ -690,3 +690,19 @@ export const priceBookEntries = sqliteTable(
     index("price_book_entries_product_idx").on(table.productId),
   ],
 );
+
+export const knowledgeArticles = sqliteTable(
+  "knowledge_articles",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    status: text("status").notNull().default("draft"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+  },
+  (table) => [index("knowledge_articles_org_status_idx").on(table.orgId, table.status)],
+);
