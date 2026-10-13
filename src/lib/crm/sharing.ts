@@ -433,7 +433,7 @@ export function recordAllows(
 ): boolean {
   const owd = owdFor(db, actor.orgId, objectType);
   if (action === "read" && owd.access !== "private") return true;
-  if (action !== "read" && owd.access === "public_read_write") return true;
+  if (action === "edit" && owd.access === "public_read_write") return true;
   if (record.ownerId === actor.userId) return true;
   if (owd.grantHierarchy && hierarchyGrants(db, actor, record.ownerId)) return true;
   if (action === "delete") return false;

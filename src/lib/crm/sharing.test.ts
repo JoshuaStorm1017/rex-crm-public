@@ -245,15 +245,15 @@ describe("organization-wide defaults, roles, and sharing rules", () => {
     expect(getAccount(db, riley, account.id)).toBeUndefined();
   });
 
-  it("public read/write lets a member edit and delete any account", () => {
+  it("public read/write lets a member edit another account but not delete it", () => {
     const db = memory();
     const account = createAccount(db, LOCAL_ACTOR, { name: "Open Books" });
     setOrgWideDefault(db, LOCAL_ACTOR, "account", "public_read_write", true);
     expect(updateAccount(db, riley, account.id, { name: "Open Books Edited" }).name).toBe(
       "Open Books Edited",
     );
-    deleteAccount(db, riley, account.id);
-    expect(getAccount(db, LOCAL_ACTOR, account.id)).toBeUndefined();
+    expectCode(() => deleteAccount(db, riley, account.id), "FORBIDDEN");
+    expect(getAccount(db, LOCAL_ACTOR, account.id)?.name).toBe("Open Books Edited");
   });
 
   it("refuses a role cycle, another org's role, and delete while a child or rule still uses it", () => {
