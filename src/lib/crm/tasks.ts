@@ -216,7 +216,13 @@ function storedTask(db: Db, actor: Actor, id: string): Task | undefined {
     .get();
 }
 
+/**
+ * A task the actor may not read is not found, for every caller. Profile
+ * read is checked here, not only in getTask, so a profile with edit or
+ * delete but no read cannot write a task it cannot see.
+ */
 function loadTask(db: Db, actor: Actor, id: string): Task | undefined {
+  if (!canPerform(db, actor, "task", "read")) return undefined;
   const row = storedTask(db, actor, id);
   if (!row || !canReadRecord(db, actor, "task", row)) return undefined;
   return row;
@@ -224,7 +230,6 @@ function loadTask(db: Db, actor: Actor, id: string): Task | undefined {
 
 export function getTask(db: Db, actor: Actor, id: string): Task | undefined {
   assertActor(db, actor);
-  if (!canPerform(db, actor, "task", "read")) return undefined;
   const row = loadTask(db, actor, id);
   return row ? presentRecord(db, actor, "task", row) : undefined;
 }
