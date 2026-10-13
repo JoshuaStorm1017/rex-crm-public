@@ -4,6 +4,7 @@ import { openMemoryDb } from "../db/client";
 import {
   accounts,
   customFieldValues,
+  customFields,
   opportunities,
   opportunityLineItems,
   organizations,
@@ -240,5 +241,102 @@ describe("recycle bin purge: explicit child checks without FK enforcement", () =
     db.delete(opportunities).where(eq(opportunities.id, opp.id)).run();
     expectCode(() => purgeRecord(db, LOCAL_ACTOR, "account", account.id), "HAS_CHILDREN");
     expect(rowExists(db, account.id)).toBe(true);
+  });
+});
+
+describe("recycle bin purge: side rows are org scoped", () => {
+  type TestDb = ReturnType<typeof openMemoryDb>["db"];
+
+  function addField(db: TestDb, id: string, orgId: string, ownerId: string) {
+    const ts = Date.now();
+    db.insert(customFields)
+      .values({
+        id,
+        orgId,
+        objectType: "account",
+        apiName: `${id}__c`,
+        label: `Fixture ${id}`,
+        type: "text",
+        ownerId,
+        createdAt: ts,
+        updatedAt: ts,
+        createdBy: ownerId,
+        updatedBy: ownerId,
+      })
+      .run();
+  }
+
+  function addValue(db: TestDb, id: string, orgId: string, fieldId: string, recordId: string, value: string) {
+    const ts = Date.now();
+    db.insert(customFieldValues)
+      .values({ id, orgId, fieldId, recordId, objectType: "account", value, createdAt: ts, updatedAt: ts })
+      .run();
+  }
+
+  function addView(db: TestDb, orgId: string, userId: string, recordId: string, viewedAt: number) {
+    db.insert(recentlyViewed).values({ orgId, userId, recordId, objectType: "account", viewedAt }).run();
+  }
+
+  function orgRows(db: TestDb, orgId: string) {
+    return JSON.stringify([
+      db.select().from(recentlyViewed).where(eq(recentlyViewed.orgId, orgId)).orderBy(recentlyViewed.id).all(),
+      db.select().from(customFieldValues).where(eq(customFieldValues.orgId, orgId)).orderBy(customFieldValues.id).all(),
+    ]);
+  }
+
+  it("leaves another org's recently-viewed and custom-field-value rows untouched, even for the same record id", () => {
+    const db = openMemoryDb().db;
+    const outsider = createUser(db, {
+      name: "Outsider Viewer",
+      email: "outsider-side@example.invalid",
+      username: "outsider_side",
+      password: "long-enough",
+    });
+    const other = createOrganization(db, "Elsewhere Side Fictional", outsider.id);
+    const account = deletedAccount(db, "Side Row Fixture Co");
+    const bystander = createAccount(db, LOCAL_ACTOR, { name: "Bystander Fixture Co" });
+
+    addField(db, "cf_side_a", LOCAL_ORG_ID, LOCAL_USER_ID);
+    addField(db, "cf_side_b", other.id, outsider.id);
+    addValue(db, "cfv_a_purged", LOCAL_ORG_ID, "cf_side_a", account.id, "org A purged");
+    addValue(db, "cfv_b_same_id", other.id, "cf_side_b", account.id, "org B same id");
+    addValue(db, "cfv_b_other", other.id, "cf_side_b", bystander.id, "org B other id");
+    addView(db, LOCAL_ORG_ID, LOCAL_USER_ID, account.id, 1_000);
+    addView(db, other.id, outsider.id, account.id, 2_000);
+    addView(db, other.id, outsider.id, bystander.id, 3_000);
+
+    const before = orgRows(db, other.id);
+    expect(db.select().from(recentlyViewed).where(eq(recentlyViewed.orgId, other.id)).all()).toHaveLength(2);
+    expect(db.select().from(customFieldValues).where(eq(customFieldValues.orgId, other.id)).all()).toHaveLength(2);
+
+    purgeRecord(db, LOCAL_ACTOR, "account", account.id);
+
+    expect(rowExists(db, account.id)).toBe(false);
+    expect(orgRows(db, other.id)).toBe(before);
+    expect(
+      db.select().from(customFieldValues).where(eq(customFieldValues.id, "cfv_b_same_id")).get()?.value,
+    ).toBe("org B same id");
+    expect(
+      db.select().from(recentlyViewed)
+        .where(and(eq(recentlyViewed.orgId, other.id), eq(recentlyViewed.recordId, account.id))).all(),
+    ).toHaveLength(1);
+  });
+
+  it("removes the purged record's own custom-field values and keeps its org's other values", () => {
+    const db = openMemoryDb().db;
+    const account = deletedAccount(db, "Own Values Fixture Co");
+    const keeper = createAccount(db, LOCAL_ACTOR, { name: "Keeper Fixture Co" });
+    addField(db, "cf_own_1", LOCAL_ORG_ID, LOCAL_USER_ID);
+    addField(db, "cf_own_2", LOCAL_ORG_ID, LOCAL_USER_ID);
+    addValue(db, "cfv_own_1", LOCAL_ORG_ID, "cf_own_1", account.id, "purge me 1");
+    addValue(db, "cfv_own_2", LOCAL_ORG_ID, "cf_own_2", account.id, "purge me 2");
+    addValue(db, "cfv_keep", LOCAL_ORG_ID, "cf_own_1", keeper.id, "keep me");
+    expect(db.select().from(customFieldValues).where(eq(customFieldValues.recordId, account.id)).all()).toHaveLength(2);
+
+    purgeRecord(db, LOCAL_ACTOR, "account", account.id);
+
+    expect(db.select().from(customFieldValues).where(eq(customFieldValues.recordId, account.id)).all()).toHaveLength(0);
+    const left = db.select().from(customFieldValues).where(eq(customFieldValues.orgId, LOCAL_ORG_ID)).all();
+    expect(left.map((row) => [row.id, row.recordId, row.value])).toEqual([["cfv_keep", keeper.id, "keep me"]]);
   });
 });
