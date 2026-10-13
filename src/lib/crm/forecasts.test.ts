@@ -4,7 +4,7 @@ import { opportunities } from "../db/schema";
 import { LOCAL_ACTOR, actorFor, type Actor } from "./actor";
 import { createAccount } from "./accounts";
 import type { OpportunityStage } from "./constants";
-import { buildForecast, forecastCategoryFor } from "./forecasts";
+import { applyRunningTotals, buildForecast, forecastCategoryFor } from "./forecasts";
 import { createOpportunity, deleteOpportunity } from "./opportunities";
 import { addMember, createOrganization } from "./orgs";
 import {
@@ -88,6 +88,9 @@ describe("buildForecast money", () => {
         pipeline: 1_000,
         total: 306_001,
         count: 6,
+        commitRunning: 305_000,
+        bestCaseRunning: 305_001,
+        pipelineRunning: 306_001,
       },
       {
         ownerId: LOCAL_ACTOR.userId,
@@ -98,6 +101,9 @@ describe("buildForecast money", () => {
         pipeline: 0,
         total: 333,
         count: 2,
+        commitRunning: 0,
+        bestCaseRunning: 333,
+        pipelineRunning: 333,
       },
     ]);
     expect(forecast.totals).toEqual({
@@ -107,6 +113,9 @@ describe("buildForecast money", () => {
       pipeline: 1_000,
       total: 306_334,
       count: 8,
+      commitRunning: 305_000,
+      bestCaseRunning: 305_334,
+      pipelineRunning: 306_334,
     });
     for (const row of forecast.rows) {
       for (const value of [row.closed, row.commit, row.bestCase, row.pipeline, row.total]) {
@@ -196,7 +205,17 @@ describe("buildForecast visibility", () => {
     const before = snapshot(db);
     expect(buildForecast(db, ava)).toEqual({
       rows: [],
-      totals: { closed: 0, commit: 0, bestCase: 0, pipeline: 0, total: 0, count: 0 },
+      totals: {
+        closed: 0,
+        commit: 0,
+        bestCase: 0,
+        pipeline: 0,
+        total: 0,
+        count: 0,
+        commitRunning: 0,
+        bestCaseRunning: 0,
+        pipelineRunning: 0,
+      },
     });
     expect(snapshot(db)).toBe(before);
   });
@@ -220,5 +239,78 @@ describe("buildForecast visibility", () => {
     const view = buildForecast(db, ava);
     expect(view.totals).toMatchObject({ commit: 0, total: 0, count: 1 });
     expect(buildForecast(db, LOCAL_ACTOR).totals.commit).toBe(700);
+  });
+});
+
+describe("running totals", () => {
+  it("stacks closed into commit, commit into best case, and all open into pipeline", () => {
+    const t = {
+      closed: 1_000,
+      commit: 200,
+      bestCase: 30,
+      pipeline: 4,
+      total: 1_234,
+      count: 4,
+      commitRunning: 0,
+      bestCaseRunning: 0,
+      pipelineRunning: 0,
+    };
+    applyRunningTotals(t);
+    expect(t).toMatchObject({
+      closed: 1_000,
+      commit: 200,
+      bestCase: 30,
+      pipeline: 4,
+      commitRunning: 1_200,
+      bestCaseRunning: 1_230,
+      pipelineRunning: 1_234,
+    });
+  });
+
+  it("is cumulative per row and overall with only one category present each", () => {
+    const db = memory();
+    opp(db, LOCAL_ACTOR, "Closed Won", "2027-01-05", 7);
+    opp(db, LOCAL_ACTOR, "Proposal", "2027-02-05", 11);
+    const { rows, totals } = buildForecast(db, LOCAL_ACTOR);
+    expect(rows[0]).toMatchObject({
+      month: "2027-01",
+      commitRunning: 7,
+      bestCaseRunning: 7,
+      pipelineRunning: 7,
+    });
+    expect(rows[1]).toMatchObject({
+      month: "2027-02",
+      commit: 0,
+      commitRunning: 0,
+      bestCaseRunning: 11,
+      pipelineRunning: 11,
+    });
+    expect(totals).toMatchObject({ commitRunning: 7, bestCaseRunning: 18, pipelineRunning: 18 });
+  });
+
+  it("excludes closed lost from every running total", () => {
+    const db = memory();
+    opp(db, LOCAL_ACTOR, "Closed Lost", "2027-01-05", 999);
+    opp(db, LOCAL_ACTOR, "Prospecting", "2027-01-06", 2);
+    expect(buildForecast(db, LOCAL_ACTOR).totals).toMatchObject({
+      commitRunning: 0,
+      bestCaseRunning: 0,
+      pipelineRunning: 2,
+    });
+  });
+
+  it("refuses a running total past the safe integer range", () => {
+    const t = {
+      closed: Number.MAX_SAFE_INTEGER,
+      commit: 1,
+      bestCase: 0,
+      pipeline: 0,
+      total: 0,
+      count: 0,
+      commitRunning: 0,
+      bestCaseRunning: 0,
+      pipelineRunning: 0,
+    };
+    expect(() => applyRunningTotals(t)).toThrow(RangeError);
   });
 });

@@ -24,6 +24,9 @@ export default async function ForecastsPage() {
               <th>Best case</th>
               <th>Pipeline</th>
               <th>Total</th>
+              <th>Commit (running)</th>
+              <th>Best case (running)</th>
+              <th>Pipeline (running)</th>
             </tr>
           </thead>
           <tbody>
@@ -36,6 +39,9 @@ export default async function ForecastsPage() {
                 <td>{formatUsd(row.bestCase)}</td>
                 <td>{formatUsd(row.pipeline)}</td>
                 <td>{formatUsd(row.total)}</td>
+              <td>{formatUsd(row.commitRunning)}</td>
+              <td>{formatUsd(row.bestCaseRunning)}</td>
+              <td>{formatUsd(row.pipelineRunning)}</td>
               </tr>
             ))}
             <tr className="font-semibold">
@@ -46,6 +52,9 @@ export default async function ForecastsPage() {
               <td>{formatUsd(totals.bestCase)}</td>
               <td>{formatUsd(totals.pipeline)}</td>
               <td>{formatUsd(totals.total)}</td>
+              <td>{formatUsd(totals.commitRunning)}</td>
+              <td>{formatUsd(totals.bestCaseRunning)}</td>
+              <td>{formatUsd(totals.pipelineRunning)}</td>
             </tr>
           </tbody>
         </table>

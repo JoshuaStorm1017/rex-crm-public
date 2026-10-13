@@ -30,6 +30,12 @@ export function forecastCategoryFor(stage: OpportunityStage | string): ForecastC
 export type ForecastTotals = Record<ForecastCategory, number> & {
   total: number;
   count: number;
+  /** Salesforce-style running totals: closed + commit. */
+  commitRunning: number;
+  /** closed + commit + best case. */
+  bestCaseRunning: number;
+  /** closed + every open category. */
+  pipelineRunning: number;
 };
 
 export type ForecastRow = ForecastTotals & { ownerId: string; month: string };
@@ -40,7 +46,24 @@ export type Forecast = {
 };
 
 function emptyTotals(): ForecastTotals {
-  return { closed: 0, commit: 0, bestCase: 0, pipeline: 0, total: 0, count: 0 };
+  return {
+    closed: 0,
+    commit: 0,
+    bestCase: 0,
+    pipeline: 0,
+    total: 0,
+    count: 0,
+    commitRunning: 0,
+    bestCaseRunning: 0,
+    pipelineRunning: 0,
+  };
+}
+
+/** Fill the running totals from the per-category amounts. */
+export function applyRunningTotals(t: ForecastTotals): void {
+  t.commitRunning = addCents(t.closed, t.commit);
+  t.bestCaseRunning = addCents(t.commitRunning, t.bestCase);
+  t.pipelineRunning = addCents(t.bestCaseRunning, t.pipeline);
 }
 
 function addCents(a: number, b: number): number {
@@ -78,6 +101,8 @@ export function buildForecast(db: Db, actor: Actor): Forecast {
     add(row, category, cents);
     add(totals, category, cents);
   }
+  for (const row of groups.values()) applyRunningTotals(row);
+  applyRunningTotals(totals);
   const rows = [...groups.values()].sort(
     (a, b) => a.ownerId.localeCompare(b.ownerId) || a.month.localeCompare(b.month),
   );
