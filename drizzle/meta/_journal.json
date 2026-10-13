@@ -131,12 +131,19 @@
     {
       "idx": 18,
       "version": "6",
+      "when": 1791857469518,
+      "tag": "0027_dashboards",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
       "when": 1791857938472,
       "tag": "0037_campaigns",
       "breakpoints": true
     },
     {
-      "idx": 19,
+      "idx": 20,
       "version": "6",
       "when": 1791858046080,
       "tag": "0038_campaign_members",
