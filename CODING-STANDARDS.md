@@ -113,7 +113,10 @@ migration; add a new one. Migrations must upgrade an existing DB (add a test lik
 - Any change under `.github/` (PR template, workflows, CODEOWNERS or any other file there)
   needs all three reviewer verdicts (code, security, mutation/process) at the current head
   SHA before merge. It never takes the docs-only fast lane, even when every changed file is
-  `.md`.
+  `.md`. The same holds for any change to `package.json` or a lockfile (`package-lock.json`,
+  `npm-shrinkwrap.json`, `yarn.lock`, `pnpm-lock.yaml`): all three verdicts, never the fast lane.
+- #39's PR template change (`.github/pull_request_template.md`) merged before this rule and
+  still needs a full three-review pass; until then treat it as unreviewed.
 - Never push to `main`; only Rex Approver / the architect merges (squash). Never merge red.
 
 ## 8. Data

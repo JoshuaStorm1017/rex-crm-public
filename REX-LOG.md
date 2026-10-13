@@ -1,5 +1,13 @@
 # Rex log
 
+## 2026-10-13 18:45 EDT
+
+Docs-only follow-up on fresh main 9af1c19, branch `rex/docs-review-rules`.
+- CODING-STANDARDS §7: `package.json` and lockfiles named as needing all three verdicts, never the fast lane; #39's template change still needs a full review.
+- docs/ci.md: any push voids earlier gates (verdicts, mutation, CI are per head SHA); mutation bar (70%+ killed, every security and money mutant killed; equivalence only when reviewers propose and independently verify it); `.github/` changes need code, security and mutation reviews.
+- #44's PR body test count: checked; it already reads 1193/1193 (101 files), so no PATCH was made.
+- No `.github/` files changed.
+
 ## 2026-10-13 12:25 EDT
 
 Fix F1 from proposal PR #38: `sharing.ts:recordAllows` returned true for
