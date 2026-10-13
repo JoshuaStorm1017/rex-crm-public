@@ -128,4 +128,17 @@ describe("territories", () => {
     expect(T.getTerritoryDetail(db, rep, t.id)!.accounts.map((a) => a.id)).toEqual([own.id]);
     expect(T.getTerritoryDetail(db, ADMIN, t.id)!.accounts).toHaveLength(2);
   });
+
+  it("refuses a same-org admin who cannot read a private account", () => {
+    const db = openMemoryDb().db;
+    setOrgWideDefault(db, ADMIN, "account", "private", true);
+    const created = user(db, "admin2");
+    addMember(db, ADMIN.orgId, created.id, "admin");
+    const admin2 = actorFor(created.id, ADMIN.orgId);
+    const t = T.createTerritory(db, admin2, { name: "Locked", regions: "OR" });
+    const hidden = createAccount(db, ADMIN, { name: "Fictional Locked Co" });
+    expect(T.getTerritoryDetail(db, admin2, t.id)).toBeDefined();
+    expectRefused(db, "NOT_FOUND", () => T.assignAccountToTerritory(db, admin2, t.id, hidden.id), [hidden.id]);
+    expect(db.select().from(territoryAccounts).all()).toEqual([]);
+  });
 });
