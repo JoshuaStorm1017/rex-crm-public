@@ -106,8 +106,16 @@ describe("parent delete never orphans a task the actor cannot read", () => {
 
     it(`deletes a ${parent} and its tasks once no hidden task remains`, () => {
       const { db, riley, parentId, own, hidden } = setup(parent);
-      // The task's owner can see it; once it is public the delete may proceed.
+      // Public Read/Write makes the task visible and editable but not
+      // deletable by Riley, so the parent delete is still refused.
       setOrgWideDefault(db, LOCAL_ACTOR, "task", "public_read_write", true);
+      const before = snapshot(db);
+      expect(() => DELETE[parent](db, riley, parentId)).toThrow(
+        expect.objectContaining({ code: "HAS_CHILDREN" }),
+      );
+      expect(snapshot(db)).toBe(before);
+      // Once Riley owns it, Riley may delete it and the cascade proceeds.
+      db.update(tasks).set({ ownerId: RILEY_USER_ID }).where(eq(tasks.id, hidden.id)).run();
       DELETE[parent](db, riley, parentId);
       const stored = db.select().from(tasks).all();
       expect(stored.find((t) => t.id === own.id)?.deletedAt).not.toBeNull();
