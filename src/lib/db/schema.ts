@@ -690,3 +690,29 @@ export const priceBookEntries = sqliteTable(
     index("price_book_entries_product_idx").on(table.productId),
   ],
 );
+
+/** Contracts on an account. Access is controlled by the parent account (SALES-CONTRACT-001). */
+export const contracts = sqliteTable(
+  "contracts",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    status: text("status").notNull(),
+    startDate: text("start_date").notNull(),
+    termMonths: integer("term_months").notNull(),
+    endDate: text("end_date").notNull(),
+    valueCents: integer("value_cents").notNull(),
+    activatedAt: integer("activated_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+  },
+  (table) => [
+    index("contracts_org_idx").on(table.orgId),
+    index("contracts_account_idx").on(table.accountId),
+  ],
+);
