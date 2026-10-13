@@ -1,11 +1,12 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
-import { accounts } from "../db/schema";
+import { accounts, organizations } from "../db/schema";
 import { LOCAL_ACTOR, actorFor, type Actor } from "./actor";
 import { LOCAL_ORG_ID } from "./constants";
 import { createDuplicateRule } from "./duplicateRules";
 import { isDomainError } from "./errors";
-import { IMPORT_MAX_ROWS, importAccountsCsv, parseCsv } from "./importer";
+import { IMPORT_MAX_BYTES, IMPORT_MAX_ROWS, importAccountsCsv, parseCsv } from "./importer";
 import { addMember, createOrganization } from "./orgs";
 import { createProfile, setObjectPermission } from "./profiles";
 import { createUser } from "./users";
@@ -163,5 +164,45 @@ describe("importAccountsCsv", () => {
     expect(
       JSON.stringify(db.select().from(accounts).all().filter((a) => a.orgId === orgB.id)),
     ).toBe(bRows);
+  });
+
+  it("accepts a file of exactly 1 MB and refuses one byte over, writing nothing", () => {
+    const db = openMemoryDb().db;
+    // Blank lines are skipped by the parser, so they pad the file to an exact size.
+    const sized = (bytes: number, name: string) => {
+      const head = `Name\n${name}\n`;
+      return head + "\n".repeat(bytes - Buffer.byteLength(head, "utf8"));
+    };
+    const atLimit = sized(IMPORT_MAX_BYTES, "Edge Fictional");
+    expect(Buffer.byteLength(atLimit, "utf8")).toBe(IMPORT_MAX_BYTES);
+    const ok = importAccountsCsv(db, LOCAL_ACTOR, atLimit);
+    expect(ok.errors).toEqual([]);
+    expect(ok.created).toHaveLength(1);
+
+    const before = snap(db);
+    const over = sized(IMPORT_MAX_BYTES + 1, "Over Fictional");
+    expect(Buffer.byteLength(over, "utf8")).toBe(IMPORT_MAX_BYTES + 1);
+    const r = refusal(() => importAccountsCsv(db, LOCAL_ACTOR, over));
+    expect(r.code).toBe("INVALID_IMPORT");
+    expect(r.message).toMatch(/1 MB/);
+    expect(snap(db)).toBe(before);
+
+    // The limit counts UTF-8 bytes, not characters.
+    const multi = sized(IMPORT_MAX_BYTES + 1, "Caf\u00e9 Fictional");
+    expect(multi.length).toBeLessThanOrEqual(IMPORT_MAX_BYTES);
+    expect(refusal(() => importAccountsCsv(db, LOCAL_ACTOR, multi)).code).toBe("INVALID_IMPORT");
+    expect(snap(db)).toBe(before);
+  });
+
+  it("refuses an import into a suspended org, writing nothing", () => {
+    const db = openMemoryDb().db;
+    importAccountsCsv(db, LOCAL_ACTOR, "Name\nBefore Suspension Fictional\n");
+    db.update(organizations).set({ status: "suspended" })
+      .where(eq(organizations.id, LOCAL_ORG_ID)).run();
+    const before = snap(db);
+    const r = refusal(() => importAccountsCsv(db, LOCAL_ACTOR, "Name\nAfter Suspension Fictional\n"));
+    expect(r.code).toBe("FORBIDDEN");
+    expect(r.message).not.toMatch(/001|005|00D/);
+    expect(snap(db)).toBe(before);
   });
 });
