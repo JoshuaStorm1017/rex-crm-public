@@ -108,7 +108,8 @@ export function assertOpportunityEditable(db: Db, actor: Actor, id: string, miss
   return opportunity;
 }
 
-export function rawQuote(db: Db, actor: Actor, id: string): Quote | undefined {
+/** Unchecked row loads. Callers must run assertActor first. */
+function quoteRow(db: Db, actor: Actor, id: string): Quote | undefined {
   return db
     .select()
     .from(quotes)
@@ -116,7 +117,7 @@ export function rawQuote(db: Db, actor: Actor, id: string): Quote | undefined {
     .get();
 }
 
-export function rawLines(db: Db, actor: Actor, quoteId: string): QuoteLineItem[] {
+function lineRows(db: Db, actor: Actor, quoteId: string): QuoteLineItem[] {
   return db
     .select()
     .from(quoteLineItems)
@@ -125,14 +126,24 @@ export function rawLines(db: Db, actor: Actor, quoteId: string): QuoteLineItem[]
     .all();
 }
 
+export function rawQuote(db: Db, actor: Actor, id: string): Quote | undefined {
+  assertActor(db, actor);
+  return quoteRow(db, actor, id);
+}
+
+export function rawLines(db: Db, actor: Actor, quoteId: string): QuoteLineItem[] {
+  assertActor(db, actor);
+  return lineRows(db, actor, quoteId);
+}
+
 /** A quote is visible only when its opportunity is visible to the actor. */
 export function getQuote(db: Db, actor: Actor, id: string): QuoteDetail | undefined {
   assertActor(db, actor);
-  const quote = rawQuote(db, actor, id);
+  const quote = quoteRow(db, actor, id);
   if (!quote) return undefined;
   const opportunity = readableOpportunity(db, actor, quote.opportunityId);
   if (!opportunity) return undefined;
-  const lines = rawLines(db, actor, quote.id).map((line) => ({
+  const lines = lineRows(db, actor, quote.id).map((line) => ({
     ...line,
     ...computeLineTotals(line),
   }));
@@ -189,14 +200,15 @@ export function listQuotes(db: Db, actor: Actor): QuoteListItem[] {
 
 export function listQuotesForOpportunity(db: Db, actor: Actor, opportunityId: string): QuoteListItem[] {
   assertActor(db, actor);
-  const opportunity = readableOpportunity(db, actor, opportunityId);
-  if (!opportunity) return [];
   const rows = db
     .select()
     .from(quotes)
     .where(and(eq(quotes.opportunityId, opportunityId), eq(quotes.orgId, actor.orgId)))
     .orderBy(desc(quotes.updatedAt))
     .all();
+  if (rows.length === 0) return [];
+  const opportunity = readableOpportunity(db, actor, opportunityId);
+  if (!opportunity) return [];
   return toListItems(db, actor, rows, new Map([[opportunity.id, opportunity.name]]));
 }
 

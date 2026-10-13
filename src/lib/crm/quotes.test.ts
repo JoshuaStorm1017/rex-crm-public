@@ -1,6 +1,7 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
-import { quoteLineItems, quotes } from "../db/schema";
+import { organizations, quoteLineItems, quotes, users } from "../db/schema";
 import { LOCAL_ACTOR, actorFor, type Actor } from "./actor";
 import { createAccount } from "./accounts";
 import { LOCAL_ORG_ID, RILEY_USER_ID } from "./constants";
@@ -15,10 +16,12 @@ import {
   isQuoteExpired,
   listQuotes,
   listQuotesForOpportunity,
+  rawLines,
+  rawQuote,
   updateQuote,
 } from "./quotes";
 import { setOrgWideDefault } from "./sharing";
-import { createUser } from "./users";
+import { createUser, disableUser } from "./users";
 
 const riley = actorFor(RILEY_USER_ID);
 const FULL = { canCreate: true, canRead: true, canUpdate: true, canDelete: true } as const;
@@ -312,4 +315,84 @@ describe("quote isolation and permissions", () => {
     expect(() => deleteQuote(db, actorFor(stranger.id), quote.id)).toThrow();
     expect(snapshot(db)).toBe(before);
   });
+});
+
+describe("quote reads refuse inactive or outside actors with FORBIDDEN (existing and unknown ids)", () => {
+  const UNKNOWN_QUOTE_ID = "0Q0000000000000UNKNOWN";
+  const UNKNOWN_OPP_ID = "006000000000000UNKNOWN";
+  type Made = { actor: Actor; quoteId?: string; oppId?: string };
+  function plainUser(db: Db, username: string) {
+    return createUser(db, { name: username, email: `${username}@example.invalid`, username, password: "long-enough" });
+  }
+  function localMember(db: Db, username: string): Actor {
+    const u = plainUser(db, username);
+    addMember(db, LOCAL_ORG_ID, u.id, "member");
+    return actorFor(u.id);
+  }
+  const actorCases: Array<[string, (db: Db) => Made]> = [
+    ["a non-member of the org", (db) => ({ actor: actorFor(plainUser(db, "quote_outsider").id) })],
+    [
+      "a deleted user",
+      (db) => {
+        const actor = localMember(db, "quote_deleted");
+        db.update(users).set({ deletedAt: Date.now() }).where(eq(users.id, actor.userId)).run();
+        return { actor };
+      },
+    ],
+    [
+      "a disabled user",
+      (db) => {
+        const actor = localMember(db, "quote_disabled");
+        disableUser(db, actor.userId);
+        return { actor };
+      },
+    ],
+    [
+      "a disabled user (no login)",
+      (db) => {
+        const actor = localMember(db, "quote_nologin");
+        db.update(users).set({ username: null, passwordHash: null }).where(eq(users.id, actor.userId)).run();
+        return { actor };
+      },
+    ],
+    [
+      "a user in a suspended org",
+      (db) => {
+        const owner = plainUser(db, "quote_susp_owner");
+        const org = createOrganization(db, "Suspended Sprocket Co", owner.id);
+        const actor = actorFor(owner.id, org.id);
+        const acct = createAccount(db, actor, { name: "Sprocket Supply" });
+        const opp = createOpportunity(db, actor, { accountId: acct.id, name: "Sprocket Restock", stage: "Prospecting", closeDate: "2026-10-31" });
+        const own = createQuote(db, actor, { opportunityId: opp.id, name: "Sprocket Quote" });
+        db.update(organizations).set({ status: "suspended" }).where(eq(organizations.id, org.id)).run();
+        return { actor, quoteId: own.id, oppId: opp.id };
+      },
+    ],
+    [
+      "an outside-org owner reading into this org",
+      (db) => {
+        const owner = plainUser(db, "quote_other_owner");
+        createOrganization(db, "Other Gadgets Org", owner.id);
+        return { actor: actorFor(owner.id, LOCAL_ORG_ID) };
+      },
+    ],
+  ];
+
+  for (const [label, make] of actorCases) {
+    it(`refuses getQuote, listQuotes, listQuotesForOpportunity, rawQuote and rawLines for ${label}`, () => {
+      const { db, opp, quote } = setup();
+      const made = make(db);
+      const quoteId = made.quoteId ?? quote.id;
+      const oppId = made.oppId ?? opp.id;
+      expectRefused(db, () => listQuotes(db, made.actor), "FORBIDDEN");
+      for (const id of [quoteId, UNKNOWN_QUOTE_ID]) {
+        expectRefused(db, () => getQuote(db, made.actor, id), "FORBIDDEN");
+        expectRefused(db, () => rawQuote(db, made.actor, id), "FORBIDDEN");
+        expectRefused(db, () => rawLines(db, made.actor, id), "FORBIDDEN");
+      }
+      for (const id of [oppId, UNKNOWN_OPP_ID]) {
+        expectRefused(db, () => listQuotesForOpportunity(db, made.actor, id), "FORBIDDEN");
+      }
+    });
+  }
 });

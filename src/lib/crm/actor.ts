@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { orgMemberships, organizations } from "../db/schema";
+import { orgMemberships, organizations, users } from "../db/schema";
 import { LOCAL_ORG_ID, LOCAL_USER_ID } from "./constants";
 import { DomainError, isDomainError } from "./errors";
 import { getUser } from "./users";
@@ -56,6 +56,20 @@ export function assertActor(db: Db, actor: Actor): void {
       "FORBIDDEN",
       "You are not a member of this organization",
     );
+  }
+  // A member whose user is deleted or disabled (no login) is refused, the
+  // same rule as isActiveUser in ownership.ts.
+  const user = db
+    .select({
+      deletedAt: users.deletedAt,
+      username: users.username,
+      passwordHash: users.passwordHash,
+    })
+    .from(users)
+    .where(eq(users.id, actor.userId))
+    .get();
+  if (!user || user.deletedAt != null || !user.username || !user.passwordHash) {
+    throw new DomainError("FORBIDDEN", "Your user account is not active");
   }
 }
 
