@@ -719,6 +719,51 @@ export const opportunityLineItems = sqliteTable(
   ],
 );
 
+export const quotes = sqliteTable(
+  "quotes",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    opportunityId: text("opportunity_id")
+      .notNull()
+      .references(() => opportunities.id),
+    name: text("name").notNull(),
+    status: text("status").notNull(),
+    expirationDate: text("expiration_date"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+  },
+  (table) => [
+    index("quotes_org_idx").on(table.orgId),
+    index("quotes_opportunity_idx").on(table.opportunityId),
+  ],
+);
+
+export const quoteLineItems = sqliteTable(
+  "quote_line_items",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    quoteId: text("quote_id")
+      .notNull()
+      .references(() => quotes.id),
+    productId: text("product_id").references(() => products.id),
+    description: text("description").notNull(),
+    quantity: integer("quantity").notNull(),
+    unitPriceCents: integer("unit_price_cents").notNull(),
+    discountBasisPoints: integer("discount_basis_points").notNull().default(0),
+    sortOrder: integer("sort_order").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("quote_line_items_org_idx").on(table.orgId),
+    index("quote_line_items_quote_idx").on(table.quoteId),
+  ],
+);
+
 export const approvalRequests = sqliteTable(
   "approval_requests",
   {
