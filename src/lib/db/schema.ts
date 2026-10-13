@@ -19,6 +19,8 @@ export const users = sqliteTable(
     passwordHash: text("password_hash"),
     role: text("role").notNull().default("user"),
     deletedAt: integer("deleted_at"),
+    failedLoginCount: integer("failed_login_count").notNull().default(0),
+    lockedUntil: integer("locked_until"),
   },
   (table) => [
     uniqueIndex("users_username_uidx").on(table.username),
@@ -688,6 +690,29 @@ export const priceBookEntries = sqliteTable(
     ),
     index("price_book_entries_org_idx").on(table.orgId),
     index("price_book_entries_product_idx").on(table.productId),
+  ],
+);
+
+export const opportunityLineItems = sqliteTable(
+  "opportunity_line_items",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    opportunityId: text("opportunity_id")
+      .notNull()
+      .references(() => opportunities.id),
+    productId: text("product_id")
+      .notNull()
+      .references(() => products.id),
+    quantity: integer("quantity").notNull(),
+    unitPriceCents: integer("unit_price_cents").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+  },
+  (table) => [
+    index("opportunity_line_items_org_opp_idx").on(table.orgId, table.opportunityId),
   ],
 );
 
