@@ -1,10 +1,11 @@
+import { eq } from "drizzle-orm";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
-import { cases } from "../db/schema";
+import { accounts, cases, organizations } from "../db/schema";
 import { LOCAL_ACTOR, actorFor, type Actor } from "./actor";
 import { createAccount } from "./accounts";
 import { canMoveCase, createCase, getCase, listCases, setCaseStatus } from "./cases";
@@ -13,7 +14,7 @@ import { DomainError } from "./errors";
 import { addMember, createOrganization } from "./orgs";
 import { createProfile, setObjectPermission } from "./profiles";
 import { setOrgWideDefault } from "./sharing";
-import { createUser } from "./users";
+import { createUser, disableUser } from "./users";
 
 function user(db: Db, username: string) {
   return createUser(db, {
@@ -143,6 +144,40 @@ describe("cases (SVC-CASE-001)", () => {
     db.insert(cases).values({ ...row, id: `${row.id}Y`, orgId: org.id, subject: "Mislabelled" }).run();
     expect(getCase(db, LOCAL_ACTOR, `${row.id}Y`)).toBeUndefined();
     expect(listCases(db, LOCAL_ACTOR).map((c) => c.subject)).toEqual(["Cave flood"]);
+  });
+
+  it("hides cases on a soft-deleted account and refuses writes to it", () => {
+    const { db } = openMemoryDb();
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Vandelay Industries" });
+    const row = createCase(db, LOCAL_ACTOR, { accountId: account.id, subject: "Latex shipment late" });
+    db.update(accounts).set({ deletedAt: Date.now() }).where(eq(accounts.id, account.id)).run();
+    expect(getCase(db, LOCAL_ACTOR, row.id)).toBeUndefined();
+    expect(listCases(db, LOCAL_ACTOR)).toEqual([]);
+    expectRefused(db, () => setCaseStatus(db, LOCAL_ACTOR, row.id, "Working"), "NOT_FOUND", account.id);
+    expectRefused(db, () => createCase(db, LOCAL_ACTOR, { accountId: account.id, subject: "New one" }), "NOT_FOUND", account.id);
+    expect(db.select().from(cases).where(eq(cases.id, row.id)).get()?.status).toBe("New");
+  });
+
+  it("refuses a disabled member and members of a suspended org, writing nothing", () => {
+    const { db } = openMemoryDb();
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Kramerica" });
+    const row = createCase(db, LOCAL_ACTOR, { accountId: account.id, subject: "Oil bladder leak" });
+    const disabled = member(db, "case_disabled");
+    expect(listCases(db, disabled).map((c) => c.id)).toEqual([row.id]);
+    disableUser(db, disabled.userId);
+    expectRefused(db, () => createCase(db, disabled, { accountId: account.id, subject: "Nope" }), "FORBIDDEN");
+    expectRefused(db, () => setCaseStatus(db, disabled, row.id, "Working"), "FORBIDDEN");
+    expectRefused(db, () => listCases(db, disabled), "FORBIDDEN");
+    expectRefused(db, () => getCase(db, disabled, row.id), "FORBIDDEN");
+
+    const active = member(db, "case_suspended_org");
+    db.update(organizations).set({ status: "suspended" }).where(eq(organizations.id, LOCAL_ORG_ID)).run();
+    for (const actor of [active, LOCAL_ACTOR]) {
+      expectRefused(db, () => createCase(db, actor, { accountId: account.id, subject: "Nope" }), "FORBIDDEN");
+      expectRefused(db, () => setCaseStatus(db, actor, row.id, "Working"), "FORBIDDEN");
+      expectRefused(db, () => listCases(db, actor), "FORBIDDEN");
+    }
+    expect(db.select().from(cases).where(eq(cases.id, row.id)).get()?.status).toBe("New");
   });
 
   it("0029_cases upgrades a database that stopped at the migration before it", () => {
