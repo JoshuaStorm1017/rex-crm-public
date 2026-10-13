@@ -174,9 +174,12 @@ describe("drizzle journal", () => {
     }
   });
 
-  it("applies the newest migration onto a database that already has the previous one", () => {
+  it("applies 0015 and later onto a database that stopped at 0014", () => {
     const journal = readJournal();
-    const prior = journal.entries.slice(0, -1);
+    const prior = journal.entries.slice(
+      0,
+      journal.entries.findIndex((entry) => entry.tag === "0014_products") + 1,
+    );
     expect(prior.at(-1)?.tag).toBe("0014_products");
     const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-"));
     const sqlite = new Database(path.join(dir, "rex.sqlite"));
@@ -234,6 +237,38 @@ describe("drizzle journal", () => {
         .prepare("SELECT id FROM organizations")
         .get() as { id: string };
       expect(org.id).toBe("00D000000000LOCALORG0001");
+    } finally {
+      sqlite.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("upgrades a database that stopped at 0015 with territory tables", () => {
+    const journal = readJournal();
+    const prior = journal.entries.slice(
+      0,
+      journal.entries.findIndex((entry) => entry.tag === "0015_sharing") + 1,
+    );
+    expect(prior.at(-1)?.tag).toBe("0015_sharing");
+    const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-0015-"));
+    const sqlite = new Database(path.join(dir, "rex.sqlite"));
+    try {
+      sqlite.pragma("foreign_keys = ON");
+      applyEntries(sqlite, prior);
+      insertLegacyRows(sqlite);
+      const tableNames = () =>
+        (
+          sqlite
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'territor%'")
+            .all() as { name: string }[]
+        ).map((row) => row.name);
+      expect(tableNames()).toEqual([]);
+      migrate(drizzle(sqlite), { migrationsFolder });
+      expect(tableNames().sort()).toEqual(["territories", "territory_accounts", "territory_members"]);
+      const account = sqlite
+        .prepare("SELECT org_id FROM accounts WHERE id = ?")
+        .get("001MIGRATE") as { org_id: string };
+      expect(account.org_id).toBe("00D000000000LOCALORG0001");
     } finally {
       sqlite.close();
       rmSync(dir, { recursive: true, force: true });
