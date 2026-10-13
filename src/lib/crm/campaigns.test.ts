@@ -20,7 +20,7 @@ import { DomainError } from "./errors";
 import { createLead } from "./leads";
 import { addMember, createOrganization } from "./orgs";
 import { createUser, disableUser } from "./users";
-import { READ_ONLY_PROFILE_NAME, assignProfile, createProfile } from "./profiles";
+import { READ_ONLY_PROFILE_NAME, assignProfile, createProfile, setObjectPermission } from "./profiles";
 import { setOrgWideDefault } from "./sharing";
 
 function memory() {
@@ -196,6 +196,23 @@ describe("campaigns", () => {
     addCampaignMember(db, LOCAL_ACTOR, rileys.id, { leadId: hidden.id });
     expect(listCampaignMembers(db, LOCAL_ACTOR, rileys.id)).toHaveLength(1);
     expect(listCampaignMembers(db, riley, rileys.id)).toEqual([]);
+  });
+
+  it("hides contact members from a user with contact read but no lead read", () => {
+    const db = memory();
+    const campaign = createCampaign(db, LOCAL_ACTOR, SPRING);
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Lantern Goods" });
+    const contact = createContact(db, LOCAL_ACTOR, { accountId: account.id, firstName: "Wren", lastName: "Tallow" });
+    addCampaignMember(db, LOCAL_ACTOR, campaign.id, { contactId: contact.id });
+    const readOnly = { canCreate: false, canRead: true, canUpdate: false, canDelete: false };
+    const profileId = createProfile(db, LOCAL_ACTOR, "Contacts Only");
+    setObjectPermission(db, LOCAL_ACTOR, profileId, "account", readOnly);
+    setObjectPermission(db, LOCAL_ACTOR, profileId, "contact", readOnly);
+    assignProfile(db, LOCAL_ACTOR, RILEY_USER_ID, profileId);
+    const riley = actorFor(RILEY_USER_ID);
+    expect(listCampaignMembers(db, LOCAL_ACTOR, campaign.id).map((m) => m.recordId)).toEqual([contact.id]);
+    expect(getCampaign(db, riley, campaign.id)).toBeUndefined();
+    expect(listCampaignMembers(db, riley, campaign.id)).toEqual([]);
   });
 
   it("does not remove a forged member row from another org that names this campaign", () => {
