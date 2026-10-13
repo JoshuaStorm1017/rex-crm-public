@@ -96,9 +96,18 @@ describe("activity timeline", () => {
   it("does not mix timelines between parent types sharing an id", () => {
     const { db, parents } = setup();
     logActivity(db, LOCAL_ACTOR, {
-      parentType: "account", parentId: parents.account, kind: "call", subject: "A",
+      parentType: "contact", parentId: parents.contact, kind: "call", subject: "Real",
     });
-    expect(listActivities(db, LOCAL_ACTOR, "contact", parents.account)).toEqual([]);
+    // Same org, same parentId as the readable contact, but a different parentType.
+    // Only the parentType filter keeps this row off the contact timeline.
+    db.insert(activities).values({
+      id: "00UWRONGTYPE", orgId: LOCAL_ORG_ID, parentType: "account",
+      parentId: parents.contact, kind: "call", subject: "Wrong type",
+      occurredAt: 9_999_999_999_999, loggedBy: LOCAL_ACTOR.userId, createdAt: 1,
+    }).run();
+    expect(
+      listActivities(db, LOCAL_ACTOR, "contact", parents.contact).map((r) => r.subject),
+    ).toEqual(["Real"]);
   });
 
   it("rejects invalid input without writing", () => {
