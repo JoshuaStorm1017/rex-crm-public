@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-12, main (record controls, PR #6) merged into the Change Owner branch; Change Owner refuses non-owned objects at runtime.
+Last updated: 2026-10-12, a parent delete refuses when any related task is hidden from the actor, so no task is orphaned.
 
 The sections dated 2026-10-11 describe the tree verified that day.
 Contact delete no longer clears every junction row or every Reports To
@@ -40,6 +40,30 @@ sharing rules.
 ## WORKS
 
 Things actually run, with evidence.
+
+### Hidden related tasks block the parent delete (2026-10-12)
+
+Deleting an account, contact, lead, or opportunity used to skip related
+tasks the actor could not read: they stayed live and pointed at the
+deleted parent. `deleteTasksForRecord` now refuses with `HAS_CHILDREN`
+("Cannot delete this record while other records still depend on it")
+when any live related task is unreadable, either by sharing or because
+the profile lacks task read. It checks every task before writing, so the
+parent, the actor's own tasks, and the hidden task are unchanged. The
+message does not name the task. A readable task the actor cannot delete
+still refuses the same way.
+
+- **Tests:** `tasks.orphans.test.ts` (13): for each parent, a refusal
+  with every table byte-for-byte unchanged, a message that does not
+  name the task, and a successful delete once the task is visible; plus
+  a profile with task delete and no task read. The old "skips a private
+  task" case in `tasks.test.ts` now expects the refusal.
+- **Mutation (608 tests, each restored):** restoring the old skip fails
+  10; dropping the profile-read clause fails 1; dropping the delete
+  clause fails 13; dropping the whole check fails 14. A separate sharing
+  read clause was removed as an equivalent mutant: record delete access
+  already implies record read.
+- **`npm run verify`:** see the PR. No browser pass.
 
 ### Private related rows, hierarchy, and stored-field checks (2026-10-12)
 
@@ -667,7 +691,7 @@ The header Edit and Delete links are still shown for both.
   when grant hierarchy is on, or with modify-all. Modify-all is
   `users.role === "admin"` and an admin membership. A membership
   admin whose user role is `user` does not get it. Public Read/Write
-  lets a member who already has the object permission edit and delete.
+  lets a member who already has the object permission edit, not delete.
   A sharing rule's Read/Write does not grant delete.
 - Private hides another user's record from get, list, count, list
   views, search, reports, the recycle bin, and recently viewed.
@@ -1363,6 +1387,17 @@ on the existing file (1 list view, 0 of everything else).
 
 ## PARTIAL
 
+- **Dashboards** (`0027_dashboards`, 2026-10-12): components run as the viewer and
+  link to their report. A deleted or unrunnable report shows as "unavailable",
+  but the component title (by default the report name, captured when it was
+  added) is still shown to every org member. Unexpected errors are rethrown, not
+  hidden. No dashboard page or charts yet.
+- **Login lockout** (`0026_login_lockout`, 2026-10-12): 5 failed passwords lock a
+  user for 15 minutes; LOCKED shows the same message as a wrong password, and
+  unknown usernames still run scrypt against a dummy hash. Known limits: anyone
+  who knows a username can lock that user out (no per-IP or CAPTCHA throttle),
+  and `recordLoginFailure` writes `count + 1` from the row it read, so
+  simultaneous failures may be undercounted. No unlock button in setup yet.
 - **`deleted_at`** — written on account/contact/lead/opportunity/task
   delete, filtered in get/list. `/recycle` lists a row only when the
   actor can read it and can delete it. Undelete of a readable row the
@@ -2097,3 +2132,29 @@ fresh verification evidence for each slice.
 - Lead update/delete require owner or admin (`assertCanMutate`).
 - Migrations: 0008_lead_address, 0009_user_role.
 - `npm run verify` not re-run this session (native better-sqlite3 build skipped in sandbox); changes are schema-compatible and type-safe by construction.
+
+### Orphan fix: reviewer mutants (Oct 12)
+- 3 new kill tests are in tasks.orphans.test.ts. All 7 mutants are killed and the suite has 610 tests. Branch rex/s007-1012-orphan-tasks; the PR has not been created yet (the create_pull_request call only showed a form).
+
+## 2026-10-13 — s018b quote domain (PR #26, not merged)
+
+- WORKS (verified 2026-10-13, `npm run verify` exit 0, 1169/1169 tests across 99 files, after merging main 216574c): quote
+  header CRUD with integer-cent totals. A quote is visible only when its
+  opportunity is readable; writes need opportunity edit. Quote and line
+  reads/writes are org-scoped, including forged cross-org rows.
+- The row helpers `rawQuote` and `rawLines` are no longer exported.
+  `touch` was removed: `updateQuote` writes directly with an id + org
+  WHERE and server time. `editableQuote` is the only gate for update and
+  delete (the duplicate `assertActor` in `deleteQuote` is gone).
+- Not done: quote pages UI (#28).
+
+## 2026-10-13 — s018b2 quote line mutators (PR #27, not merged)
+
+- WORKS (verified 2026-10-13, `npm run verify` exit 0, 1185/1185 tests
+  across 100 files, after merging main ac47ae8): add, update and delete
+  quote lines with product defaults (description, standard price), line
+  cap of 200, overflow-safe integer-cent totals. Every line write goes
+  through `editableQuote` (actor, org-scoped row, opportunity edit) and
+  refuses closed quotes; line and parent-quote writes are id + org scoped
+  and run in one transaction.
+- Not done: quote pages UI (#28).

@@ -1,8 +1,18 @@
 import { and, eq, isNotNull } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { accounts, contacts, leads, opportunities, tasks } from "../db/schema";
+import {
+  accounts,
+  contacts,
+  customFieldValues,
+  leads,
+  opportunities,
+  opportunityContactRoles,
+  opportunityLineItems,
+  recentlyViewed,
+  tasks,
+} from "../db/schema";
 import type { Actor } from "./actor";
-import { assertActor } from "./actor";
+import { assertActor, hasModifyAllData } from "./actor";
 import { RECORD_OBJECT_TYPES, type RecordObjectType } from "./constants";
 import { DomainError } from "./errors";
 import { assertCanAccessRecord, canAccessRecord, canPerform } from "./permissions";
@@ -143,4 +153,126 @@ function restore(
     .set({ deletedAt: null, updatedAt: ts })
     .where(and(eq(table.id, id), eq(table.orgId, actor.orgId)))
     .run();
+}
+
+type RecordTable =
+  | typeof accounts
+  | typeof contacts
+  | typeof leads
+  | typeof opportunities
+  | typeof tasks;
+
+function tableFor(objectType: RecordObjectType): RecordTable {
+  if (objectType === "account") return accounts;
+  if (objectType === "contact") return contacts;
+  if (objectType === "lead") return leads;
+  if (objectType === "opportunity") return opportunities;
+  return tasks;
+}
+
+/**
+ * Any row in the actor's org, live or deleted, that still points at this
+ * record. Every lookup is scoped by org so another org's rows are never read.
+ */
+function hasDependents(db: Db, orgId: string, objectType: RecordObjectType, id: string): boolean {
+  const refs: Array<() => unknown> = [
+    () =>
+      db.select({ id: tasks.id }).from(tasks)
+        .where(and(eq(tasks.relatedRecordId, id), eq(tasks.orgId, orgId))).get(),
+  ];
+  if (objectType === "account") {
+    refs.push(
+      () =>
+        db.select({ id: accounts.id }).from(accounts)
+          .where(and(eq(accounts.parentAccountId, id), eq(accounts.orgId, orgId))).get(),
+      () =>
+        db.select({ id: contacts.id }).from(contacts)
+          .where(and(eq(contacts.accountId, id), eq(contacts.orgId, orgId))).get(),
+      () =>
+        db.select({ id: opportunities.id }).from(opportunities)
+          .where(and(eq(opportunities.accountId, id), eq(opportunities.orgId, orgId))).get(),
+      () =>
+        db.select({ id: leads.id }).from(leads)
+          .where(and(eq(leads.convertedAccountId, id), eq(leads.orgId, orgId))).get(),
+    );
+  } else if (objectType === "contact") {
+    refs.push(
+      () =>
+        db.select({ id: contacts.id }).from(contacts)
+          .where(and(eq(contacts.reportsToId, id), eq(contacts.orgId, orgId))).get(),
+      () =>
+        db.select({ id: leads.id }).from(leads)
+          .where(and(eq(leads.convertedContactId, id), eq(leads.orgId, orgId))).get(),
+      () =>
+        db.select({ id: opportunityContactRoles.id }).from(opportunityContactRoles)
+          .where(and(eq(opportunityContactRoles.contactId, id), eq(opportunityContactRoles.orgId, orgId))).get(),
+    );
+  } else if (objectType === "opportunity") {
+    refs.push(
+      () =>
+        db.select({ id: leads.id }).from(leads)
+          .where(and(eq(leads.convertedOpportunityId, id), eq(leads.orgId, orgId))).get(),
+      () =>
+        db.select({ id: opportunityContactRoles.id }).from(opportunityContactRoles)
+          .where(and(eq(opportunityContactRoles.opportunityId, id), eq(opportunityContactRoles.orgId, orgId))).get(),
+      () =>
+        db.select({ id: opportunityLineItems.id }).from(opportunityLineItems)
+          .where(and(eq(opportunityLineItems.opportunityId, id), eq(opportunityLineItems.orgId, orgId))).get(),
+    );
+  }
+  return refs.some((ref) => ref() !== undefined);
+}
+
+function isForeignKeyViolation(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === "SQLITE_CONSTRAINT_FOREIGNKEY";
+}
+
+function hasChildren(): DomainError {
+  return new DomainError("HAS_CHILDREN", "Purge the records that reference this one first");
+}
+
+/**
+ * Permanently remove a record from the recycle bin. Only an actor with
+ * modify-all data in this org may purge. Live records, other orgs' rows and
+ * unknown ids are NOT_FOUND. A record that anything still references is
+ * refused with HAS_CHILDREN; purge those first.
+ */
+export function purgeRecord(db: Db, actor: Actor, objectType: string, id: string): void {
+  assertActor(db, actor);
+  if (!hasModifyAllData(db, actor)) {
+    throw new DomainError("FORBIDDEN", "Only an organization admin can purge records");
+  }
+  if (!isObjectType(objectType)) {
+    throw new DomainError("NOT_FOUND", "Record not found");
+  }
+  const table = tableFor(objectType);
+  db.transaction((tx) => {
+    const existing = tx
+      .select({ id: table.id, deletedAt: table.deletedAt })
+      .from(table)
+      .where(and(eq(table.id, id), eq(table.orgId, actor.orgId), isNotNull(table.deletedAt)))
+      .get();
+    if (!existing) throw new DomainError("NOT_FOUND", "Record not found");
+    if (hasDependents(tx as unknown as Db, actor.orgId, objectType, id)) throw hasChildren();
+    tx.delete(recentlyViewed)
+      .where(and(eq(recentlyViewed.recordId, id), eq(recentlyViewed.orgId, actor.orgId)))
+      .run();
+    tx.delete(customFieldValues)
+      .where(and(eq(customFieldValues.recordId, id), eq(customFieldValues.orgId, actor.orgId)))
+      .run();
+    try {
+      tx.delete(table)
+        .where(and(eq(table.id, id), eq(table.orgId, actor.orgId), isNotNull(table.deletedAt)))
+        .run();
+    } catch (error) {
+      // A row outside this org (never read above) can still hold a foreign key.
+      if (isForeignKeyViolation(error)) throw hasChildren();
+      throw error;
+    }
+  });
+}
+
+export function canPurge(db: Db, actor: Actor): boolean {
+  return hasModifyAllData(db, actor);
 }

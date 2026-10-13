@@ -1,6 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { users } from "../db/schema";
+import { orgMemberships, users } from "../db/schema";
+import { assertCurrentOrgAdmin, type Actor } from "./actor";
 import {
   DEFAULT_DEMO_PASSWORD,
   LOCAL_USER_EMAIL,
@@ -33,6 +34,11 @@ export type PublicUser = {
 };
 
 const AUTH_FAILED_MESSAGE = "Username or password is wrong";
+
+/** Failed logins in a row before the account locks. */
+export const LOGIN_MAX_FAILURES = 5;
+/** How long a locked account refuses every password, in ms. */
+export const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
 
 let cachedDemoPasswordHash: { password: string; hash: string } | undefined;
 let dummyPasswordHash: string | undefined;
@@ -145,7 +151,16 @@ export function createUser(db: Db, input: UserCreateInput): PublicUser {
   return created;
 }
 
-export function authenticate(db: Db, input: LoginInput): PublicUser {
+/**
+ * A locked account refuses even the right password until the lock expires.
+ * LOCKED uses the same message as AUTH_FAILED so a caller cannot probe
+ * which usernames exist or are locked.
+ */
+export function authenticate(
+  db: Db,
+  input: LoginInput,
+  now: number = Date.now(),
+): PublicUser {
   const parsed = loginSchema.parse(input);
   const username = parsed.username.trim().toLowerCase();
   const row = db
@@ -155,14 +170,68 @@ export function authenticate(db: Db, input: LoginInput): PublicUser {
     .get();
   const stored = row?.passwordHash ?? dummyHash();
   const ok = verifyPassword(parsed.password, stored);
+  if (row && row.lockedUntil != null && row.lockedUntil > now) {
+    throw new DomainError("LOCKED", AUTH_FAILED_MESSAGE);
+  }
   if (!row || !row.passwordHash || !ok) {
+    if (row) recordLoginFailure(db, row, now);
     throw new DomainError("AUTH_FAILED", AUTH_FAILED_MESSAGE);
   }
   const pub = toPublic(row);
   if (!pub) {
     throw new DomainError("AUTH_FAILED", AUTH_FAILED_MESSAGE);
   }
+  if (row.failedLoginCount !== 0 || row.lockedUntil != null) {
+    clearLoginFailures(db, row.id);
+  }
   return pub;
+}
+
+function recordLoginFailure(db: Db, row: UserRow, now: number): void {
+  const failures = row.failedLoginCount + 1;
+  const patch =
+    failures >= LOGIN_MAX_FAILURES
+      ? { failedLoginCount: 0, lockedUntil: now + LOGIN_LOCKOUT_MS }
+      : { failedLoginCount: failures, lockedUntil: null };
+  db.update(users).set(patch).where(eq(users.id, row.id)).run();
+}
+
+function clearLoginFailures(db: Db, userId: string): void {
+  db.update(users)
+    .set({ failedLoginCount: 0, lockedUntil: null })
+    .where(eq(users.id, userId))
+    .run();
+}
+
+export function isUserLocked(
+  db: Db,
+  userId: string,
+  now: number = Date.now(),
+): boolean {
+  const row = db.select().from(users).where(eq(users.id, userId)).get();
+  return row?.lockedUntil != null && row.lockedUntil > now;
+}
+
+/**
+ * Org admin clears a lockout. The target must be a member of the actor's
+ * current org; anyone else is NOT_FOUND so other orgs' users stay hidden.
+ */
+export function unlockUser(db: Db, actor: Actor, userId: string): void {
+  assertCurrentOrgAdmin(db, actor);
+  const member = db
+    .select({ id: orgMemberships.id })
+    .from(orgMemberships)
+    .where(
+      and(
+        eq(orgMemberships.orgId, actor.orgId),
+        eq(orgMemberships.userId, userId),
+      ),
+    )
+    .get();
+  if (!member || !getUser(db, userId)) {
+    throw new DomainError("NOT_FOUND", "User not found");
+  }
+  clearLoginFailures(db, userId);
 }
 
 export function disableUser(db: Db, id: string): void {

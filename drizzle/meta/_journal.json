@@ -124,8 +124,78 @@
     {
       "idx": 17,
       "version": "6",
-      "when": 1791857658433,
-      "tag": "0040_quotes",
+      "when": 1791857273114,
+      "tag": "0026_login_lockout",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1791857469518,
+      "tag": "0027_dashboards",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1791865141994,
+      "tag": "0028_approvals",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1791865201994,
+      "tag": "0047_assignment_round_robin",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1791865261994,
+      "tag": "0048_activity_timeline",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1791865321994,
+      "tag": "0049_contracts",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1791865381994,
+      "tag": "0050_email_templates",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1791865441994,
+      "tag": "0051_cases",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1791865500000,
+      "tag": "0052_campaigns",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1791865560000,
+      "tag": "0053_campaign_members",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1791865620000,
+      "tag": "0054_quotes",
       "breakpoints": true
     }
   ]

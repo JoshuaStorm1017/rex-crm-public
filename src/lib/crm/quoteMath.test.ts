@@ -152,3 +152,18 @@ describe("parseDiscountPercent", () => {
     expect(formatDiscountPercent(0)).toBe("0.00%");
   });
 });
+
+describe("discount is applied to the line gross, not per unit", () => {
+  it("rounds the discount once on quantity × price", () => {
+    // 3 × 1¢ at 50%: gross 3, discount round(1.5) = 2, net 1.
+    // Rounding per unit first would give a discount of 3 and a net of 0.
+    expect(computeLineTotals({ quantity: 3, unitPriceCents: 1, discountBasisPoints: 5000 })).toEqual({
+      grossCents: 3,
+      discountCents: 2,
+      netCents: 1,
+    });
+    expect(
+      computeQuoteTotals([{ quantity: 3, unitPriceCents: 1, discountBasisPoints: 5000 }]),
+    ).toEqual({ subtotalCents: 3, discountCents: 2, totalCents: 1 });
+  });
+});
