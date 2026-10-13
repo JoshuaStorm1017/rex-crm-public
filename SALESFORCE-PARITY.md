@@ -230,7 +230,7 @@ tracks the gap. It does not block other rows.
 - **Implementation:** `src/lib/crm/users.ts`, `sessions.ts`, `src/app/login/`, `src/proxy.ts`.
 - **Acceptance:** `sessions.test.ts`, `users.test.ts`. Browser login as `operator`.
 - **Latest:** 2026-10-10 browser login as `operator` on port 3002 reached Home. `sessions.test.ts` checks `active_org_id` and membership removal.
-- **Gaps:** `proxy.ts` only checks that a cookie exists. The CRM layout checks SQLite. No password reset and no password policy beyond length checks in the schema. Lockout (2026-10-12, `0016_login_lockout`): 5 failed passwords in a row lock the user for 15 minutes; a locked user is refused even with the right password, with the same message as a wrong password. An org admin can clear it with `unlockUser` (members of the current org only); there is no unlock button on a setup page yet.
+- **Gaps:** `proxy.ts` only checks that a cookie exists. The CRM layout checks SQLite. No password reset and no password policy beyond length checks in the schema. Lockout (2026-10-12, `0026_login_lockout`): 5 failed passwords in a row lock the user for 15 minutes; a locked user is refused even with the right password, with the same message as a wrong password. An org admin can clear it with `unlockUser` (members of the current org only); there is no unlock button on a setup page yet.
 
 ### IAM-AUTH-002 Org on the session
 
@@ -452,7 +452,7 @@ Source: Tableau product portfolio help (page dated 2026-08-26) and Winter '27 an
 | AN-RPT-002 | Report types with joins (opportunities with contact roles, custom relationships) | NOT STARTED |
 | AN-RPT-003 | Matrix, joined, bucket fields, cross filters, formulas | NOT STARTED |
 | AN-RPT-004 | Folders and report sharing follow IAM | NOT STARTED |
-| AN-DASH-001 | Dashboard of report components, drill-down opens the filtered report | IN PR #12 (dashboards of report components run as the viewer) |
+| AN-DASH-001 | Dashboard of report components, drill-down opens the filtered report | PARTIAL (2026-10-12). `0027_dashboards`, `dashboards.ts`: org-scoped dashboards of up to 20 report components, owner or modify-all admin edits, each component runs as the viewer (sharing, profile and field security apply) and links to its report; an unreadable or deleted report shows as unavailable. No dashboard page or chart rendering yet, no running-user setting, no filters. |
 | AN-SUB-001 | Subscription writes a snapshot on a schedule. Local file, no email | NOT STARTED |
 | AN-SEM-001 | A semantic model names measures and dimensions over org data | NOT STARTED |
 | AN-VIZ-001 | A visualization author binds a chart to a query whose totals reconcile to SQL | NOT STARTED |
