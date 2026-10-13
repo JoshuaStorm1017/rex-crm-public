@@ -108,7 +108,11 @@ export function assertOpportunityEditable(db: Db, actor: Actor, id: string, miss
   return opportunity;
 }
 
-/** Unchecked row loads. Callers must run assertActor first. */
+/**
+ * Unchecked, org-scoped row loads. Module-private: every exported caller runs
+ * assertActor first, and the opportunity read check (edit check for writes)
+ * before returning or writing anything.
+ */
 function quoteRow(db: Db, actor: Actor, id: string): Quote | undefined {
   return db
     .select()
@@ -124,16 +128,6 @@ function lineRows(db: Db, actor: Actor, quoteId: string): QuoteLineItem[] {
     .where(and(eq(quoteLineItems.quoteId, quoteId), eq(quoteLineItems.orgId, actor.orgId)))
     .orderBy(asc(quoteLineItems.sortOrder), asc(quoteLineItems.createdAt))
     .all();
-}
-
-export function rawQuote(db: Db, actor: Actor, id: string): Quote | undefined {
-  assertActor(db, actor);
-  return quoteRow(db, actor, id);
-}
-
-export function rawLines(db: Db, actor: Actor, quoteId: string): QuoteLineItem[] {
-  assertActor(db, actor);
-  return lineRows(db, actor, quoteId);
 }
 
 /** A quote is visible only when its opportunity is visible to the actor. */
@@ -239,7 +233,8 @@ export function createQuote(db: Db, actor: Actor, input: QuoteCreateInput): Quot
 
 /** Visible + opportunity editable, or NOT_FOUND / FORBIDDEN before any write. */
 export function editableQuote(db: Db, actor: Actor, id: string): Quote {
-  const quote = rawQuote(db, actor, id);
+  assertActor(db, actor);
+  const quote = quoteRow(db, actor, id);
   if (!quote) throw new DomainError("NOT_FOUND", QUOTE_NOT_FOUND);
   assertOpportunityEditable(db, actor, quote.opportunityId, QUOTE_NOT_FOUND);
   return quote;
@@ -251,10 +246,10 @@ export function assertOpen(quote: Quote) {
   }
 }
 
-export function touch(db: Db, actor: Actor, quoteId: string, ts: number) {
-  assertActor(db, actor);
+/** Stamps updatedAt/updatedBy with server time. Callers must pass an id from editableQuote. */
+function touch(db: Db, actor: Actor, quoteId: string, fields: Partial<Pick<Quote, "name" | "status" | "expirationDate">> = {}) {
   db.update(quotes)
-    .set({ updatedAt: ts, updatedBy: actor.userId })
+    .set({ ...fields, updatedAt: now(), updatedBy: actor.userId })
     .where(and(eq(quotes.id, quoteId), eq(quotes.orgId, actor.orgId)))
     .run();
 }
@@ -267,16 +262,11 @@ export function updateQuote(db: Db, actor: Actor, id: string, input: QuoteUpdate
     parsed.status !== undefined &&
     !(CLOSED_QUOTE_STATUSES as readonly string[]).includes(parsed.status);
   if (!reopening) assertOpen(quote);
-  db.update(quotes)
-    .set({
-      ...(parsed.name !== undefined ? { name: parsed.name } : {}),
-      ...(parsed.status !== undefined ? { status: parsed.status } : {}),
-      ...(parsed.expirationDate !== undefined ? { expirationDate: parsed.expirationDate } : {}),
-      updatedAt: now(),
-      updatedBy: actor.userId,
-    })
-    .where(and(eq(quotes.id, quote.id), eq(quotes.orgId, actor.orgId)))
-    .run();
+  touch(db, actor, quote.id, {
+    ...(parsed.name !== undefined ? { name: parsed.name } : {}),
+    ...(parsed.status !== undefined ? { status: parsed.status } : {}),
+    ...(parsed.expirationDate !== undefined ? { expirationDate: parsed.expirationDate } : {}),
+  });
   const updated = getQuote(db, actor, id);
   if (!updated) throw new DomainError("WRITE_FAILED", "Quote was not persisted");
   return updated;

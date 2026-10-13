@@ -17,9 +17,6 @@ import {
   isQuoteExpired,
   listQuotes,
   listQuotesForOpportunity,
-  rawLines,
-  rawQuote,
-  touch,
   updateQuote,
 } from "./quotes";
 import { setOrgWideDefault } from "./sharing";
@@ -319,6 +316,92 @@ describe("quote isolation and permissions", () => {
   });
 });
 
+describe("quote org filters (forged cross-org rows)", () => {
+  /** A raw quote row in another org that points at this org's opportunity. */
+  function forgeForeignQuote(db: Db, orgId: string, opportunityId: string, userId: string, id = "0Q0FORGED") {
+    db.insert(quotes)
+      .values({
+        id,
+        orgId,
+        opportunityId,
+        name: "Forged Quote",
+        status: "Draft",
+        expirationDate: null,
+        createdAt: 1_000,
+        updatedAt: 1_000,
+        createdBy: userId,
+        updatedBy: userId,
+      })
+      .run();
+    return id;
+  }
+
+  it("O1: get, update and delete of another org's quote id are NOT_FOUND", () => {
+    const { db, opp } = setup();
+    const other = otherOrg(db);
+    const forged = forgeForeignQuote(db, other.actor.orgId, opp.id, other.actor.userId);
+    expect(getQuote(db, LOCAL_ACTOR, forged)).toBeUndefined();
+    expectRefused(db, () => updateQuote(db, LOCAL_ACTOR, forged, { name: "x" }), "NOT_FOUND");
+    expectRefused(db, () => editableQuote(db, LOCAL_ACTOR, forged), "NOT_FOUND");
+    expectRefused(db, () => deleteQuote(db, LOCAL_ACTOR, forged), "NOT_FOUND");
+  });
+
+  it("O9: updating my quote leaves another org's quote updatedAt/updatedBy unchanged", () => {
+    const { db, opp, quote } = setup();
+    const other = otherOrg(db);
+    const theirs = createQuote(db, other.actor, { opportunityId: other.opp.id, name: "Gadget Quote" });
+    const forged = forgeForeignQuote(db, other.actor.orgId, opp.id, other.actor.userId);
+    const before = db.select().from(quotes).where(eq(quotes.orgId, other.actor.orgId)).all();
+    const updated = updateQuote(db, LOCAL_ACTOR, quote.id, { name: "Mine" });
+    expect(updated.updatedBy).toBe(LOCAL_ACTOR.userId);
+    expect(db.select().from(quotes).where(eq(quotes.orgId, other.actor.orgId)).all()).toEqual(before);
+    expect(before.map((q) => q.id).sort()).toEqual([forged, theirs.id].sort());
+  });
+
+  it("touch stamps server time, not a caller value", () => {
+    const { db, quote } = setup();
+    const t0 = Date.now();
+    const updated = updateQuote(db, LOCAL_ACTOR, quote.id, {});
+    expect(updated.updatedAt).toBeGreaterThanOrEqual(t0);
+    expect(updated.updatedAt).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("O8: deleteQuote never deletes another org's line row that points at this quote", () => {
+    const { db, quote } = setup();
+    const other = otherOrg(db);
+    insertLine(db, quote.id, { description: "Mine", quantity: 1, unitPriceCents: 100 });
+    const ts = Date.now();
+    db.insert(quoteLineItems)
+      .values({
+        id: "0QLFORGEDDEL",
+        orgId: other.actor.orgId,
+        quoteId: quote.id,
+        description: "Foreign",
+        quantity: 1,
+        unitPriceCents: 5,
+        discountBasisPoints: 0,
+        sortOrder: 1,
+        createdAt: ts,
+        updatedAt: ts,
+      })
+      .run();
+    // The foreign row still references the quote, so the foreign key blocks the
+    // quote delete and the transaction rolls back; nothing in either org is lost.
+    expect(() => deleteQuote(db, LOCAL_ACTOR, quote.id)).toThrow();
+    const foreign = db.select().from(quoteLineItems).where(eq(quoteLineItems.id, "0QLFORGEDDEL")).all();
+    expect(foreign).toHaveLength(1);
+    expect(foreign[0]!.orgId).toBe(other.actor.orgId);
+  });
+
+  it("O3: listQuotesForOpportunity does not list a forged quote from another org", () => {
+    const { db, opp, quote } = setup();
+    const other = otherOrg(db);
+    forgeForeignQuote(db, other.actor.orgId, opp.id, other.actor.userId);
+    expect(listQuotesForOpportunity(db, LOCAL_ACTOR, opp.id).map((q) => q.id)).toEqual([quote.id]);
+    expect(listQuotes(db, LOCAL_ACTOR).map((q) => q.id)).toEqual([quote.id]);
+  });
+});
+
 describe("quote reads refuse inactive or outside actors with FORBIDDEN (existing and unknown ids)", () => {
   const UNKNOWN_QUOTE_ID = "0Q0000000000000UNKNOWN";
   const UNKNOWN_OPP_ID = "006000000000000UNKNOWN";
@@ -398,7 +481,7 @@ describe("quote reads refuse inactive or outside actors with FORBIDDEN (existing
   });
 
   for (const [label, make] of actorCases) {
-    it(`refuses getQuote, listQuotes, listQuotesForOpportunity, rawQuote and rawLines for ${label}`, () => {
+    it(`refuses getQuote, listQuotes and listQuotesForOpportunity for ${label}`, () => {
       const { db, opp, quote } = setup();
       const made = make(db);
       const quoteId = made.quoteId ?? quote.id;
@@ -406,15 +489,13 @@ describe("quote reads refuse inactive or outside actors with FORBIDDEN (existing
       expectRefused(db, () => listQuotes(db, made.actor), "FORBIDDEN");
       for (const id of [quoteId, UNKNOWN_QUOTE_ID]) {
         expectRefused(db, () => getQuote(db, made.actor, id), "FORBIDDEN");
-        expectRefused(db, () => rawQuote(db, made.actor, id), "FORBIDDEN");
-        expectRefused(db, () => rawLines(db, made.actor, id), "FORBIDDEN");
       }
       for (const id of [oppId, UNKNOWN_OPP_ID]) {
         expectRefused(db, () => listQuotesForOpportunity(db, made.actor, id), "FORBIDDEN");
       }
     });
 
-    it(`refuses every quote write (create, update, status change, delete, touch) for ${label} without writing`, () => {
+    it(`refuses every quote write (create, update, status change, delete) for ${label} without writing`, () => {
       const { db, opp, quote } = setup();
       const made = make(db);
       const quoteId = made.quoteId ?? quote.id;
@@ -427,7 +508,6 @@ describe("quote reads refuse inactive or outside actors with FORBIDDEN (existing
         expectRefused(db, () => updateQuote(db, made.actor, id, { status: "Accepted" }), "FORBIDDEN");
         expectRefused(db, () => updateQuote(db, made.actor, id, { expirationDate: "2027-01-31" }), "FORBIDDEN");
         expectRefused(db, () => deleteQuote(db, made.actor, id), "FORBIDDEN");
-        expectRefused(db, () => touch(db, made.actor, id, Date.now() + 60_000), "FORBIDDEN");
         expectRefused(db, () => editableQuote(db, made.actor, id), "FORBIDDEN");
       }
     });

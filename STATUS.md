@@ -2135,3 +2135,13 @@ fresh verification evidence for each slice.
 
 ### Orphan fix: reviewer mutants (Oct 12)
 - 3 new kill tests are in tasks.orphans.test.ts. All 7 mutants are killed and the suite has 610 tests. Branch rex/s007-1012-orphan-tasks; the PR has not been created yet (the create_pull_request call only showed a form).
+
+## 2026-10-13 — s018b quote domain (PR #26, not merged)
+
+- WORKS (verified 2026-10-13, `npm run verify` exit 0, 951 tests): quote
+  header CRUD with integer-cent totals. A quote is visible only when its
+  opportunity is readable; writes need opportunity edit. Quote and line
+  reads/writes are org-scoped, including forged cross-org rows.
+- The row helpers `rawQuote`, `rawLines` and `touch` are no longer
+  exported; `touch` uses server time.
+- Not done: line item mutators and UI (#27, #28).
