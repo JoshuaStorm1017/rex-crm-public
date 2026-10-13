@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb } from "../db/client";
-import { campaignMembers, campaigns, profiles } from "../db/schema";
+import { campaignMembers, campaigns, organizations, profiles } from "../db/schema";
 import { LOCAL_ACTOR, actorFor } from "./actor";
 import {
   addCampaignMember,
@@ -277,5 +277,79 @@ describe("campaigns", () => {
     expect(caught).toBeInstanceOf(DomainError);
     expect((caught as DomainError).code).toBe("DUPLICATE");
     expect(db.select().from(campaignMembers).all()).toHaveLength(1);
+  });
+  it("does not remove a member through a different campaign", () => {
+    const db = memory();
+    const first = createCampaign(db, LOCAL_ACTOR, SPRING);
+    const second = createCampaign(db, LOCAL_ACTOR, { name: "Autumn Gadget Fair" });
+    const lead = createLead(db, LOCAL_ACTOR, { lastName: "Wanderer", company: "Example Widgets" });
+    const member = addCampaignMember(db, LOCAL_ACTOR, first.id, { leadId: lead.id });
+    expectRefused(db, () => removeCampaignMember(db, LOCAL_ACTOR, second.id, member.id), "NOT_FOUND");
+    expect(listCampaignMembers(db, LOCAL_ACTOR, first.id).map((m) => m.id)).toEqual([member.id]);
+  });
+
+  it("is not refused as DUPLICATE by a forged contact member row from another org", () => {
+    const db = memory();
+    const campaign = createCampaign(db, LOCAL_ACTOR, SPRING);
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Example Fasteners" });
+    const contact = createContact(db, LOCAL_ACTOR, { accountId: account.id, firstName: "Fable", lastName: "Contact" });
+    const other = createOrganization(db, "Other Marketing", LOCAL_ACTOR.userId);
+    db.insert(campaignMembers)
+      .values({
+        id: "00vFORGEDCON",
+        orgId: other.id,
+        campaignId: campaign.id,
+        leadId: null,
+        contactId: contact.id,
+        status: "sent",
+        createdAt: 1,
+        createdBy: LOCAL_ACTOR.userId,
+      })
+      .run();
+    const added = addCampaignMember(db, LOCAL_ACTOR, campaign.id, { contactId: contact.id });
+    expect(added.recordId).toBe(contact.id);
+    expect(listCampaignMembers(db, LOCAL_ACTOR, campaign.id).map((m) => m.id)).toEqual([added.id]);
+  });
+
+  it("refuses add and remove when the actor's organization is suspended", () => {
+    const db = memory();
+    const campaign = createCampaign(db, LOCAL_ACTOR, SPRING);
+    const lead = createLead(db, LOCAL_ACTOR, { lastName: "Paused", company: "Example Widgets" });
+    const other = createLead(db, LOCAL_ACTOR, { lastName: "Waiting", company: "Example Widgets" });
+    const member = addCampaignMember(db, LOCAL_ACTOR, campaign.id, { leadId: lead.id });
+    db.update(organizations).set({ status: "suspended" }).where(eq(organizations.id, LOCAL_ORG_ID)).run();
+    expectRefused(db, () => addCampaignMember(db, LOCAL_ACTOR, campaign.id, { leadId: other.id }), "FORBIDDEN");
+    expectRefused(db, () => removeCampaignMember(db, LOCAL_ACTOR, campaign.id, member.id), "FORBIDDEN");
+    expect(db.select().from(campaignMembers).all().map((m) => m.id)).toEqual([member.id]);
+  });
+
+  it("lists no members for a deleted campaign", () => {
+    const db = memory();
+    const campaign = createCampaign(db, LOCAL_ACTOR, SPRING);
+    const lead = createLead(db, LOCAL_ACTOR, { lastName: "Gone", company: "Example Widgets" });
+    addCampaignMember(db, LOCAL_ACTOR, campaign.id, { leadId: lead.id });
+    deleteCampaign(db, LOCAL_ACTOR, campaign.id);
+    expect(listCampaignMembers(db, LOCAL_ACTOR, campaign.id)).toEqual([]);
+  });
+
+  it("rethrows an insert error that is not a unique violation", () => {
+    const db = memory();
+    const campaign = createCampaign(db, LOCAL_ACTOR, SPRING);
+    const lead = createLead(db, LOCAL_ACTOR, { lastName: "Broken", company: "Example Widgets" });
+    const insert = db.insert.bind(db);
+    const failure = new Error("disk I/O error");
+    (db as unknown as { insert: unknown }).insert = ((table: unknown) => {
+      if (table === campaignMembers) throw failure;
+      return (insert as (t: unknown) => unknown)(table);
+    }) as unknown;
+    let caught: unknown;
+    try {
+      addCampaignMember(db, LOCAL_ACTOR, campaign.id, { leadId: lead.id });
+    } catch (error) {
+      caught = error;
+    }
+    (db as unknown as { insert: unknown }).insert = insert;
+    expect(caught).toBe(failure);
+    expect(db.select().from(campaignMembers).all()).toHaveLength(0);
   });
 });
