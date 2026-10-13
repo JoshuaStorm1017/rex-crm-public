@@ -1387,12 +1387,12 @@ on the existing file (1 list view, 0 of everything else).
 
 ## PARTIAL
 
-- **Dashboards** (`0025_dashboards`, 2026-10-12): components run as the viewer and
+- **Dashboards** (`0027_dashboards`, 2026-10-12): components run as the viewer and
   link to their report. A deleted or unrunnable report shows as "unavailable",
   but the component title (by default the report name, captured when it was
   added) is still shown to every org member. Unexpected errors are rethrown, not
   hidden. No dashboard page or charts yet.
-- **Login lockout** (`0016_login_lockout`, 2026-10-12): 5 failed passwords lock a
+- **Login lockout** (`0026_login_lockout`, 2026-10-12): 5 failed passwords lock a
   user for 15 minutes; LOCKED shows the same message as a wrong password, and
   unknown usernames still run scrypt against a dummy hash. Known limits: anyone
   who knows a username can lock that user out (no per-IP or CAPTCHA throttle),

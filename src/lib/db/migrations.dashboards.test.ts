@@ -9,14 +9,14 @@ import * as schema from "./schema";
 
 const folder = path.join(process.cwd(), "drizzle");
 
-describe("0025 dashboards migration", () => {
+describe("0027 dashboards migration", () => {
   it("upgrades a 0015 database and adds empty dashboard tables", () => {
     const journal = JSON.parse(
       readFileSync(path.join(folder, "meta/_journal.json"), "utf8"),
     ) as { entries: { tag: string; when: number }[] };
     const stop = journal.entries.findIndex((e) => e.tag === "0015_sharing");
     expect(stop).toBeGreaterThan(0);
-    const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-0025-"));
+    const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-0027-"));
     const sqlite = new Database(path.join(dir, "rex.sqlite"));
     try {
       sqlite.exec(

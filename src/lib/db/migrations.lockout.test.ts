@@ -11,14 +11,14 @@ import * as schema from "./schema";
 
 const folder = path.join(process.cwd(), "drizzle");
 
-describe("0016 login lockout migration", () => {
+describe("0026 login lockout migration", () => {
   it("upgrades a 0015 database and keeps existing users able to sign in", () => {
     const journal = JSON.parse(
       readFileSync(path.join(folder, "meta/_journal.json"), "utf8"),
     ) as { entries: { tag: string; when: number }[] };
     const stop = journal.entries.findIndex((e) => e.tag === "0015_sharing");
     expect(stop).toBeGreaterThan(0);
-    const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-0016-"));
+    const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-0026-"));
     const sqlite = new Database(path.join(dir, "rex.sqlite"));
     try {
       sqlite.exec(

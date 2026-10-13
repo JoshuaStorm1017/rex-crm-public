@@ -10,15 +10,15 @@ import * as schema from "./schema";
 const folder = path.join(process.cwd(), "drizzle");
 
 describe("stacked migrations after 0015", () => {
-  it("runs 0020, 0016 and 0025 in journal order on a 0015 database", () => {
+  it("runs 0020, 0026 and 0027 in journal order on a 0015 database", () => {
     const journal = JSON.parse(
       readFileSync(path.join(folder, "meta/_journal.json"), "utf8"),
     ) as { entries: { idx: number; tag: string; when: number }[] };
     const stop = journal.entries.findIndex((e) => e.tag === "0015_sharing");
     expect(journal.entries.slice(stop + 1, stop + 4).map((e) => e.tag)).toEqual([
       "0020_opportunity_line_items",
-      "0016_login_lockout",
-      "0025_dashboards",
+      "0026_login_lockout",
+      "0027_dashboards",
     ]);
     const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-stack-"));
     const sqlite = new Database(path.join(dir, "rex.sqlite"));
