@@ -13,6 +13,8 @@ export const ID_PREFIX = {
   task: "00T",
   listView: "00B",
   report: "00O",
+  dashboard: "01Z",
+  dashboardComponent: "01a",
   customField: "00N",
   customFieldValue: "cfv",
   validationRule: "03d",
