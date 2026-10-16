@@ -2166,3 +2166,18 @@ fresh verification evidence for each slice.
   `/quotes/[id]` detail pages. Read-only; they call only the gated
   `listQuotes`/`getQuote` (opportunity read + org filter); an unreadable or
   other-org quote is a 404.
+
+## 2026-10-16 — opportunity products on the deal page (lane B)
+
+- WORKS (verified 2026-10-16 19:13 EDT, `npm run verify` exit 0 on Node
+  22.23.3, 1225/1225 tests across 108 files, Next.js 16.3.5 build):
+  the opportunity page lists products and adds or removes a line when
+  the actor can edit the opportunity. Sales price and line total are
+  omitted when the actor cannot read `standardPriceCents`. A posted
+  price is `FORBIDDEN` when that field is not editable, and a line
+  with no posted price still stores the catalog price. Inactive
+  products are not in the picker and the action refuses them.
+  `renderToStaticMarkup` covered the page. No browser pass. Chrome
+  DevTools did not connect.
+- Not done: line items do not roll into Opportunity Amount. No edit
+  of an existing line.

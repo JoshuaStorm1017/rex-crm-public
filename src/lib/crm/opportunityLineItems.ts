@@ -1,17 +1,20 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { opportunityLineItems } from "../db/schema";
+import { opportunityLineItems, priceBookEntries, products } from "../db/schema";
 import { assertActor, type Actor } from "./actor";
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
 import { readOpportunity } from "./opportunities";
-import { assertCanAccessRecord } from "./permissions";
-import { getProduct } from "./products";
+import { assertCanAccessRecord, assertEditableFields, canReadField } from "./permissions";
+import { ensureStandardPriceBook, getProduct } from "./products";
 
 export type OpportunityLineItem = typeof opportunityLineItems.$inferSelect;
-export type LineItemView = OpportunityLineItem & {
+export type LineItemView = Omit<OpportunityLineItem, "unitPriceCents"> & {
   productName: string;
-  totalCents: number;
+  /** Null when the actor cannot read the product sale price. */
+  unitPriceCents: number | null;
+  /** Null when the actor cannot read the product sale price. */
+  totalCents: number | null;
 };
 
 export const LINE_ITEM_MAX_QUANTITY = 1_000_000;
@@ -55,8 +58,41 @@ function requireOpportunity(db: Db, actor: Actor, id: string, action: "read" | "
   return opp;
 }
 
-/** Line items on a readable opportunity whose product the actor can read. */
-export function listLineItems(db: Db, actor: Actor, opportunityId: string): LineItemView[] {
+/** Sale price is the product price field. Hidden still means the line can be added at the stored standard price. */
+function seesSalePrice(db: Db, actor: Actor): boolean {
+  return canReadField(db, actor, "product", "standardPriceCents");
+}
+
+function storedCatalogProduct(db: Db, actor: Actor, productId: string) {
+  const book = ensureStandardPriceBook(db, actor.orgId);
+  if (!book) return undefined;
+  return db
+    .select({
+      isActive: products.isActive,
+      standardPriceCents: priceBookEntries.unitPriceCents,
+    })
+    .from(products)
+    .innerJoin(
+      priceBookEntries,
+      and(
+        eq(priceBookEntries.productId, products.id),
+        eq(priceBookEntries.priceBookId, book.id),
+        eq(priceBookEntries.orgId, actor.orgId),
+      ),
+    )
+    .where(
+      and(
+        eq(products.id, productId),
+        eq(products.orgId, actor.orgId),
+        isNull(products.deletedAt),
+      ),
+    )
+    .get();
+}
+
+type ReadableLine = { row: OpportunityLineItem; productName: string };
+
+function linesForOpportunity(db: Db, actor: Actor, opportunityId: string): ReadableLine[] {
   assertActor(db, actor);
   requireOpportunity(db, actor, opportunityId, "read");
   return db
@@ -73,14 +109,23 @@ export function listLineItems(db: Db, actor: Actor, opportunityId: string): Line
     .flatMap((row) => {
       const product = getProduct(db, actor, row.productId);
       if (!product) return [];
-      return [
-        {
-          ...row,
-          productName: product.name,
-          totalCents: lineTotal(row.quantity, row.unitPriceCents),
-        },
-      ];
+      return [{ row, productName: product.name || "" }];
     });
+}
+
+function toLineView(db: Db, actor: Actor, line: ReadableLine): LineItemView {
+  const seePrice = seesSalePrice(db, actor);
+  return {
+    ...line.row,
+    productName: line.productName,
+    unitPriceCents: seePrice ? line.row.unitPriceCents : null,
+    totalCents: seePrice ? lineTotal(line.row.quantity, line.row.unitPriceCents) : null,
+  };
+}
+
+/** Line items on a readable opportunity whose product the actor can read. */
+export function listLineItems(db: Db, actor: Actor, opportunityId: string): LineItemView[] {
+  return linesForOpportunity(db, actor, opportunityId).map((line) => toLineView(db, actor, line));
 }
 
 export function opportunityLineTotalCents(
@@ -88,10 +133,10 @@ export function opportunityLineTotalCents(
   actor: Actor,
   opportunityId: string,
 ): number {
-  return listLineItems(db, actor, opportunityId).reduce(
-    (sum, item) => lineTotal(1, sum + item.totalCents),
-    0,
-  );
+  return linesForOpportunity(db, actor, opportunityId).reduce((sum, line) => {
+    const total = lineTotal(line.row.quantity, line.row.unitPriceCents);
+    return lineTotal(1, sum + total);
+  }, 0);
 }
 
 export function addLineItem(db: Db, actor: Actor, input: AddLineItemInput): LineItemView {
@@ -100,15 +145,21 @@ export function addLineItem(db: Db, actor: Actor, input: AddLineItemInput): Line
   assertQuantity(input.quantity);
   const product = getProduct(db, actor, input.productId);
   if (!product) throw new DomainError("NOT_FOUND", "Product not found");
-  if (!product.isActive) {
+  const stored = storedCatalogProduct(db, actor, input.productId);
+  if (!stored) throw new DomainError("NOT_FOUND", "Product not found");
+  if (!stored.isActive) {
     throw new DomainError("INVALID_PRODUCT", "Inactive products cannot be added");
   }
-  const unitPriceCents = input.unitPriceCents ?? product.standardPriceCents;
-  if (unitPriceCents == null) {
-    throw new DomainError("INVALID_MONEY", "Enter a unit price for this product");
+  let unitPriceCents: number;
+  if (input.unitPriceCents !== undefined) {
+    assertEditableFields(db, actor, "product", ["standardPriceCents"]);
+    assertUnitPrice(input.unitPriceCents);
+    unitPriceCents = input.unitPriceCents;
+  } else {
+    unitPriceCents = stored.standardPriceCents;
+    assertUnitPrice(unitPriceCents);
   }
-  assertUnitPrice(unitPriceCents);
-  const totalCents = lineTotal(input.quantity, unitPriceCents);
+  lineTotal(input.quantity, unitPriceCents);
   const ts = Date.now();
   const row: OpportunityLineItem = {
     id: newId(ID_PREFIX.opportunityLineItem),
@@ -123,7 +174,7 @@ export function addLineItem(db: Db, actor: Actor, input: AddLineItemInput): Line
     updatedBy: actor.userId,
   };
   db.insert(opportunityLineItems).values(row).run();
-  return { ...row, productName: product.name, totalCents };
+  return toLineView(db, actor, { row, productName: product.name || "" });
 }
 
 export function deleteLineItem(db: Db, actor: Actor, id: string): void {
