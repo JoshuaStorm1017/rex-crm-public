@@ -19,7 +19,7 @@ import { formatUsd } from "@/lib/crm/money";
 import { readOpportunity } from "@/lib/crm/opportunities";
 import { listOpportunityContactRoles } from "@/lib/crm/opportunityContactRoles";
 import { canChangeOwner } from "@/lib/crm/ownership";
-import { listLineItems } from "@/lib/crm/opportunityLineItems";
+import { listAddableProducts, listLineItems } from "@/lib/crm/opportunityLineItems";
 import {
   canAccessRecord,
   canPerform,
@@ -27,7 +27,6 @@ import {
   formFieldAllowed,
   presentRecord,
 } from "@/lib/crm/permissions";
-import { listProducts } from "@/lib/crm/products";
 import { recordView } from "@/lib/crm/recentlyViewed";
 import { listTasksForRecord, withTaskEditAccess } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
@@ -94,9 +93,10 @@ export default async function OpportunityDetailPage({
     totalCents: showSalePrice ? line.totalCents : null,
   }));
   const productChoices = canReadProducts
-    ? listProducts(db, actor)
-        .filter((product) => product.isActive)
-        .map((product) => ({ id: product.id, name: product.name || "—" }))
+    ? listAddableProducts(db, actor).map((product) => ({
+        id: product.id,
+        name: product.name || "—",
+      }))
     : [];
 
   return (

@@ -699,3 +699,11 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 on Node 22.23.3. 108 files, 1225/1225 tests, Next.js 16.3.5 build. Page coverage is `renderToStaticMarkup`. No browser pass. Chrome DevTools did not connect.
 - **Not done:** lines do not roll into Opportunity Amount. No edit of an existing line. `opportunityLineTotalCents` still returns the raw sum to an actor who cannot read the sale price; the page does not call it.
 - **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.
+
+## 2026-10-16 19:31 EDT — product picker when Active is hidden
+
+- **What:** `listAddableProducts` keeps a product only when the stored Active flag is true, then redacts the name. The opportunity page uses that list. A hidden Active flag no longer empties the picker. Inactive, deleted, unpriced, and other-org products stay out. Active itself is not returned. A hidden product name is blank.
+- **Why:** QE: `listProducts` redacts a hidden `isActive` to null, and the page kept only truthy flags, so an editor who could not read Active saw "No active products to add." The add action already accepted an active id and refused an inactive one.
+- **Verify:** `npm run verify` exit 0. This shell's `node -v` is v24.2.0. 108 files, 1239/1239. Next.js 16.3.5 build. The QE page test passes via `renderToStaticMarkup`. No browser pass. Chrome DevTools did not connect.
+- **Not done:** lines do not roll into Opportunity Amount. No edit of an existing line. `opportunityLineTotalCents` still returns the raw sum to an actor who cannot read the sale price; the page does not call it.
+- **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.

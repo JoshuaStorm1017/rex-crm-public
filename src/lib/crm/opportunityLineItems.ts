@@ -5,7 +5,13 @@ import { assertActor, type Actor } from "./actor";
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
 import { readOpportunity } from "./opportunities";
-import { assertCanAccessRecord, assertEditableFields, canReadField } from "./permissions";
+import {
+  assertCanAccessRecord,
+  assertEditableFields,
+  canPerform,
+  canReadField,
+  presentRecord,
+} from "./permissions";
 import { ensureStandardPriceBook, getProduct } from "./products";
 
 export type OpportunityLineItem = typeof opportunityLineItems.$inferSelect;
@@ -121,6 +127,43 @@ function toLineView(db: Db, actor: Actor, line: ReadableLine): LineItemView {
     unitPriceCents: seePrice ? line.row.unitPriceCents : null,
     totalCents: seePrice ? lineTotal(line.row.quantity, line.row.unitPriceCents) : null,
   };
+}
+
+export type AddableProduct = { id: string; name: string };
+
+/**
+ * Products an editor can put on a deal. Active is the stored column, read
+ * before field redaction, so a hidden Active flag does not look inactive.
+ * The name is redacted. Active itself is not returned.
+ */
+export function listAddableProducts(db: Db, actor: Actor): AddableProduct[] {
+  assertActor(db, actor);
+  if (!canPerform(db, actor, "product", "read")) return [];
+  const book = ensureStandardPriceBook(db, actor.orgId);
+  if (!book) return [];
+  return db
+    .select({
+      id: products.id,
+      name: products.name,
+      isActive: products.isActive,
+    })
+    .from(products)
+    .innerJoin(
+      priceBookEntries,
+      and(
+        eq(priceBookEntries.productId, products.id),
+        eq(priceBookEntries.priceBookId, book.id),
+        eq(priceBookEntries.orgId, actor.orgId),
+      ),
+    )
+    .where(and(eq(products.orgId, actor.orgId), isNull(products.deletedAt)))
+    .orderBy(asc(products.name), asc(products.id))
+    .all()
+    .flatMap((row) => {
+      if (!row.isActive) return [];
+      const name = presentRecord(db, actor, "product", { id: row.id, name: row.name }).name;
+      return [{ id: row.id, name: name || "" }];
+    });
 }
 
 /** Line items on a readable opportunity whose product the actor can read. */

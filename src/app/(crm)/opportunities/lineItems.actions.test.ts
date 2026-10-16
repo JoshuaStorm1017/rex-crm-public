@@ -181,6 +181,63 @@ describe("opportunity line item actions", () => {
     expect(s.snapshot()).toBe(before);
   });
 
+  // The catalog parser rejects these. parseUsdToCents turns "$" and "," into
+  // 0 cents, "1.999" into 200, and "0x10" into 1600, then the action writes
+  // the line. A sales price has to be refused and nothing stored.
+  it.each(["$", ",", "1.999", "0x10"])(
+    "refuses sales price %s and writes nothing",
+    async (unitPrice) => {
+      const s = setup();
+      const before = s.snapshot();
+      let thrown = "";
+      try {
+        await addOpportunityLineItemAction(
+          s.opp.id,
+          form({ productId: s.product.id, quantity: "1", unitPrice }),
+        );
+      } catch (error) {
+        thrown = error instanceof Error ? error.message : String(error);
+      }
+      const stored = s.db
+        .select()
+        .from(opportunityLineItems)
+        .all()
+        .map((row) => row.unitPriceCents);
+      expect({ thrown, stored }).toEqual({
+        thrown: expect.stringMatching(/notice=/),
+        stored: [],
+      });
+    },
+  );
+
+  it("refuses a posted product when the actor cannot read products and writes nothing", async () => {
+    const s = setup();
+    const seller = priceActor(s.db, {
+      name: "No Product Read",
+      username: "noproductsaction",
+      price: { canRead: true, canEdit: true },
+      productRead: false,
+    });
+    const opp = createOpportunity(s.db, seller.actor, {
+      accountId: createAccount(s.db, seller.actor, { name: "Blind Co" }).id,
+      name: "Blind Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-06",
+    });
+    vi.mocked(requireActor).mockResolvedValue(seller.actor as never);
+    const before = s.snapshot();
+    await expect(
+      addOpportunityLineItemAction(
+        opp.id,
+        form({ productId: s.product.id, quantity: "1", unitPrice: "$1.00" }),
+      ),
+    ).rejects.toThrow(/notice=Product%20not%20found/);
+    await expect(
+      addOpportunityLineItemAction(s.opp.id, form({ productId: s.product.id, quantity: "1" })),
+    ).rejects.toThrow(/notice=Product%20not%20found|notice=Opportunity%20not%20found|permission/);
+    expect(s.snapshot()).toBe(before);
+  });
+
   it("refuses another org's product, opportunity, and line and writes nothing", async () => {
     const s = setup();
     const other = createOrganization(s.db, "Other Catalog", LOCAL_USER_ID);
@@ -310,6 +367,7 @@ function priceActor(
     username: string;
     price: { canRead: boolean; canEdit: boolean };
     hideActive?: boolean;
+    productRead?: boolean;
   },
 ) {
   const user = createUser(db, {
@@ -326,6 +384,7 @@ function priceActor(
   setObjectPermission(db, LOCAL_ACTOR, profileId, "product", {
     ...flags,
     canCreate: false,
+    canRead: spec.productRead !== false,
     canUpdate: false,
     canDelete: false,
   });

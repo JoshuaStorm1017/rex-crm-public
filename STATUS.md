@@ -2181,3 +2181,19 @@ fresh verification evidence for each slice.
   DevTools did not connect.
 - Not done: line items do not roll into Opportunity Amount. No edit
   of an existing line.
+
+## 2026-10-16 — product picker when Active is hidden (lane B)
+
+- WORKS (verified 2026-10-16 19:31 EDT, `npm run verify` exit 0, this
+  shell's `node -v` is v24.2.0, 1239/1239 tests across 108 files,
+  Next.js 16.3.5 build): the opportunity product picker uses the stored
+  Active flag. An editor who cannot read Active still sees Add product
+  and the live product, and does not see an inactive product. A hidden
+  product name is blank. Another org's product, a deleted product, and
+  a product with no standard price are omitted. The read writes
+  nothing. `renderToStaticMarkup` covered the page, including the QE
+  case. No browser pass. Chrome DevTools did not connect.
+- Not done: line items do not roll into Opportunity Amount. No edit of
+  an existing line. `opportunityLineTotalCents` still returns the raw
+  sum to an actor who cannot read the sale price; the page does not
+  call it.

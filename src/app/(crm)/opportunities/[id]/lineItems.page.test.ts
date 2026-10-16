@@ -57,6 +57,7 @@ function member(db: Db, spec: {
   productRead: boolean;
   price?: { canRead: boolean; canEdit: boolean };
   hideActive?: boolean;
+  hideName?: boolean;
 }): { user: PublicUser; actor: Actor } {
   const user = createUser(db, {
     name: spec.name,
@@ -82,6 +83,12 @@ function member(db: Db, spec: {
   }
   if (spec.hideActive) {
     setFieldPermission(db, LOCAL_ACTOR, profileId, "product", "isActive", {
+      canRead: false,
+      canEdit: false,
+    });
+  }
+  if (spec.hideName) {
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "product", "name", {
       canRead: false,
       canEdit: false,
     });
@@ -149,6 +156,7 @@ describe("opportunity product related list", () => {
     expect(hiddenHtml).not.toContain("Line Total");
     expect(hiddenHtml).not.toContain("$1,234.56");
     expect(hiddenHtml).not.toContain("$2,469.12");
+    expect(hiddenHtml).not.toContain(String(PRICE));
     expect(hiddenHtml).not.toContain('name="unitPrice"');
 
     const locked = member(db, {
@@ -241,6 +249,65 @@ describe("opportunity product related list", () => {
     expect(page).toContain('name="productId"');
     expect(page).not.toContain("Retired Skates");
     expect(page).not.toContain("No active products to add.");
+  });
+
+  it("does not render a product name the actor cannot read", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const product = createProduct(db, LOCAL_ACTOR, { name: "Painted Anvil", standardPriceCents: PRICE });
+    const hidden = member(db, {
+      name: "Hide Product Name",
+      username: "hidename",
+      canUpdate: true,
+      canDelete: true,
+      productRead: true,
+      hideName: true,
+    });
+    const deal = ownDeal(db, hidden.actor, "Nameless Deal");
+    addLineItem(db, hidden.actor, { opportunityId: deal.id, productId: product.id, quantity: 2 });
+    act(hidden.user);
+    const page = await html(deal.id);
+    expect(page).toContain("Products (1)");
+    expect(page).toContain("Add product");
+    expect(page).toContain(`value="${product.id}"`);
+    expect(page).not.toContain("Painted Anvil");
+    expect(page).toContain("$1,234.56");
+  });
+
+  it("does not offer another org's product on a local opportunity", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const opportunity = ownDeal(db, LOCAL_ACTOR, "Local Deal");
+    createProduct(db, LOCAL_ACTOR, { name: "Local Anvil", standardPriceCents: PRICE });
+    const operator = getUser(db, LOCAL_USER_ID);
+    if (!operator) throw new Error("seeded users were missing");
+    const other = createOrganization(db, "Elsewhere", operator.id);
+    createProduct(db, actorFor(operator.id, other.id), {
+      name: "Foreign Only Anvil",
+      standardPriceCents: 500,
+    });
+    act(operator);
+    const page = await html(opportunity.id);
+    expect(page).toContain("Local Anvil");
+    expect(page).toContain("Add product");
+    expect(page).not.toContain("Foreign Only Anvil");
+  });
+
+  it("escapes a product name in the related list", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const opportunity = ownDeal(db, LOCAL_ACTOR, "Markup Deal");
+    const product = createProduct(db, LOCAL_ACTOR, {
+      name: "Anvil <script>alert(1)</script>",
+      standardPriceCents: PRICE,
+    });
+    addLineItem(db, LOCAL_ACTOR, { opportunityId: opportunity.id, productId: product.id, quantity: 1 });
+    const operator = getUser(db, LOCAL_USER_ID);
+    if (!operator) throw new Error("seeded users were missing");
+    act(operator);
+    const page = await html(opportunity.id);
+    expect(page).not.toContain("<script>alert(1)</script>");
+    expect(page).toContain("Anvil &lt;script&gt;alert(1)&lt;/script&gt;");
   });
 
   it("does not render an opportunity that belongs to another org", async () => {
