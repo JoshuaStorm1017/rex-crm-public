@@ -1,3 +1,5 @@
+import { STANDARD_OBJECT_KEYS, standardObject } from "./registry";
+
 /** Stable id of the org that already-existing local rows belong to. */
 export const LOCAL_ORG_ID = "00D000000000LOCALORG0001";
 export const LOCAL_ORG_NAME = "Rex Local";
@@ -85,24 +87,15 @@ export const TASK_DEFAULT_STATUS = "Not Started" as const;
 export const TASK_DEFAULT_PRIORITY = "Normal" as const;
 
 export const TASK_RELATED_OBJECT_TYPES = [
-  "account",
-  "contact",
-  "lead",
-  "opportunity",
+  standardObject("account").key,
+  standardObject("contact").key,
+  standardObject("lead").key,
+  standardObject("opportunity").key,
 ] as const;
 
-export const RECORD_OBJECT_TYPES = [
-  ...TASK_RELATED_OBJECT_TYPES,
-  "task",
-] as const;
+export const RECORD_OBJECT_TYPES = STANDARD_OBJECT_KEYS;
 
-export const LIST_VIEW_OBJECT_TYPES = [
-  "account",
-  "contact",
-  "lead",
-  "opportunity",
-  "task",
-] as const;
+export const LIST_VIEW_OBJECT_TYPES = RECORD_OBJECT_TYPES;
 
 /** Profile CRUD rows. Product is catalog data, not a list-view or report object. */
 export const PROFILE_OBJECT_TYPES = [...LIST_VIEW_OBJECT_TYPES, "product"] as const;
@@ -588,62 +581,63 @@ export type ReportAggregateFn = (typeof REPORT_AGGREGATE_FNS)[number];
 export type ReportMeasureKind = "currency" | "number";
 export type ReportDateRange = (typeof REPORT_DATE_RANGES)[number];
 
+type ListCatalogFields = {
+  listFields: readonly string[];
+  filterFields: readonly string[];
+  sortFields: readonly string[];
+  labels: Record<string, string>;
+  defaultColumns: readonly string[];
+};
+
+const LIST_VIEW_FIELD_CATALOGS: Record<ListViewObjectType, ListCatalogFields> = {
+  account: {
+    listFields: ACCOUNT_LIST_FIELDS,
+    filterFields: ACCOUNT_FILTER_FIELDS,
+    sortFields: ACCOUNT_SORT_FIELDS,
+    labels: ACCOUNT_LIST_FIELD_LABELS,
+    defaultColumns: DEFAULT_ACCOUNT_COLUMNS,
+  },
+  contact: {
+    listFields: CONTACT_LIST_FIELDS,
+    filterFields: CONTACT_FILTER_FIELDS,
+    sortFields: CONTACT_SORT_FIELDS,
+    labels: CONTACT_FIELD_LABELS,
+    defaultColumns: DEFAULT_CONTACT_COLUMNS,
+  },
+  lead: {
+    listFields: LEAD_LIST_FIELDS,
+    filterFields: LEAD_FILTER_FIELDS,
+    sortFields: LEAD_SORT_FIELDS,
+    labels: LEAD_FIELD_LABELS,
+    defaultColumns: DEFAULT_LEAD_COLUMNS,
+  },
+  opportunity: {
+    listFields: OPPORTUNITY_LIST_FIELDS,
+    filterFields: OPPORTUNITY_FILTER_FIELDS,
+    sortFields: OPPORTUNITY_SORT_FIELDS,
+    labels: OPPORTUNITY_FIELD_LABELS,
+    defaultColumns: DEFAULT_OPPORTUNITY_COLUMNS,
+  },
+  task: {
+    listFields: TASK_LIST_FIELDS,
+    filterFields: TASK_FILTER_FIELDS,
+    sortFields: TASK_SORT_FIELDS,
+    labels: TASK_FIELD_LABELS,
+    defaultColumns: DEFAULT_TASK_COLUMNS,
+  },
+};
+
 export function listViewCatalog(objectType: ListViewObjectType) {
-  switch (objectType) {
-    case "account":
-      return {
-        listFields: ACCOUNT_LIST_FIELDS as readonly string[],
-        filterFields: ACCOUNT_FILTER_FIELDS as readonly string[],
-        sortFields: ACCOUNT_SORT_FIELDS as readonly string[],
-        labels: ACCOUNT_LIST_FIELD_LABELS as Record<string, string>,
-        defaultColumns: DEFAULT_ACCOUNT_COLUMNS as readonly string[],
-        defaultViewName: "All Accounts",
-        listPath: "/accounts",
-        recordLabelPlural: "Accounts",
-      };
-    case "contact":
-      return {
-        listFields: CONTACT_LIST_FIELDS as readonly string[],
-        filterFields: CONTACT_FILTER_FIELDS as readonly string[],
-        sortFields: CONTACT_SORT_FIELDS as readonly string[],
-        labels: CONTACT_FIELD_LABELS as Record<string, string>,
-        defaultColumns: DEFAULT_CONTACT_COLUMNS as readonly string[],
-        defaultViewName: "All Contacts",
-        listPath: "/contacts",
-        recordLabelPlural: "Contacts",
-      };
-    case "lead":
-      return {
-        listFields: LEAD_LIST_FIELDS as readonly string[],
-        filterFields: LEAD_FILTER_FIELDS as readonly string[],
-        sortFields: LEAD_SORT_FIELDS as readonly string[],
-        labels: LEAD_FIELD_LABELS as Record<string, string>,
-        defaultColumns: DEFAULT_LEAD_COLUMNS as readonly string[],
-        defaultViewName: "All Leads",
-        listPath: "/leads",
-        recordLabelPlural: "Leads",
-      };
-    case "opportunity":
-      return {
-        listFields: OPPORTUNITY_LIST_FIELDS as readonly string[],
-        filterFields: OPPORTUNITY_FILTER_FIELDS as readonly string[],
-        sortFields: OPPORTUNITY_SORT_FIELDS as readonly string[],
-        labels: OPPORTUNITY_FIELD_LABELS as Record<string, string>,
-        defaultColumns: DEFAULT_OPPORTUNITY_COLUMNS as readonly string[],
-        defaultViewName: "All Opportunities",
-        listPath: "/opportunities",
-        recordLabelPlural: "Opportunities",
-      };
-    case "task":
-      return {
-        listFields: TASK_LIST_FIELDS as readonly string[],
-        filterFields: TASK_FILTER_FIELDS as readonly string[],
-        sortFields: TASK_SORT_FIELDS as readonly string[],
-        labels: TASK_FIELD_LABELS as Record<string, string>,
-        defaultColumns: DEFAULT_TASK_COLUMNS as readonly string[],
-        defaultViewName: "All Tasks",
-        listPath: "/tasks",
-        recordLabelPlural: "Tasks",
-      };
-  }
+  const spec = standardObject(objectType);
+  const fields = LIST_VIEW_FIELD_CATALOGS[objectType];
+  return {
+    listFields: fields.listFields,
+    filterFields: fields.filterFields,
+    sortFields: fields.sortFields,
+    labels: fields.labels,
+    defaultColumns: fields.defaultColumns,
+    defaultViewName: `All ${spec.labelPlural}`,
+    listPath: spec.path,
+    recordLabelPlural: spec.labelPlural,
+  };
 }

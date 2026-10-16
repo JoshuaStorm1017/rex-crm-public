@@ -13,6 +13,7 @@ import type { Actor } from "./actor";
 import { assertActor } from "./actor";
 import { DomainError } from "./errors";
 import { recordLabel } from "./objects";
+import { STANDARD_OBJECT_KEYS } from "./registry";
 import {
   assertCanAccessRecord,
   assertCanPerform,
@@ -26,13 +27,7 @@ import {
 export type OwnableObject = Exclude<CrmObject, "product">;
 
 /** The five objects Change Owner can reassign, checked at runtime too. */
-export const OWNABLE_OBJECTS: readonly OwnableObject[] = [
-  "account",
-  "contact",
-  "lead",
-  "opportunity",
-  "task",
-];
+export const OWNABLE_OBJECTS: readonly OwnableObject[] = STANDARD_OBJECT_KEYS;
 
 /**
  * The type alone does not stop a caller that casts or parses a string.
