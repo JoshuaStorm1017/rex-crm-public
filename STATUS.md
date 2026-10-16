@@ -2166,3 +2166,8 @@ fresh verification evidence for each slice.
   `/quotes/[id]` detail pages. Read-only; they call only the gated
   `listQuotes`/`getQuote` (opportunity read + org filter); an unreadable or
   other-org quote is a 404.
+
+## 2026-10-16 — lane A, standard object registry
+
+- WORKS (verified 2026-10-16 19:15 EDT, `npm run verify` exit 0, 108 files, 1223 tests, Next.js 16.3.5 build): one registry for the five standard objects. Labels, paths, id prefixes, and tables for sharing, list views, and report columns come from it. Adding a per-object `case` outside the frozen query switches fails `registry.test.ts`. No user-visible change. The shell node was v24.2.0; `.nvmrc` is 22.
+- Still separate query switches, frozen by that test: report from-clause and detail rows, change-owner load and write, recently viewed names, and task related-record lookup.

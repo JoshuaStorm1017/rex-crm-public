@@ -25,6 +25,8 @@ import {
 } from "../db/schema";
 import type { Account } from "./accounts";
 import { canPerform, canReadField, fieldAccess, presentRecord } from "./permissions";
+import { objectColumn } from "./objectTable";
+import { standardObject } from "./registry";
 import { readRestrictionSql } from "./sharing";
 import type { Actor } from "./actor";
 import { assertActor } from "./actor";
@@ -998,75 +1000,34 @@ function columnFilterSql(
   }
 }
 
-const RECORD_TABLE_NAME: Record<ListViewObjectType, RecordTableName> = {
-  account: "accounts",
-  contact: "contacts",
-  lead: "leads",
-  opportunity: "opportunities",
-  task: "tasks",
+const FILTER_COLUMN: Record<
+  ListViewObjectType,
+  (field: string) => AnySQLiteColumn | SQL
+> = {
+  account: (field) => accountFilterColumn(field as AccountFilterField),
+  contact: (field) => contactFilterColumn(field as ContactFilterField),
+  lead: (field) => leadFilterColumn(field as LeadFilterField),
+  opportunity: (field) => opportunityFilterColumn(field as OpportunityFilterField),
+  task: (field) => taskFilterColumn(field as TaskFilterField),
 };
 
 function standardFilterColumn(
   objectType: ListViewObjectType,
   field: string,
 ): AnySQLiteColumn | SQL {
-  switch (objectType) {
-    case "account":
-      return accountFilterColumn(field as AccountFilterField);
-    case "contact":
-      return contactFilterColumn(field as ContactFilterField);
-    case "lead":
-      return leadFilterColumn(field as LeadFilterField);
-    case "opportunity":
-      return opportunityFilterColumn(field as OpportunityFilterField);
-    case "task":
-      return taskFilterColumn(field as TaskFilterField);
-  }
+  return FILTER_COLUMN[objectType](field);
 }
 
 function deletedAtColumn(objectType: ListViewObjectType): AnySQLiteColumn {
-  switch (objectType) {
-    case "account":
-      return accounts.deletedAt;
-    case "contact":
-      return contacts.deletedAt;
-    case "lead":
-      return leads.deletedAt;
-    case "opportunity":
-      return opportunities.deletedAt;
-    case "task":
-      return tasks.deletedAt;
-  }
+  return objectColumn(objectType, "deletedAt");
 }
 
 function orgIdColumn(objectType: ListViewObjectType): AnySQLiteColumn {
-  switch (objectType) {
-    case "account":
-      return accounts.orgId;
-    case "contact":
-      return contacts.orgId;
-    case "lead":
-      return leads.orgId;
-    case "opportunity":
-      return opportunities.orgId;
-    case "task":
-      return tasks.orgId;
-  }
+  return objectColumn(objectType, "orgId");
 }
 
 function ownerIdColumn(objectType: ListViewObjectType): AnySQLiteColumn {
-  switch (objectType) {
-    case "account":
-      return accounts.ownerId;
-    case "contact":
-      return contacts.ownerId;
-    case "lead":
-      return leads.ownerId;
-    case "opportunity":
-      return opportunities.ownerId;
-    case "task":
-      return tasks.ownerId;
-  }
+  return objectColumn(objectType, "ownerId");
 }
 
 function sortFieldForActor(
@@ -1105,7 +1066,7 @@ export function listViewConditions(
   filters: readonly ListViewFilter[],
 ): SQL[] {
   assertActor(db, actor);
-  const table = RECORD_TABLE_NAME[objectType];
+  const table = standardObject(objectType).tableName;
   const conditions: SQL[] = [
     isNull(deletedAtColumn(objectType)),
     eq(orgIdColumn(objectType), actor.orgId),
@@ -1147,7 +1108,7 @@ export function listViewFieldExpr(
     if (!custom) {
       throw new DomainError("INVALID_FIELD", `Unknown field: ${field}`);
     }
-    return customValueSubquery(custom.id, RECORD_TABLE_NAME[objectType]);
+    return customValueSubquery(custom.id, standardObject(objectType).tableName);
   }
   if (!listViewCatalog(objectType).filterFields.includes(field)) {
     throw new DomainError("INVALID_FIELD", `Unknown field: ${field}`);
