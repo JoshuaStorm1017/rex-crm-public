@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { deleteContactAction } from "../actions";
+import { AuditHistory } from "@/components/AuditHistory";
 import { ChangeOwnerLink } from "@/components/ChangeOwnerLink";
 import { DeleteButton } from "@/components/DeleteButton";
 import { TasksRelatedList } from "@/components/TasksRelatedList";
@@ -8,7 +9,7 @@ import { ActivityTimeline } from "@/components/ActivityTimeline";
 import { listActivities } from "@/lib/crm/activities";
 import { getAccount } from "@/lib/crm/accounts";
 import { CustomFieldsSection } from "@/components/CustomFieldsSection";
-import { getContact, listDirectReports } from "@/lib/crm/contacts";
+import { getContact, listContactHistory, listDirectReports } from "@/lib/crm/contacts";
 import { getCustomValues } from "@/lib/crm/customFields";
 import { listOpportunityContactRolesForContact } from "@/lib/crm/opportunityContactRoles";
 import { recordView } from "@/lib/crm/recentlyViewed";
@@ -248,6 +249,8 @@ export default async function ContactDetailPage({
         activities={listActivities(db, actor, "contact", contact.id)}
 
       />
+
+      <AuditHistory entries={listContactHistory(db, actor, contact.id)} />
     </div>
   );
 }

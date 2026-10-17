@@ -1,26 +1,39 @@
-import type { AccountHistoryEntry } from "@/lib/crm/accounts";
-
 const ACTION_LABEL = {
   create: "Created",
   update: "Updated",
   delete: "Deleted",
 } as const;
 
+type HistoryAction = keyof typeof ACTION_LABEL;
+
+type HistoryChange = {
+  field: string;
+  label: string;
+  before: string | null;
+  after: string | null;
+};
+
+type HistoryEntry = {
+  id: string;
+  action: HistoryAction;
+  actorId?: string;
+  actorName: string;
+  at: number;
+  changes: HistoryChange[];
+};
+
 function when(ms: number): string {
   return new Date(ms).toISOString().slice(0, 16).replace("T", " ");
 }
 
-function changeText(
-  action: AccountHistoryEntry["action"],
-  change: AccountHistoryEntry["changes"][number],
-): string {
+function changeText(action: HistoryAction, change: HistoryChange): string {
   if (action === "create") return `${change.label}: ${change.after ?? "—"}`;
   if (action === "delete") return `${change.label}: ${change.before ?? "—"}`;
   return `${change.label}: ${change.before ?? "—"} → ${change.after ?? "—"}`;
 }
 
-/** Account field history, newest first. Values are already redacted. */
-export function AuditHistory({ entries }: { entries: AccountHistoryEntry[] }) {
+/** Field history, newest first. Values are already redacted. */
+export function AuditHistory({ entries }: { entries: HistoryEntry[] }) {
   return (
     <section className="rounded-lg border border-[#d9d0c0] bg-white">
       <div className="border-b border-[#d9d0c0] px-4 py-3 text-sm font-semibold uppercase tracking-wide text-[#5c564c]">
