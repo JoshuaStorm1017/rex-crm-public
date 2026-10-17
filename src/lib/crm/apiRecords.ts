@@ -128,16 +128,81 @@ function encode(field: string, value: unknown): ApiFieldValue {
 }
 
 /**
- * Hidden fields are omitted. A readable empty field stays null. Null must
- * not mean "you are not allowed to see this".
+ * Field name to the object that id points at. Task relatedRecordId uses
+ * the row's relatedObjectType instead, so it is not in this map.
  */
-function serialize(access: FieldAccess, apiName: string, row: Readable): ApiRecord {
-  const source = row as unknown as Record<string, unknown>;
+const LOOKUP_TARGET: Record<string, StandardObjectKey> = {
+  parentAccountId: "account",
+  accountId: "account",
+  reportsToId: "contact",
+  convertedAccountId: "account",
+  convertedContactId: "contact",
+  convertedOpportunityId: "opportunity",
+};
+
+const LOOKUP_FIELDS: Record<StandardObjectKey, readonly string[]> = {
+  account: ["parentAccountId"],
+  contact: ["accountId", "reportsToId"],
+  lead: ["convertedAccountId", "convertedContactId", "convertedOpportunityId"],
+  opportunity: ["accountId"],
+  task: ["relatedRecordId"],
+};
+
+function lookupTarget(field: string, source: Record<string, unknown>): string | undefined {
+  if (field === "relatedRecordId") {
+    return typeof source.relatedObjectType === "string" ? source.relatedObjectType : undefined;
+  }
+  return LOOKUP_TARGET[field];
+}
+
+function canReadRelatedId(db: Db, actor: Actor, objectType: string, id: string): boolean {
+  if (!Object.prototype.hasOwnProperty.call(READERS, objectType)) return false;
+  return READERS[objectType as StandardObjectKey].get(db, actor, id) != null;
+}
+
+/**
+ * A stored lookup id is itself a read of the related record. When this
+ * actor cannot read that record, the id becomes null so the payload does
+ * not contain it. An empty lookup is also null.
+ */
+function concealLookups(
+  db: Db,
+  actor: Actor,
+  key: StandardObjectKey,
+  row: Readable,
+): Record<string, unknown> {
+  const source = { ...(row as object) } as Record<string, unknown>;
+  for (const field of LOOKUP_FIELDS[key]) {
+    const value = source[field];
+    if (typeof value !== "string" || value.length === 0) continue;
+    const target = lookupTarget(field, source);
+    if (target == null || !canReadRelatedId(db, actor, target, value)) {
+      source[field] = null;
+    }
+  }
+  return source;
+}
+
+/**
+ * Hidden fields are omitted. A readable empty field stays null. Null must
+ * not mean "you are not allowed to see this" for a profile field. A lookup
+ * the actor can read as a field is still null when the related record is
+ * not readable, and the stored id is not copied into the payload.
+ */
+function serialize(
+  db: Db,
+  actor: Actor,
+  access: FieldAccess,
+  key: StandardObjectKey,
+  apiName: string,
+  row: Readable,
+): ApiRecord {
+  const source = concealLookups(db, actor, key, row);
   const fields: Record<string, ApiFieldValue> = {};
-  for (const key of Object.keys(source).sort()) {
-    if (OMIT_FIELDS.has(key)) continue;
-    if (!access.canRead(key)) continue;
-    fields[key] = encode(key, source[key]);
+  for (const field of Object.keys(source).sort()) {
+    if (OMIT_FIELDS.has(field)) continue;
+    if (!access.canRead(field)) continue;
+    fields[field] = encode(field, source[field]);
   }
   return { id: row.id, apiName, fields };
 }
@@ -151,7 +216,7 @@ export function getApiRecord(
   const object = requireObject(apiName);
   const row = READERS[object.key].get(db, actor, id);
   if (!row) throw new DomainError("NOT_FOUND", "Record not found");
-  return serialize(fieldAccess(db, actor, object.key), object.apiName, row);
+  return serialize(db, actor, fieldAccess(db, actor, object.key), object.key, object.apiName, row);
 }
 
 export function listApiRecords(
@@ -174,7 +239,7 @@ export function listApiRecords(
   const more = sliceStart + page.length < sorted.length;
   return {
     records: page.map((row) =>
-      serialize(fieldAccess(db, actor, object.key), object.apiName, row),
+      serialize(db, actor, fieldAccess(db, actor, object.key), object.key, object.apiName, row),
     ),
     nextCursor: more && last ? encodeCursor(last.id) : null,
   };

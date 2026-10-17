@@ -24,6 +24,7 @@ import { actorFor } from "@/lib/crm/actor";
 import { createAccount, deleteAccount, updateAccount } from "@/lib/crm/accounts";
 import { LOCAL_ORG_ID, LOCAL_USER_ID, RILEY_USER_ID, SESSION_COOKIE_NAME } from "@/lib/crm/constants";
 import { createContact } from "@/lib/crm/contacts";
+import { createTask } from "@/lib/crm/tasks";
 import { createProfile, setFieldPermission, setObjectPermission } from "@/lib/crm/profiles";
 import { createSession } from "@/lib/crm/sessions";
 import { setOrgWideDefault } from "@/lib/crm/sharing";
@@ -367,6 +368,56 @@ describe("GET /api/v1/objects/{apiName}/records", () => {
     expect(listedText).not.toContain(secret.id);
     expect(listedText).not.toContain("Concealed Globex Parent");
     expect(listedText).not.toContain("555-0133");
+  });
+
+  it("does not return a private account id on a contact or a task", async () => {
+    setOrgWideDefault(db, actorFor(LOCAL_USER_ID), "account", "private", true);
+    const secret = createAccount(db, actorFor(LOCAL_USER_ID), {
+      name: "Concealed Task Account",
+      phone: "555-0190",
+    });
+    const contact = createContact(db, actorFor(LOCAL_USER_ID), {
+      accountId: secret.id,
+      lastName: "Visible Person",
+      email: "visible.route@example.com",
+    });
+    const task = createTask(db, actorFor(LOCAL_USER_ID), {
+      name: "Visible Route Task",
+      relatedObjectType: "account",
+      relatedRecordId: secret.id,
+    });
+    signIn(db, RILEY_USER_ID);
+
+    const contactResponse = await readOne("Contact", contact.id);
+    const contactText = await contactResponse.text();
+    expect(contactResponse.status).toBe(200);
+    expect(contactResponse.headers.get("cache-control")).toBe("no-store");
+    expect(contactText).toContain("Visible Person");
+    expect(contactText).not.toContain(secret.id);
+    expect(contactText).not.toContain("Concealed Task Account");
+    expect(contactText).not.toContain("555-0190");
+
+    const taskResponse = await readOne("Task", task.id);
+    const taskText = await taskResponse.text();
+    expect(taskResponse.status).toBe(200);
+    expect(taskText).toContain("Visible Route Task");
+    expect(taskText).not.toContain(secret.id);
+    expect(taskText).not.toContain("relatedName");
+    expect(taskText).not.toContain("relatedHref");
+    expect(taskText).not.toContain("/accounts/");
+
+    const listed = await readList("Task");
+    const listedText = await listed.text();
+    expect(listed.status).toBe(200);
+    expect(listedText).toContain(task.id);
+    expect(listedText).not.toContain(secret.id);
+    expect(listedText).not.toContain("Concealed Task Account");
+    expect(listedText).not.toContain("555-0190");
+    expect(listedText).not.toContain("/accounts/");
+
+    const hidden = await readOne("Account", secret.id);
+    expect(hidden.status).toBe(404);
+    expect(await hidden.text()).not.toContain(secret.id);
   });
 
   it("maps forbidden to 403 and does not export writes", () => {

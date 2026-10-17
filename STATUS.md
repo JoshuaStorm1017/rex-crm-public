@@ -2304,3 +2304,9 @@ fresh verification evidence for each slice.
   DevTools did not connect.
 - Not done: line items do not roll into Opportunity Amount. No edit of
   an existing line. No dashboard pages yet.
+
+## 2026-10-16 — lane B, read API hides unreadable lookup ids
+
+- WORKS (verified 2026-10-16 22:51, Node v22.23.3, `npm run verify` exit 0, 115 files, 1417 tests, Next.js 16.3.5 build): a lookup on `GET /api/v1/objects/{apiName}/records` and the single-record GET is `null` when the actor cannot read the related record. The stored id is absent from that record and from the list. Account `parentAccountId`, Contact `accountId` and `reportsToId`, Opportunity `accountId`, Task `relatedRecordId`, and Lead `convertedAccountId`, `convertedContactId`, and `convertedOpportunityId` follow that rule. A parent, manager, related record, or converted row the actor can read still returns its id. Task `relatedName` stays off the payload. `Cache-Control: no-store` is unchanged. `docs/api/CONVENTIONS.md` states the rule.
+- The private-parent route case is green: the child is HTTP 200, the parent id is not in the body or the list, and GET of the parent is 404 `Record not found`.
+- Not done: line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages. A disabled user, inactive org, or removed membership is still 401 `Sign in required` on this route; the route test locks that. No browser pass. Chrome DevTools did not connect. No dev server.

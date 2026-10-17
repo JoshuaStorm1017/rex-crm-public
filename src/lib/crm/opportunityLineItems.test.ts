@@ -91,6 +91,24 @@ describe("opportunity line items", () => {
     expect(opportunityLineTotalCents(s.db, LOCAL_ACTOR, s.opp.id)).toBe(59_997);
   });
 
+  it("leaves the opportunity amount untouched when a line is added or removed", () => {
+    const s = setup();
+    s.db.update(opportunities).set({ amountCents: 5000 }).where(eq(opportunities.id, s.opp.id)).run();
+    const line = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 3,
+    });
+    const amount = () =>
+      s.db.select({ amountCents: opportunities.amountCents }).from(opportunities).where(eq(opportunities.id, s.opp.id)).get()
+        ?.amountCents;
+    expect(amount()).toBe(5000);
+    expect(opportunityLineTotalCents(s.db, LOCAL_ACTOR, s.opp.id)).toBe(59_997);
+    deleteLineItem(s.db, LOCAL_ACTOR, line.id);
+    expect(amount()).toBe(5000);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)).toEqual([]);
+  });
+
   it("deletes a line", () => {
     const s = setup();
     const line = addLineItem(s.db, LOCAL_ACTOR, {

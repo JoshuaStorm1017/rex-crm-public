@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
-import { organizations } from "../db/schema";
+import { accounts, contacts, opportunities, organizations, tasks } from "../db/schema";
 import { LOCAL_ACTOR, actorFor, type Actor } from "./actor";
 import { getApiRecord, listApiRecords } from "./apiRecords";
 import { createAccount, deleteAccount, updateAccount } from "./accounts";
@@ -9,7 +9,7 @@ import { LOCAL_ORG_ID, LOCAL_USER_ID, RILEY_USER_ID } from "./constants";
 import { createContact, updateContact } from "./contacts";
 import { createCustomField, setCustomValues } from "./customFields";
 import { DomainError } from "./errors";
-import { createLead } from "./leads";
+import { convertLead, createLead } from "./leads";
 import { createOpportunity } from "./opportunities";
 import { addMember, createOrganization } from "./orgs";
 import { createProfile, setFieldPermission, setObjectPermission } from "./profiles";
@@ -900,5 +900,434 @@ describe("read-only API records", () => {
     expect(text).not.toContain("hidden.boss@example.com");
     expect(text).not.toContain("555-0164");
     expect(record.fields.reportsToId).not.toBe(manager.id);
+  });
+
+  it("keeps a lookup id the actor can read", () => {
+    const db = memory();
+    const parent = createAccount(db, LOCAL_ACTOR, {
+      name: "Visible Parent",
+      phone: "555-0140",
+    });
+    const child = createAccount(db, riley, { name: "Visible Child" });
+    updateAccount(db, LOCAL_ACTOR, child.id, { parentAccountId: parent.id });
+    expect(getApiRecord(db, riley, "Account", child.id).fields.parentAccountId).toBe(parent.id);
+
+    setOrgWideDefault(db, LOCAL_ACTOR, "account", "private", true);
+    const role = createRole(db, LOCAL_ACTOR, { name: "East" });
+    assignUserRole(db, LOCAL_ACTOR, RILEY_USER_ID, role.id);
+    const shared = createAccount(db, LOCAL_ACTOR, {
+      name: "Shared Parent",
+      billingState: "AZ",
+    });
+    createSharingRule(db, LOCAL_ACTOR, {
+      name: "Arizona parents",
+      objectType: "account",
+      access: "read",
+      shareWithRoleId: role.id,
+      criteria: [{ field: "billingState", operator: "equals", value: "AZ" }],
+    });
+    updateAccount(db, LOCAL_ACTOR, child.id, { parentAccountId: shared.id });
+    const granted = getApiRecord(db, riley, "Account", child.id);
+    const grantedText = JSON.stringify(granted);
+    expect(granted.fields.parentAccountId).toBe(shared.id);
+    expect(grantedText).not.toContain(parent.id);
+    expect(grantedText).not.toContain("555-0140");
+    const accountList = JSON.stringify(page(db, riley, "Account"));
+    expect(accountList).toContain(shared.id);
+    expect(accountList).toContain(child.id);
+    expect(accountList).not.toContain(parent.id);
+    expect(accountList).not.toContain("555-0140");
+
+    const lead = createLead(db, LOCAL_ACTOR, {
+      firstName: "Cora",
+      lastName: "Converted",
+      company: "Converted Example",
+    });
+    const converted = convertLead(db, LOCAL_ACTOR, lead.id, {});
+    const leadRecord = getApiRecord(db, riley, "Lead", lead.id);
+    const leadText = JSON.stringify(leadRecord);
+    expect(leadRecord.fields.convertedContactId).toBe(converted.contactId);
+    expect(leadRecord.fields.convertedAccountId).toBeNull();
+    expect(leadText).not.toContain(converted.accountId);
+    expect(getApiRecord(db, LOCAL_ACTOR, "Lead", lead.id).fields.convertedAccountId).toBe(
+      converted.accountId,
+    );
+    expect(JSON.stringify(page(db, riley, "Lead"))).not.toContain(converted.accountId);
+
+    const secretContact = createContact(db, LOCAL_ACTOR, {
+      accountId: shared.id,
+      lastName: "Hiddenperson",
+      email: "hidden.person@example.com",
+      phone: "555-0141",
+    });
+    const hiddenTask = createTask(db, LOCAL_ACTOR, {
+      name: "Visible Followup",
+      relatedObjectType: "contact",
+      relatedRecordId: secretContact.id,
+    });
+    setOrgWideDefault(db, LOCAL_ACTOR, "contact", "private", true);
+    const hiddenTaskText = JSON.stringify(getApiRecord(db, riley, "Task", hiddenTask.id));
+    expect(hiddenTaskText).toContain("Visible Followup");
+    expect(hiddenTaskText).not.toContain(secretContact.id);
+    expect(hiddenTaskText).not.toContain("Hiddenperson");
+    expect(hiddenTaskText).not.toContain("hidden.person@example.com");
+    expect(hiddenTaskText).not.toContain("555-0141");
+    expect(hiddenTaskText).not.toContain("relatedName");
+
+    const visibleTask = createTask(db, riley, {
+      name: "Call shared",
+      relatedObjectType: "account",
+      relatedRecordId: shared.id,
+    });
+    expect(getApiRecord(db, riley, "Task", visibleTask.id).fields.relatedRecordId).toBe(shared.id);
+  });
+
+  it("keeps a readable lookup and nulls an unreadable one on the same contact", () => {
+    const db = memory();
+    const open = createAccount(db, LOCAL_ACTOR, { name: "Open Quarry", phone: "555-0181" });
+    setOrgWideDefault(db, LOCAL_ACTOR, "contact", "private", true);
+    const manager = createContact(db, LOCAL_ACTOR, {
+      accountId: open.id,
+      lastName: "Hiddenboss",
+      email: "both.hidden.boss@example.com",
+      phone: "555-0182",
+    });
+    const report = createContact(db, riley, {
+      accountId: open.id,
+      lastName: "Visible Rep",
+      email: "visible.rep@example.com",
+    });
+    updateContact(db, LOCAL_ACTOR, report.id, { reportsToId: manager.id });
+
+    const record = getApiRecord(db, riley, "Contact", report.id);
+    const text = JSON.stringify(record);
+    expect(record.fields.accountId).toBe(open.id);
+    expect(record.fields.reportsToId).toBeNull();
+    expect(text).not.toContain(manager.id);
+    expect(text).not.toContain("Hiddenboss");
+    expect(text).not.toContain("both.hidden.boss@example.com");
+    expect(text).not.toContain("555-0182");
+    const listed = JSON.stringify(page(db, riley, "Contact"));
+    expect(listed).toContain(open.id);
+    expect(listed).toContain(report.id);
+    expect(listed).not.toContain(manager.id);
+    expect(listed).not.toContain("Hiddenboss");
+    expect(listed).not.toContain("555-0182");
+
+    setOrgWideDefault(db, LOCAL_ACTOR, "account", "private", true);
+    setOrgWideDefault(db, LOCAL_ACTOR, "contact", "public_read", true);
+    const secret = createAccount(db, LOCAL_ACTOR, {
+      name: "Sealed Quarry",
+      phone: "555-0183",
+    });
+    const home = createAccount(db, riley, { name: "Riley Home" });
+    const boss = createContact(db, riley, {
+      accountId: home.id,
+      lastName: "Visibleboss",
+      email: "visible.boss@example.com",
+    });
+    const sealed = createContact(db, riley, {
+      accountId: home.id,
+      lastName: "Sealed Rep",
+    });
+    updateContact(db, LOCAL_ACTOR, sealed.id, {
+      accountId: secret.id,
+      reportsToId: boss.id,
+    });
+    const mixed = getApiRecord(db, riley, "Contact", sealed.id);
+    const mixedText = JSON.stringify(mixed);
+    expect(mixed.fields.accountId).toBeNull();
+    expect(mixed.fields.reportsToId).toBe(boss.id);
+    expect(mixedText).not.toContain(secret.id);
+    expect(mixedText).not.toContain("Sealed Quarry");
+    expect(mixedText).not.toContain("555-0183");
+    const mixedList = JSON.stringify(page(db, riley, "Contact"));
+    expect(mixedList).toContain(boss.id);
+    expect(mixedList).not.toContain(secret.id);
+    expect(mixedList).not.toContain("Sealed Quarry");
+    expect(mixedList).not.toContain("555-0183");
+  });
+
+  it("hides a private converted opportunity and keeps a readable converted contact", () => {
+    const db = memory();
+    setOrgWideDefault(db, LOCAL_ACTOR, "opportunity", "private", true);
+    const lead = createLead(db, LOCAL_ACTOR, {
+      firstName: "Nia",
+      lastName: "Quarry",
+      company: "Convert Co",
+      phone: "555-0184",
+    });
+    const converted = convertLead(db, LOCAL_ACTOR, lead.id, {
+      createOpportunity: true,
+      opportunityName: "Private Converted Quarry",
+      closeDate: "2026-12-31",
+    });
+    if (!converted.opportunityId) throw new Error("convert did not create an opportunity");
+
+    const record = getApiRecord(db, riley, "Lead", lead.id);
+    const text = JSON.stringify(record);
+    expect(record.fields.convertedAccountId).toBe(converted.accountId);
+    expect(record.fields.convertedContactId).toBe(converted.contactId);
+    expect(record.fields.convertedOpportunityId).toBeNull();
+    expect(text).not.toContain(converted.opportunityId);
+    expect(text).not.toContain("Private Converted Quarry");
+    const listed = JSON.stringify(page(db, riley, "Lead"));
+    expect(listed).toContain(converted.contactId);
+    expect(listed).toContain(converted.accountId);
+    expect(listed).not.toContain(converted.opportunityId);
+    expect(listed).not.toContain("Private Converted Quarry");
+    expect(getApiRecord(db, LOCAL_ACTOR, "Lead", lead.id).fields.convertedOpportunityId).toBe(
+      converted.opportunityId,
+    );
+
+    setOrgWideDefault(db, LOCAL_ACTOR, "contact", "private", true);
+    const afterContact = getApiRecord(db, riley, "Lead", lead.id);
+    const afterContactText = JSON.stringify(afterContact);
+    expect(afterContact.fields.convertedContactId).toBeNull();
+    expect(afterContact.fields.convertedAccountId).toBe(converted.accountId);
+    expect(afterContact.fields.convertedOpportunityId).toBeNull();
+    expect(afterContactText).not.toContain(converted.contactId);
+    expect(afterContactText).not.toContain(converted.opportunityId);
+    expect(JSON.stringify(page(db, riley, "Lead"))).not.toContain(converted.contactId);
+  });
+
+  it("hides a private lead or opportunity id on a task, including the list href", () => {
+    const db = memory();
+    const lead = createLead(db, LOCAL_ACTOR, {
+      firstName: "Hidden",
+      lastName: "Prospect",
+      company: "Secret Lead Co",
+      email: "secret.lead@example.com",
+      phone: "555-0185",
+    });
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Deal Co" });
+    const deal = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Secret Deal Name",
+      stage: "Prospecting",
+      closeDate: "2026-12-01",
+    });
+    const leadTask = createTask(db, LOCAL_ACTOR, {
+      name: "Call the prospect",
+      relatedObjectType: "lead",
+      relatedRecordId: lead.id,
+    });
+    const dealTask = createTask(db, LOCAL_ACTOR, {
+      name: "Review the deal",
+      relatedObjectType: "opportunity",
+      relatedRecordId: deal.id,
+    });
+    setOrgWideDefault(db, LOCAL_ACTOR, "lead", "private", true);
+    setOrgWideDefault(db, LOCAL_ACTOR, "opportunity", "private", true);
+
+    for (const [taskId, secretId, secretText] of [
+      [leadTask.id, lead.id, "Secret Lead Co"],
+      [dealTask.id, deal.id, "Secret Deal Name"],
+    ] as const) {
+      const body = JSON.stringify(getApiRecord(db, riley, "Task", taskId));
+      expect(body).toContain(taskId === leadTask.id ? "Call the prospect" : "Review the deal");
+      expect(body).not.toContain(secretId);
+      expect(body).not.toContain(secretText);
+      expect(body).not.toContain("relatedName");
+      expect(body).not.toContain("relatedHref");
+    }
+    const listed = JSON.stringify(page(db, riley, "Task"));
+    expect(listed).toContain(leadTask.id);
+    expect(listed).toContain(dealTask.id);
+    expect(listed).not.toContain(lead.id);
+    expect(listed).not.toContain(deal.id);
+    expect(listed).not.toContain("Secret Lead Co");
+    expect(listed).not.toContain("secret.lead@example.com");
+    expect(listed).not.toContain("555-0185");
+    expect(listed).not.toContain("Secret Deal Name");
+    expect(listed).not.toContain("/leads/");
+    expect(listed).not.toContain("/opportunities/");
+    expect(listed).not.toContain("relatedName");
+    expect(listed).not.toContain("relatedHref");
+
+    const ownLead = createLead(db, riley, {
+      lastName: "Mine",
+      company: "Riley Co",
+    });
+    const ownTask = createTask(db, riley, {
+      name: "Call mine",
+      relatedObjectType: "lead",
+      relatedRecordId: ownLead.id,
+    });
+    expect(getApiRecord(db, riley, "Task", ownTask.id).fields.relatedRecordId).toBe(ownLead.id);
+
+    db.update(tasks)
+      .set({ relatedObjectType: "constructor", relatedRecordId: lead.id })
+      .where(eq(tasks.id, ownTask.id))
+      .run();
+    const forged = JSON.stringify(getApiRecord(db, riley, "Task", ownTask.id));
+    expect(forged).not.toContain(lead.id);
+    expect(forged).not.toContain("Secret Lead Co");
+    expect(getApiRecord(db, riley, "Task", ownTask.id).fields.relatedRecordId).toBeNull();
+
+    db.update(tasks)
+      .set({ relatedObjectType: "campaign", relatedRecordId: deal.id })
+      .where(eq(tasks.id, ownTask.id))
+      .run();
+    const unknown = JSON.stringify(getApiRecord(db, riley, "Task", ownTask.id));
+    expect(unknown).not.toContain(deal.id);
+    expect(unknown).not.toContain("Secret Deal Name");
+    expect(JSON.stringify(page(db, riley, "Task"))).not.toContain(deal.id);
+  });
+
+  it("omits a hidden lookup field instead of returning the id as null", () => {
+    const db = memory();
+    const parent = createAccount(db, LOCAL_ACTOR, {
+      name: "Field Hidden Parent",
+      phone: "555-0186",
+    });
+    const child = createAccount(db, riley, { name: "Field Hidden Child" });
+    updateAccount(db, LOCAL_ACTOR, child.id, { parentAccountId: parent.id });
+    const profileId = createProfile(db, LOCAL_ACTOR, "No Parent Field");
+    setObjectPermission(db, LOCAL_ACTOR, profileId, "account", {
+      canCreate: false,
+      canRead: true,
+      canUpdate: false,
+      canDelete: false,
+    });
+    const user = createUser(db, {
+      name: "No Parent Field",
+      email: "noparent@example.com",
+      username: "noparent",
+      password: "long-enough",
+    });
+    addMember(db, LOCAL_ORG_ID, user.id, "member", profileId);
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "account", "parentAccountId", {
+      canRead: false,
+      canEdit: false,
+    });
+    const reader = actorFor(user.id);
+    const hidden = getApiRecord(db, reader, "Account", child.id);
+    expect(hidden.fields.name).toBe("Field Hidden Child");
+    expect(hidden.fields).not.toHaveProperty("parentAccountId");
+    const text = JSON.stringify(hidden);
+    expect(text).not.toContain(parent.id);
+    expect(text).not.toContain("Field Hidden Parent");
+    expect(text).not.toContain("555-0186");
+    const listedChild = page(db, reader, "Account").records.find((row) => row.id === child.id);
+    expect(listedChild?.fields).not.toHaveProperty("parentAccountId");
+    expect(JSON.stringify(listedChild)).not.toContain(parent.id);
+    expect(JSON.stringify(listedChild)).not.toContain("555-0186");
+    expect(getApiRecord(db, LOCAL_ACTOR, "Account", child.id).fields.parentAccountId).toBe(parent.id);
+  });
+
+  it("does not return a deleted account id still stored on a child or a contact", () => {
+    const db = memory();
+    const owner = createUser(db, {
+      name: "Parent Owner",
+      email: "parent.owner@example.com",
+      username: "parentowner",
+      password: "long-enough",
+    });
+    addMember(db, LOCAL_ORG_ID, owner.id, "member");
+    const ownerActor = actorFor(owner.id);
+    const shared = createAccount(db, LOCAL_ACTOR, { name: "Shared Home" });
+    const parent = createAccount(db, ownerActor, {
+      name: "Doomed Parent",
+      phone: "555-0187",
+    });
+    const child = createAccount(db, riley, { name: "Orphan Child" });
+    updateAccount(db, LOCAL_ACTOR, child.id, { parentAccountId: parent.id });
+    const contact = createContact(db, riley, {
+      accountId: parent.id,
+      lastName: "Orphan Person",
+      email: "orphan.person@example.com",
+    });
+    setOrgWideDefault(db, LOCAL_ACTOR, "account", "private", true);
+    setOrgWideDefault(db, LOCAL_ACTOR, "contact", "private", true);
+    deleteAccount(db, ownerActor, parent.id);
+
+    const childRecord = getApiRecord(db, riley, "Account", child.id);
+    const childText = JSON.stringify(childRecord);
+    expect(childRecord.fields.name).toBe("Orphan Child");
+    expect(childRecord.fields.parentAccountId).toBeNull();
+    expect(childText).not.toContain(parent.id);
+    expect(childText).not.toContain("Doomed Parent");
+    expect(childText).not.toContain("555-0187");
+
+    const contactRecord = getApiRecord(db, riley, "Contact", contact.id);
+    const contactText = JSON.stringify(contactRecord);
+    expect(contactRecord.fields.lastName).toBe("Orphan Person");
+    expect(contactRecord.fields.accountId).toBeNull();
+    expect(contactText).not.toContain(parent.id);
+    expect(contactText).not.toContain("Doomed Parent");
+    expect(contactText).not.toContain("555-0187");
+
+    const listed = JSON.stringify(page(db, riley, "Account")) + JSON.stringify(page(db, riley, "Contact"));
+    expect(listed).toContain(child.id);
+    expect(listed).toContain(contact.id);
+    expect(listed).not.toContain(parent.id);
+    expect(listed).not.toContain("Doomed Parent");
+    expect(listed).not.toContain("555-0187");
+    expect(listed).not.toContain(shared.id);
+    expect(listed).not.toContain("Shared Home");
+    const hiddenShared = recordError(() => getApiRecord(db, riley, "Account", shared.id));
+    expect(hiddenShared).toMatchObject({ code: "NOT_FOUND", message: "Record not found" });
+  });
+
+  it("does not return another organization's account id stored on a local row", () => {
+    const db = memory();
+    const user = createUser(db, {
+      name: "Both Orgs Lookup",
+      email: "both.lookup@example.com",
+      username: "bothlookup",
+      password: "long-enough",
+    });
+    addMember(db, LOCAL_ORG_ID, user.id, "member");
+    const other = createOrganization(db, "Lookup Branch", user.id);
+    const foreign = createAccount(db, actorFor(user.id, other.id), {
+      name: "Foreign Parent Quarry",
+      phone: "555-0188",
+    });
+    const localAccount = createAccount(db, riley, { name: "Local Child" });
+    const localContact = createContact(db, riley, {
+      accountId: localAccount.id,
+      lastName: "Local Person",
+    });
+    const localDeal = createOpportunity(db, riley, {
+      accountId: localAccount.id,
+      name: "Local Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-15",
+    });
+    const localTask = createTask(db, riley, {
+      name: "Local Task",
+      relatedObjectType: "account",
+      relatedRecordId: localAccount.id,
+    });
+    db.update(accounts).set({ parentAccountId: foreign.id }).where(eq(accounts.id, localAccount.id)).run();
+    db.update(contacts).set({ accountId: foreign.id }).where(eq(contacts.id, localContact.id)).run();
+    db.update(opportunities).set({ accountId: foreign.id }).where(eq(opportunities.id, localDeal.id)).run();
+    db.update(tasks)
+      .set({ relatedRecordId: foreign.id })
+      .where(eq(tasks.id, localTask.id))
+      .run();
+
+    for (const actor of [riley, LOCAL_ACTOR, actorFor(user.id)]) {
+      const contactText = JSON.stringify(getApiRecord(db, actor, "Contact", localContact.id));
+      const dealText = JSON.stringify(getApiRecord(db, actor, "Opportunity", localDeal.id));
+      const taskText = JSON.stringify(getApiRecord(db, actor, "Task", localTask.id));
+      const accountText = JSON.stringify(getApiRecord(db, actor, "Account", localAccount.id));
+      for (const text of [contactText, dealText, taskText, accountText]) {
+        expect(text).not.toContain(foreign.id);
+        expect(text).not.toContain("Foreign Parent Quarry");
+        expect(text).not.toContain("555-0188");
+        expect(text).not.toContain(other.id);
+      }
+      expect(getApiRecord(db, actor, "Contact", localContact.id).fields.accountId).toBeNull();
+      expect(getApiRecord(db, actor, "Opportunity", localDeal.id).fields.accountId).toBeNull();
+      expect(getApiRecord(db, actor, "Task", localTask.id).fields.relatedRecordId).toBeNull();
+      expect(getApiRecord(db, actor, "Account", localAccount.id).fields.parentAccountId).toBeNull();
+    }
+    const abroad = JSON.stringify(page(db, actorFor(user.id, other.id), "Account"));
+    expect(abroad).toContain(foreign.id);
+    expect(abroad).toContain("Foreign Parent Quarry");
+    expect(abroad).not.toContain(localAccount.id);
+    expect(abroad).not.toContain("Local Child");
   });
 });

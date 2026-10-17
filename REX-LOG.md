@@ -795,3 +795,12 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 at 22:19 EDT on Node v22.23.3. typegen, tsc, eslint, 115 files, 1408/1408 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
 - **Not done:** lines do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages yet.
 - **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.
+
+## 2026-10-16 22:51 — lane B, read API hides unreadable lookup ids
+
+- **What:** The read API nulls a lookup when the actor cannot read the related record, on get and on the list. Account `parentAccountId`, Contact `accountId` and `reportsToId`, Opportunity `accountId`, Task `relatedRecordId`, and Lead converted account, contact, and opportunity ids. A related record the actor can read still returns its id. `relatedName` stays off the payload. `docs/api/CONVENTIONS.md` says so.
+- **Why:** A member could read a private parent, account, or manager id from `GET /api/v1/objects/...` after the page, the edit form, and account history already withheld it. GET of that id stayed 404.
+- **Tests:** The QE cases in `apiRecords.test.ts` and `route.test.ts` now pass, plus one test that a readable parent, a sharing-rule parent, a readable task account, and a readable converted contact id stay, while a private converted account id and a private contact on a task do not.
+- **Verify:** `npm run verify` exit 0 at 22:51 on Node v22.23.3. typegen, tsc, eslint, 115 files, 1417 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. No dev server.
+- **Not done:** line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages. This route still returns 401 `Sign in required` when the user, org, or membership is no longer active. The route test locks that body.
+- **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.
