@@ -14,10 +14,20 @@ import {
   assertCanPerform,
   assertEditableFields,
   canPerform,
+  canReadField,
   presentRecord,
   touchedFields,
 } from "./permissions";
+import {
+  listAuditEvents,
+  parseAuditChanges,
+  recordAudit,
+  type AuditFieldMap,
+  type AuditValue,
+} from "./audit";
 import { ID_PREFIX, newId } from "./ids";
+import { formatUsd } from "./money";
+import { ownerLabel } from "./users";
 import { deleteOpportunityContactRolesForOpportunity } from "./opportunityContactRoles";
 import { deleteCustomValuesForRecord } from "./customFields";
 import { deleteTasksForRecord } from "./tasks";
@@ -32,6 +42,75 @@ import { canReadRecord, readRestrictionSql } from "./sharing";
 import { mergeDefined } from "./validationRules";
 
 export type Opportunity = typeof opportunities.$inferSelect;
+
+const OPPORTUNITY_AUDIT_FIELDS = [
+  "name",
+  "ownerId",
+  "accountId",
+  "amountCents",
+  "stage",
+  "probability",
+  "closeDate",
+  "type",
+  "description",
+] as const satisfies readonly (keyof Opportunity)[];
+
+const OPPORTUNITY_HISTORY_LABELS: Record<
+  (typeof OPPORTUNITY_AUDIT_FIELDS)[number],
+  string
+> = {
+  name: "Name",
+  ownerId: "Owner",
+  accountId: "Account",
+  amountCents: "Amount",
+  stage: "Stage",
+  probability: "Probability",
+  closeDate: "Close Date",
+  type: "Type",
+  description: "Description",
+};
+
+export type OpportunityHistoryChange = {
+  field: string;
+  label: string;
+  before: string | null;
+  after: string | null;
+};
+
+export type OpportunityHistoryEntry = {
+  id: string;
+  action: "create" | "update" | "delete";
+  actorId: string;
+  actorName: string;
+  at: number;
+  changes: OpportunityHistoryChange[];
+};
+
+function opportunityAuditValues(row: Opportunity): AuditFieldMap {
+  const values: AuditFieldMap = {};
+  for (const field of OPPORTUNITY_AUDIT_FIELDS) {
+    const value = row[field];
+    values[field] = value == null ? null : value;
+  }
+  return values;
+}
+
+function historyText(
+  db: Db,
+  actor: Actor,
+  field: string,
+  value: AuditValue | undefined,
+): string | null | undefined {
+  if (value == null || value === "") return null;
+  if (field === "accountId") {
+    if (typeof value !== "string") return undefined;
+    const account = getAccount(db, actor, value);
+    return account ? account.name : undefined;
+  }
+  if (field === "ownerId" && typeof value === "string") return ownerLabel(db, value);
+  if (field === "amountCents" && typeof value === "number") return formatUsd(value);
+  return String(value);
+}
 
 function now(): number {
   return Date.now();
@@ -110,6 +189,51 @@ export function getOpportunity(
   return row ? presentRecord(db, actor, "opportunity", row) : undefined;
 }
 
+/**
+ * History for an opportunity this actor can read. Hidden fields and
+ * unreadable accounts are omitted. Another org's events are not returned.
+ * A deleted opportunity is not readable, so its history is empty even
+ * though the delete event stays stored.
+ */
+export function listOpportunityHistory(
+  db: Db,
+  actor: Actor,
+  opportunityId: string,
+): OpportunityHistoryEntry[] {
+  if (!readOpportunity(db, actor, opportunityId)) return [];
+  return listAuditEvents(db, actor, "opportunity", opportunityId).map((event) => {
+    const changes = parseAuditChanges(event.changesJson);
+    const visible: OpportunityHistoryChange[] = [];
+    for (const field of OPPORTUNITY_AUDIT_FIELDS) {
+      const inOld = changes.old ? Object.prototype.hasOwnProperty.call(changes.old, field) : false;
+      const inNew = changes.new ? Object.prototype.hasOwnProperty.call(changes.new, field) : false;
+      if (event.action === "create" && !inNew) continue;
+      if (event.action === "delete" && !inOld) continue;
+      if (event.action === "update" && !inOld && !inNew) continue;
+      if (!canReadField(db, actor, "opportunity", field)) continue;
+      const before = historyText(db, actor, field, changes.old?.[field]);
+      const after = historyText(db, actor, field, changes.new?.[field]);
+      if (before === undefined || after === undefined) continue;
+      if (event.action === "create" && after == null) continue;
+      if (event.action === "delete" && before == null) continue;
+      visible.push({
+        field,
+        label: OPPORTUNITY_HISTORY_LABELS[field],
+        before,
+        after,
+      });
+    }
+    return {
+      id: event.id,
+      action: event.action === "create" || event.action === "delete" ? event.action : "update",
+      actorId: event.actorId,
+      actorName: ownerLabel(db, event.actorId),
+      at: event.at,
+      changes: visible,
+    };
+  });
+}
+
 export function listOpportunities(db: Db, actor: Actor): Opportunity[] {
   assertActor(db, actor);
   if (!canPerform(db, actor, "opportunity", "read")) return [];
@@ -179,11 +303,22 @@ export function createOpportunity(
     updatedBy: actor.userId,
   };
   const prepared = prepareWrite(db, actor, "opportunity", row, "create");
-  db.insert(opportunities).values(prepared).run();
-  const created = storedOpportunity(db, actor, id);
-  if (!created) {
-    throw new DomainError("WRITE_FAILED", "Opportunity was not persisted");
-  }
+  const created = db.transaction((tx) => {
+    tx.insert(opportunities).values(prepared).run();
+    const stored = storedOpportunity(tx, actor, id);
+    if (!stored) {
+      throw new DomainError("WRITE_FAILED", "Opportunity was not persisted");
+    }
+    recordAudit(tx, actor, {
+      objectKey: "opportunity",
+      recordId: stored.id,
+      action: "create",
+      before: null,
+      after: opportunityAuditValues(stored),
+      at: stored.createdAt,
+    });
+    return stored;
+  });
   return presentRecord(db, actor, "opportunity", created);
 }
 
@@ -220,14 +355,25 @@ export function updateOpportunity(
     updatedBy: actor.userId,
   });
   const prepared = prepareWrite(db, actor, "opportunity", next, "update") as Opportunity;
-  db.update(opportunities)
-    .set(withoutId(prepared))
-    .where(and(eq(opportunities.id, id), eq(opportunities.orgId, actor.orgId)))
-    .run();
-  const updated = storedOpportunity(db, actor, id);
-  if (!updated) {
-    throw new DomainError("WRITE_FAILED", "Opportunity update did not persist");
-  }
+  const updated = db.transaction((tx) => {
+    tx.update(opportunities)
+      .set(withoutId(prepared))
+      .where(and(eq(opportunities.id, id), eq(opportunities.orgId, actor.orgId)))
+      .run();
+    const stored = storedOpportunity(tx, actor, id);
+    if (!stored) {
+      throw new DomainError("WRITE_FAILED", "Opportunity update did not persist");
+    }
+    recordAudit(tx, actor, {
+      objectKey: "opportunity",
+      recordId: stored.id,
+      action: "update",
+      before: opportunityAuditValues(existing),
+      after: opportunityAuditValues(stored),
+      at: stored.updatedAt,
+    });
+    return stored;
+  });
   return presentRecord(db, actor, "opportunity", updated);
 }
 
@@ -238,11 +384,25 @@ export function deleteOpportunity(db: Db, actor: Actor, id: string): void {
     throw new DomainError("NOT_FOUND", "Opportunity not found");
   }
   assertCanAccessRecord(db, actor, "opportunity", "delete", existing);
-  deleteTasksForRecord(db, actor, id);
-  deleteOpportunityContactRolesForOpportunity(db, actor, id);
-  deleteCustomValuesForRecord(db, id);
-  db.update(opportunities)
-    .set({ deletedAt: now(), updatedAt: now() })
-    .where(and(eq(opportunities.id, id), eq(opportunities.orgId, actor.orgId)))
-    .run();
+  // Task, role, and custom-value cleanup share this transaction with the
+  // soft-delete and the audit insert. A failed audit insert must leave
+  // every one of those rows unchanged.
+  db.transaction((tx) => {
+    deleteTasksForRecord(tx, actor, id);
+    deleteOpportunityContactRolesForOpportunity(tx, actor, id);
+    deleteCustomValuesForRecord(tx, id);
+    const ts = now();
+    tx.update(opportunities)
+      .set({ deletedAt: ts, updatedAt: ts })
+      .where(and(eq(opportunities.id, id), eq(opportunities.orgId, actor.orgId)))
+      .run();
+    recordAudit(tx, actor, {
+      objectKey: "opportunity",
+      recordId: existing.id,
+      action: "delete",
+      before: opportunityAuditValues(existing),
+      after: null,
+      at: ts,
+    });
+  });
 }

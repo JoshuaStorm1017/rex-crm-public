@@ -6,6 +6,7 @@ import {
   deleteOpportunityContactRoleAction,
   setPrimaryOpportunityContactRoleAction,
 } from "../actions";
+import { AuditHistory } from "@/components/AuditHistory";
 import { CustomFieldsSection } from "@/components/CustomFieldsSection";
 import { ChangeOwnerLink } from "@/components/ChangeOwnerLink";
 import { DeleteButton } from "@/components/DeleteButton";
@@ -15,7 +16,7 @@ import { CONTACT_ROLES } from "@/lib/crm/constants";
 import { listContactsForAccount } from "@/lib/crm/contacts";
 import { getCustomValues } from "@/lib/crm/customFields";
 import { formatUsd } from "@/lib/crm/money";
-import { readOpportunity } from "@/lib/crm/opportunities";
+import { listOpportunityHistory, readOpportunity } from "@/lib/crm/opportunities";
 import { listOpportunityContactRoles } from "@/lib/crm/opportunityContactRoles";
 import { canChangeOwner } from "@/lib/crm/ownership";
 import { canAccessRecord, canPerform, presentRecord } from "@/lib/crm/permissions";
@@ -311,6 +312,8 @@ export default async function OpportunityDetailPage({
         tasks={withTaskEditAccess(db, actor, relatedTasks)}
         canCreate={canPerform(db, actor, "task", "create")}
       />
+
+      <AuditHistory entries={listOpportunityHistory(db, actor, opportunity.id)} />
     </div>
   );
 }
