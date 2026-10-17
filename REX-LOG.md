@@ -699,3 +699,12 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Left in place:** query switches in `reports.ts` (from-clause and detail rows), `ownership.ts`, `recentlyViewed.ts`, `tasks.ts`, and `ownership.pr4r4.test.ts`. Their case counts are frozen.
 - **Verify:** `npm run verify` exit 0 at 19:15 EDT. 108 files, 1223 tests, Next.js 16.3.5 build. The shell `node` was v24.2.0; `.nvmrc` says 22 and no Node 22 binary was on this machine.
 - **Next:** Account audit log (create/update/delete write old/new/actor/time; a rejected save writes nothing; org B cannot read org A's events; related list on the account page).
+
+## 2026-10-16 20:00 EDT — lane A, account audit log
+
+- **What:** `audit_events` (migration `0055_audit_events`). `recordAudit` is the only insert. Account create, update, and delete call it in the same transaction as the row write, with old values, new values, actor, and time. `listAccountHistory` is org-scoped, requires account read, and drops hidden fields and unreadable parents. The account page renders that list.
+- **Why:** Field history is the platform spine the registry was for. A rejected save must not invent an event, and org B must not read org A's events.
+- **Tests:** `audit.test.ts` (create/update/delete payload, rejected saves leave both tables unchanged, forged same-record-id isolation, private account, hidden phone) and `history.page.test.ts` (History list on the account page; hidden phone absent). Upgrade from `0054_quotes` adds the table and keeps the existing account.
+- **Mutation, restored before verify:** dropping the org filter showed "Leaked From B"; dropping the account-read check showed a private account and the other org's name; dropping field redaction showed the hidden phone. All three failed `audit.test.ts` or the page test.
+- **Verify:** `npm run verify` exit 0 at 20:00 EDT. 111 files, 1242 tests, Next.js 16.3.5 build. The shell `node` was v24.2.0; `.nvmrc` says 22 and no Node 22 binary was on this machine. No browser pass.
+- **Next:** Read-only API v0: `GET /api/v1/objects/{apiName}/records[/{id}]` through the existing actor, profile, field security, and sharing checks, plus `docs/api/CONVENTIONS.md`. A forged other-org id returns the same body as a missing id.

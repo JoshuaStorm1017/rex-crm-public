@@ -9,6 +9,7 @@ import {
   assertCanPerform,
   assertEditableFields,
   canPerform,
+  canReadField,
   presentRecord,
   touchedFields,
 } from "./permissions";
@@ -19,7 +20,15 @@ import {
   descendantNodes,
   wouldCreateCycle,
 } from "./hierarchy";
+import {
+  listAuditEvents,
+  parseAuditChanges,
+  recordAudit,
+  type AuditFieldMap,
+  type AuditValue,
+} from "./audit";
 import { ID_PREFIX, newId } from "./ids";
+import { formatUsd } from "./money";
 import { deleteCustomValuesForRecord } from "./customFields";
 import { deleteTasksForRecord } from "./tasks";
 import {
@@ -31,8 +40,140 @@ import {
 import { prepareWrite, withoutId } from "./prepareWrite";
 import { canReadRecord, readRestrictionSql } from "./sharing";
 import { mergeDefined } from "./validationRules";
+import { ownerLabel } from "./users";
 
 export type Account = typeof accounts.$inferSelect;
+
+const ACCOUNT_AUDIT_FIELDS = [
+  "name",
+  "ownerId",
+  "parentAccountId",
+  "type",
+  "industry",
+  "website",
+  "phone",
+  "annualRevenueCents",
+  "numberOfEmployees",
+  "billingStreet",
+  "billingCity",
+  "billingState",
+  "billingPostalCode",
+  "billingCountry",
+  "shippingStreet",
+  "shippingCity",
+  "shippingState",
+  "shippingPostalCode",
+  "shippingCountry",
+  "description",
+] as const satisfies readonly (keyof Account)[];
+
+const ACCOUNT_HISTORY_LABELS: Record<(typeof ACCOUNT_AUDIT_FIELDS)[number], string> = {
+  name: "Name",
+  ownerId: "Owner",
+  parentAccountId: "Parent Account",
+  type: "Type",
+  industry: "Industry",
+  website: "Website",
+  phone: "Phone",
+  annualRevenueCents: "Annual Revenue",
+  numberOfEmployees: "Employees",
+  billingStreet: "Billing Street",
+  billingCity: "Billing City",
+  billingState: "Billing State",
+  billingPostalCode: "Billing Postal Code",
+  billingCountry: "Billing Country",
+  shippingStreet: "Shipping Street",
+  shippingCity: "Shipping City",
+  shippingState: "Shipping State",
+  shippingPostalCode: "Shipping Postal Code",
+  shippingCountry: "Shipping Country",
+  description: "Description",
+};
+
+export type AccountHistoryChange = {
+  field: string;
+  label: string;
+  before: string | null;
+  after: string | null;
+};
+
+export type AccountHistoryEntry = {
+  id: string;
+  action: "create" | "update" | "delete";
+  actorId: string;
+  actorName: string;
+  at: number;
+  changes: AccountHistoryChange[];
+};
+
+function accountAuditValues(row: Account): AuditFieldMap {
+  const values: AuditFieldMap = {};
+  for (const field of ACCOUNT_AUDIT_FIELDS) {
+    const value = row[field];
+    values[field] = value == null ? null : value;
+  }
+  return values;
+}
+
+function historyText(
+  db: Db,
+  actor: Actor,
+  field: string,
+  value: AuditValue | undefined,
+): string | null | undefined {
+  if (value == null || value === "") return null;
+  if (field === "parentAccountId") {
+    if (typeof value !== "string") return undefined;
+    const parent = getAccount(db, actor, value);
+    return parent ? parent.name : undefined;
+  }
+  if (field === "ownerId" && typeof value === "string") return ownerLabel(db, value);
+  if (field === "annualRevenueCents" && typeof value === "number") return formatUsd(value);
+  return String(value);
+}
+
+/**
+ * History for an account this actor can read. Hidden fields and unreadable
+ * parent accounts are omitted. Another org's events are not returned.
+ */
+export function listAccountHistory(
+  db: Db,
+  actor: Actor,
+  accountId: string,
+): AccountHistoryEntry[] {
+  if (!readAccount(db, actor, accountId)) return [];
+  return listAuditEvents(db, actor, "account", accountId).map((event) => {
+    const changes = parseAuditChanges(event.changesJson);
+    const visible: AccountHistoryChange[] = [];
+    for (const field of ACCOUNT_AUDIT_FIELDS) {
+      const inOld = changes.old ? Object.prototype.hasOwnProperty.call(changes.old, field) : false;
+      const inNew = changes.new ? Object.prototype.hasOwnProperty.call(changes.new, field) : false;
+      if (event.action === "create" && !inNew) continue;
+      if (event.action === "delete" && !inOld) continue;
+      if (event.action === "update" && !inOld && !inNew) continue;
+      if (!canReadField(db, actor, "account", field)) continue;
+      const before = historyText(db, actor, field, changes.old?.[field]);
+      const after = historyText(db, actor, field, changes.new?.[field]);
+      if (before === undefined || after === undefined) continue;
+      if (event.action === "create" && after == null) continue;
+      if (event.action === "delete" && before == null) continue;
+      visible.push({
+        field,
+        label: ACCOUNT_HISTORY_LABELS[field],
+        before,
+        after,
+      });
+    }
+    return {
+      id: event.id,
+      action: event.action === "create" || event.action === "delete" ? event.action : "update",
+      actorId: event.actorId,
+      actorName: ownerLabel(db, event.actorId),
+      at: event.at,
+      changes: visible,
+    };
+  });
+}
 
 function now(): number {
   return Date.now();
@@ -198,11 +339,22 @@ export function createAccount(
     updatedBy: actor.userId,
   };
   const prepared = prepareWrite(db, actor, "account", row, "create");
-  db.insert(accounts).values(prepared).run();
-  const created = storedAccount(db, actor, id);
-  if (!created) {
-    throw new DomainError("WRITE_FAILED", "Account was not persisted");
-  }
+  const created = db.transaction((tx) => {
+    tx.insert(accounts).values(prepared).run();
+    const stored = storedAccount(tx, actor, id);
+    if (!stored) {
+      throw new DomainError("WRITE_FAILED", "Account was not persisted");
+    }
+    recordAudit(tx, actor, {
+      objectKey: "account",
+      recordId: stored.id,
+      action: "create",
+      before: null,
+      after: accountAuditValues(stored),
+      at: stored.createdAt,
+    });
+    return stored;
+  });
   return presentRecord(db, actor, "account", created);
 }
 
@@ -256,14 +408,25 @@ export function updateAccount(
     updatedBy: actor.userId,
   });
   const prepared = prepareWrite(db, actor, "account", next, "update") as Account;
-  db.update(accounts)
-    .set(withoutId(prepared))
-    .where(and(eq(accounts.id, id), eq(accounts.orgId, actor.orgId)))
-    .run();
-  const updated = storedAccount(db, actor, id);
-  if (!updated) {
-    throw new DomainError("WRITE_FAILED", "Account update did not persist");
-  }
+  const updated = db.transaction((tx) => {
+    tx.update(accounts)
+      .set(withoutId(prepared))
+      .where(and(eq(accounts.id, id), eq(accounts.orgId, actor.orgId)))
+      .run();
+    const stored = storedAccount(tx, actor, id);
+    if (!stored) {
+      throw new DomainError("WRITE_FAILED", "Account update did not persist");
+    }
+    recordAudit(tx, actor, {
+      objectKey: "account",
+      recordId: stored.id,
+      action: "update",
+      before: accountAuditValues(existing),
+      after: accountAuditValues(stored),
+      at: stored.updatedAt,
+    });
+    return stored;
+  });
   return presentRecord(db, actor, "account", updated);
 }
 
@@ -336,10 +499,21 @@ export function deleteAccount(db: Db, actor: Actor, id: string): void {
 
   deleteTasksForRecord(db, actor, id);
   deleteCustomValuesForRecord(db, id);
-  db.update(accounts)
-    .set({ deletedAt: now(), updatedAt: now() })
-    .where(and(eq(accounts.id, id), eq(accounts.orgId, actor.orgId)))
-    .run();
+  const ts = now();
+  db.transaction((tx) => {
+    tx.update(accounts)
+      .set({ deletedAt: ts, updatedAt: ts })
+      .where(and(eq(accounts.id, id), eq(accounts.orgId, actor.orgId)))
+      .run();
+    recordAudit(tx, actor, {
+      objectKey: "account",
+      recordId: existing.id,
+      action: "delete",
+      before: accountAuditValues(existing),
+      after: null,
+      at: ts,
+    });
+  });
 }
 
 function accountsById(
