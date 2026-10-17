@@ -1,11 +1,11 @@
 import { and, asc, eq } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { opportunityLineItems } from "../db/schema";
+import { opportunityLineItems, priceBookEntries, priceBooks } from "../db/schema";
 import { assertActor, type Actor } from "./actor";
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
 import { readOpportunity } from "./opportunities";
-import { assertCanAccessRecord } from "./permissions";
+import { assertCanAccessRecord, assertEditableFields } from "./permissions";
 import { getProduct } from "./products";
 
 export type OpportunityLineItem = typeof opportunityLineItems.$inferSelect;
@@ -46,6 +46,26 @@ function assertUnitPrice(cents: number): void {
   if (!Number.isInteger(cents) || cents < 0 || cents > LINE_ITEM_MAX_UNIT_CENTS) {
     throw new DomainError("INVALID_MONEY", "Unit price must be zero or more whole cents");
   }
+}
+
+/** Stored standard price. Field security can null it on the product view. */
+function storedStandardPriceCents(db: Db, actor: Actor, productId: string): number | null {
+  const row = db
+    .select({ unitPriceCents: priceBookEntries.unitPriceCents })
+    .from(priceBookEntries)
+    .innerJoin(
+      priceBooks,
+      and(
+        eq(priceBooks.id, priceBookEntries.priceBookId),
+        eq(priceBooks.orgId, actor.orgId),
+        eq(priceBooks.isStandard, true),
+      ),
+    )
+    .where(
+      and(eq(priceBookEntries.productId, productId), eq(priceBookEntries.orgId, actor.orgId)),
+    )
+    .get();
+  return row?.unitPriceCents ?? null;
 }
 
 function requireOpportunity(db: Db, actor: Actor, id: string, action: "read" | "edit") {
@@ -103,7 +123,11 @@ export function addLineItem(db: Db, actor: Actor, input: AddLineItemInput): Line
   if (!product.isActive) {
     throw new DomainError("INVALID_PRODUCT", "Inactive products cannot be added");
   }
-  const unitPriceCents = input.unitPriceCents ?? product.standardPriceCents;
+  if (input.unitPriceCents != null) {
+    assertEditableFields(db, actor, "product", ["standardPriceCents"]);
+  }
+  const unitPriceCents =
+    input.unitPriceCents ?? storedStandardPriceCents(db, actor, product.id);
   if (unitPriceCents == null) {
     throw new DomainError("INVALID_MONEY", "Enter a unit price for this product");
   }

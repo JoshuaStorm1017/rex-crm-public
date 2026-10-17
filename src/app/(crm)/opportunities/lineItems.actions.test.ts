@@ -20,7 +20,10 @@ import { LOCAL_ORG_ID, RILEY_USER_ID } from "@/lib/crm/constants";
 import { requireActor } from "@/lib/crm/currentUser";
 import { createOpportunity } from "@/lib/crm/opportunities";
 import { addLineItem, listLineItems } from "@/lib/crm/opportunityLineItems";
+import { addMember, createOrganization } from "@/lib/crm/orgs";
 import { createProduct } from "@/lib/crm/products";
+import { createProfile, setFieldPermission, setObjectPermission } from "@/lib/crm/profiles";
+import { createUser } from "@/lib/crm/users";
 import { getDb, openMemoryDb } from "@/lib/db/client";
 import { opportunityLineItems } from "@/lib/db/schema";
 import {
@@ -46,6 +49,41 @@ function form(entries: Record<string, string>) {
   const data = new FormData();
   for (const [k, v] of Object.entries(entries)) data.set(k, v);
   return data;
+}
+
+/** Opportunity editor who can read products and cannot update them. No field row. */
+function catalogReader(s: ReturnType<typeof setup>) {
+  const user = createUser(s.db, {
+    name: "Catalog Reader",
+    email: "catalog.reader@example.com",
+    username: "catalogreader",
+    password: "long-enough",
+  });
+  const profileId = createProfile(s.db, LOCAL_ACTOR, "Catalog Reader");
+  const full = { canCreate: true, canRead: true, canUpdate: true, canDelete: true };
+  setObjectPermission(s.db, LOCAL_ACTOR, profileId, "account", full);
+  setObjectPermission(s.db, LOCAL_ACTOR, profileId, "opportunity", full);
+  setObjectPermission(s.db, LOCAL_ACTOR, profileId, "product", {
+    canCreate: false,
+    canRead: true,
+    canUpdate: false,
+    canDelete: false,
+  });
+  addMember(s.db, LOCAL_ORG_ID, user.id, "member", profileId);
+  const actor = actorFor(user.id);
+  const account = createAccount(s.db, actor, { name: "Reader Canyon" });
+  const opp = createOpportunity(s.db, actor, {
+    accountId: account.id,
+    name: "Reader Deal",
+    stage: "Prospecting",
+    closeDate: "2026-12-02",
+  });
+  vi.mocked(requireActor).mockResolvedValue({
+    userId: user.id,
+    orgId: LOCAL_ORG_ID,
+    user,
+  });
+  return { actor, opp };
 }
 
 describe("opportunity line item actions", () => {
@@ -81,5 +119,171 @@ describe("opportunity line item actions", () => {
       /notice=You%20do%20not%20have%20permission/,
     );
     expect(s.snapshot()).toBe(before);
+  });
+
+  it("returns a notice and writes nothing when the profile cannot edit the product price", async () => {
+    const s = setup();
+    const user = createUser(s.db, {
+      name: "Price Editor",
+      email: "price.editor@example.com",
+      username: "priceeditor",
+      password: "long-enough",
+    });
+    const profileId = createProfile(s.db, LOCAL_ACTOR, "No Price Edit");
+    const full = { canCreate: true, canRead: true, canUpdate: true, canDelete: true };
+    for (const objectType of ["account", "opportunity", "product"] as const) {
+      setObjectPermission(s.db, LOCAL_ACTOR, profileId, objectType, full);
+    }
+    setFieldPermission(s.db, LOCAL_ACTOR, profileId, "product", "standardPriceCents", {
+      canRead: true,
+      canEdit: false,
+    });
+    addMember(s.db, LOCAL_ORG_ID, user.id, "member", profileId);
+    const actor = actorFor(user.id);
+    const account = createAccount(s.db, actor, { name: "Editor Canyon" });
+    const opp = createOpportunity(s.db, actor, {
+      accountId: account.id,
+      name: "Editor Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-01",
+    });
+    vi.mocked(requireActor).mockResolvedValue({
+      userId: user.id,
+      orgId: LOCAL_ORG_ID,
+      user,
+    });
+    const before = s.snapshot();
+    await expect(
+      addOpportunityLineItemAction(
+        opp.id,
+        form({ productId: s.product.id, quantity: "2", unitPrice: "5.00" }),
+      ),
+    ).rejects.toThrow(/standardPriceCents/);
+    expect(s.snapshot()).toBe(before);
+    await expect(
+      addOpportunityLineItemAction(opp.id, form({ productId: s.product.id, quantity: "2" })),
+    ).rejects.toThrow(`REDIRECT /opportunities/${opp.id}`);
+    const [line] = listLineItems(s.db, actor, opp.id);
+    expect(line).toMatchObject({ quantity: 2, unitPriceCents: 2500, totalCents: 5000 });
+  });
+
+  it("stores the standard price when the unit price is blank", async () => {
+    const s = setup();
+    await expect(
+      addOpportunityLineItemAction(
+        s.opp.id,
+        form({ productId: s.product.id, quantity: "2", unitPrice: "   " }),
+      ),
+    ).rejects.toThrow(`REDIRECT /opportunities/${s.opp.id}`);
+    await expect(
+      addOpportunityLineItemAction(s.opp.id, form({ productId: s.product.id, quantity: "3" })),
+    ).rejects.toThrow(`REDIRECT /opportunities/${s.opp.id}`);
+    const lines = listLineItems(s.db, LOCAL_ACTOR, s.opp.id);
+    expect(lines.map((line) => line.unitPriceCents)).toEqual([2500, 2500]);
+    expect(lines.map((line) => line.totalCents)).toEqual([5000, 7500]);
+  });
+
+  it("returns a notice and writes nothing for a negative unit price", async () => {
+    const s = setup();
+    const before = s.snapshot();
+    await expect(
+      addOpportunityLineItemAction(
+        s.opp.id,
+        form({ productId: s.product.id, quantity: "1", unitPrice: "-0.01" }),
+      ),
+    ).rejects.toThrow(
+      `REDIRECT /opportunities/${s.opp.id}?notice=${encodeURIComponent("Amount cannot be negative")}`,
+    );
+    expect(s.snapshot()).toBe(before);
+  });
+
+  it("returns a notice and writes nothing for another org's product", async () => {
+    const s = setup();
+    const outsider = createUser(s.db, {
+      name: "Quinn Sample",
+      email: "quinn@example.com",
+      username: "quinn",
+      password: "helmet-42",
+    });
+    const other = createOrganization(s.db, "Other Org", outsider.id);
+    const foreign = createProduct(s.db, actorFor(outsider.id, other.id), {
+      name: "Foreign Bolt",
+      standardPriceCents: 500,
+    });
+    const before = s.snapshot();
+    await expect(
+      addOpportunityLineItemAction(s.opp.id, form({ productId: foreign.id, quantity: "1" })),
+    ).rejects.toThrow(
+      `REDIRECT /opportunities/${s.opp.id}?notice=${encodeURIComponent("Product not found")}`,
+    );
+    expect(s.snapshot()).toBe(before);
+  });
+
+  it("returns a notice and writes nothing when the profile cannot read products", async () => {
+    const s = setup();
+    const user = createUser(s.db, {
+      name: "Blind Seller",
+      email: "blind.seller@example.com",
+      username: "blindseller",
+      password: "long-enough",
+    });
+    const profileId = createProfile(s.db, LOCAL_ACTOR, "No Product Read");
+    const full = { canCreate: true, canRead: true, canUpdate: true, canDelete: true };
+    setObjectPermission(s.db, LOCAL_ACTOR, profileId, "account", full);
+    setObjectPermission(s.db, LOCAL_ACTOR, profileId, "opportunity", full);
+    setObjectPermission(s.db, LOCAL_ACTOR, profileId, "product", {
+      canCreate: false,
+      canRead: false,
+      canUpdate: false,
+      canDelete: false,
+    });
+    addMember(s.db, LOCAL_ORG_ID, user.id, "member", profileId);
+    const actor = actorFor(user.id);
+    const account = createAccount(s.db, actor, { name: "Blind Canyon" });
+    const opp = createOpportunity(s.db, actor, {
+      accountId: account.id,
+      name: "Blind Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-03",
+    });
+    vi.mocked(requireActor).mockResolvedValue({
+      userId: user.id,
+      orgId: LOCAL_ORG_ID,
+      user,
+    });
+    const before = s.snapshot();
+    await expect(
+      addOpportunityLineItemAction(opp.id, form({ productId: s.product.id, quantity: "1" })),
+    ).rejects.toThrow(
+      `REDIRECT /opportunities/${opp.id}?notice=${encodeURIComponent("Product not found")}`,
+    );
+    expect(s.snapshot()).toBe(before);
+  });
+
+  it("stores the standard price when a profile that cannot update products omits the price", async () => {
+    const s = setup();
+    const { actor, opp } = catalogReader(s);
+    await expect(
+      addOpportunityLineItemAction(opp.id, form({ productId: s.product.id, quantity: "2" })),
+    ).rejects.toThrow(`REDIRECT /opportunities/${opp.id}`);
+    const [line] = listLineItems(s.db, actor, opp.id);
+    expect(line).toMatchObject({ quantity: 2, unitPriceCents: 2500, totalCents: 5000 });
+  });
+
+  it("refuses a posted unit price when the profile cannot update products", async () => {
+    const s = setup();
+    const { opp } = catalogReader(s);
+    const before = s.snapshot();
+    let message = "";
+    try {
+      await addOpportunityLineItemAction(
+        opp.id,
+        form({ productId: s.product.id, quantity: "2", unitPrice: "5.00" }),
+      );
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(s.snapshot(), message).toBe(before);
+    expect(message).toMatch(/notice=/);
   });
 });

@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { openMemoryDb } from "../db/client";
-import { opportunityLineItems } from "../db/schema";
+import { opportunityLineItems, priceBookEntries, priceBooks } from "../db/schema";
 import { actorFor, LOCAL_ACTOR } from "./actor";
 import { createAccount } from "./accounts";
 import { LIST_VIEW_OBJECT_TYPES, LOCAL_ORG_ID, RILEY_USER_ID } from "./constants";
+import { ID_PREFIX, newId } from "./ids";
 import { createOpportunity } from "./opportunities";
 import {
   addLineItem,
@@ -12,8 +13,9 @@ import {
   listLineItems,
   opportunityLineTotalCents,
 } from "./opportunityLineItems";
-import { createOrganization } from "./orgs";
+import { addMember, createOrganization } from "./orgs";
 import { createProduct } from "./products";
+import { createProfile, setFieldPermission, setObjectPermission } from "./profiles";
 import { saveOrgWideDefaults } from "./sharing";
 import { createUser } from "./users";
 
@@ -56,6 +58,39 @@ function refused(
   expect(err.code).toBe(code);
   expect(err.message).not.toMatch(/00k|006|01t/);
   expect(s.snapshot()).toBe(before);
+}
+
+function catalogUser(
+  db: ReturnType<typeof setup>["db"],
+  spec: {
+    name: string;
+    username: string;
+    opportunity: { canUpdate: boolean; canDelete: boolean };
+    product: { canRead: boolean; canUpdate: boolean };
+  },
+) {
+  const user = createUser(db, {
+    name: spec.name,
+    email: `${spec.username}@example.com`,
+    username: spec.username,
+    password: "long-enough",
+  });
+  const profileId = createProfile(db, LOCAL_ACTOR, spec.name);
+  const full = { canCreate: true, canRead: true, canUpdate: true, canDelete: true };
+  setObjectPermission(db, LOCAL_ACTOR, profileId, "account", full);
+  setObjectPermission(db, LOCAL_ACTOR, profileId, "opportunity", {
+    ...full,
+    canUpdate: spec.opportunity.canUpdate,
+    canDelete: spec.opportunity.canDelete,
+  });
+  setObjectPermission(db, LOCAL_ACTOR, profileId, "product", {
+    canCreate: false,
+    canRead: spec.product.canRead,
+    canUpdate: spec.product.canUpdate,
+    canDelete: false,
+  });
+  addMember(db, LOCAL_ORG_ID, user.id, "member", profileId);
+  return actorFor(user.id);
 }
 
 describe("opportunity line items", () => {
@@ -229,5 +264,243 @@ describe("opportunity line items", () => {
     // The other org's row must not be found by this org, even on a shared opportunity id.
     refused(s, () => deleteLineItem(s.db, LOCAL_ACTOR, "00ksameid"), "NOT_FOUND");
     expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id).map((l) => l.id)).toEqual([line.id]);
+  });
+
+  it("refuses a price override the profile cannot edit and still stores the standard price", () => {
+    const s = setup();
+    const user = createUser(s.db, {
+      name: "Price Reader",
+      email: "price.reader@example.com",
+      username: "pricereader",
+      password: "long-enough",
+    });
+    const profileId = createProfile(s.db, LOCAL_ACTOR, "Hide Price");
+    const full = { canCreate: true, canRead: true, canUpdate: true, canDelete: true };
+    for (const objectType of ["account", "opportunity", "product"] as const) {
+      setObjectPermission(s.db, LOCAL_ACTOR, profileId, objectType, full);
+    }
+    setFieldPermission(s.db, LOCAL_ACTOR, profileId, "product", "standardPriceCents", {
+      canRead: false,
+      canEdit: false,
+    });
+    addMember(s.db, LOCAL_ORG_ID, user.id, "member", profileId);
+    const actor = actorFor(user.id);
+    const account = createAccount(s.db, actor, { name: "Price Canyon" });
+    const opp = createOpportunity(s.db, actor, {
+      accountId: account.id,
+      name: "Price Deal",
+      stage: "Prospecting",
+      closeDate: "2026-11-30",
+    });
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, actor, {
+          opportunityId: opp.id,
+          productId: s.product.id,
+          quantity: 2,
+          unitPriceCents: 100,
+        }),
+      "FORBIDDEN",
+    );
+    // Zero is an explicit override, not "omit and use the standard price".
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, actor, {
+          opportunityId: opp.id,
+          productId: s.product.id,
+          quantity: 2,
+          unitPriceCents: 0,
+        }),
+      "FORBIDDEN",
+    );
+    const line = addLineItem(s.db, actor, {
+      opportunityId: opp.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    expect(line.unitPriceCents).toBe(19_999);
+    expect(line.totalCents).toBe(39_998);
+    expect(s.snapshot()).toContain(line.id);
+  });
+
+  it("uses this org's standard price when another book has a different price", () => {
+    const s = setup();
+    const now = Date.now();
+    const customId = newId(ID_PREFIX.priceBook);
+    s.db.insert(priceBooks).values({
+      id: customId,
+      orgId: LOCAL_ORG_ID,
+      name: "Promo Book",
+      ownerId: LOCAL_ACTOR.userId,
+      isStandard: false,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: LOCAL_ACTOR.userId,
+      updatedBy: LOCAL_ACTOR.userId,
+    }).run();
+    s.db.insert(priceBookEntries).values({
+      id: newId(ID_PREFIX.priceBookEntry),
+      orgId: LOCAL_ORG_ID,
+      priceBookId: customId,
+      productId: s.product.id,
+      unitPriceCents: 1,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+    const outsider = createUser(s.db, {
+      name: "Quinn Sample",
+      email: "quinn.price@example.com",
+      username: "quinnprice",
+      password: "helmet-42",
+    });
+    const other = createOrganization(s.db, "Other Price Org", outsider.id);
+    const foreignBookId = newId(ID_PREFIX.priceBook);
+    s.db.insert(priceBooks).values({
+      id: foreignBookId,
+      orgId: other.id,
+      name: "Foreign Standard",
+      ownerId: outsider.id,
+      isStandard: true,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: outsider.id,
+      updatedBy: outsider.id,
+    }).run();
+    s.db.insert(priceBookEntries).values({
+      id: newId(ID_PREFIX.priceBookEntry),
+      orgId: other.id,
+      priceBookId: foreignBookId,
+      productId: s.product.id,
+      unitPriceCents: 7,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+    const line = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    expect(line.unitPriceCents).toBe(19_999);
+    expect(line.totalCents).toBe(39_998);
+  });
+
+  it("refuses another org's product and does not write a line", () => {
+    const s = setup();
+    const outsider = createUser(s.db, {
+      name: "Quinn Sample",
+      email: "quinn.product@example.com",
+      username: "quinnproduct",
+      password: "helmet-42",
+    });
+    const other = createOrganization(s.db, "Other Product Org", outsider.id);
+    const foreign = createProduct(s.db, actorFor(outsider.id, other.id), {
+      name: "Foreign Bolt",
+      standardPriceCents: 500,
+    });
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, LOCAL_ACTOR, {
+          opportunityId: s.opp.id,
+          productId: foreign.id,
+          quantity: 1,
+        }),
+      "NOT_FOUND",
+    );
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)).toEqual([]);
+  });
+
+  it("follows opportunity edit and hides lines the profile cannot read", () => {
+    const s = setup();
+    const deleter = catalogUser(s.db, {
+      name: "Delete Not Edit",
+      username: "deletenotedit",
+      opportunity: { canUpdate: false, canDelete: true },
+      product: { canRead: true, canUpdate: false },
+    });
+    const deleteAccount = createAccount(s.db, deleter, { name: "Delete Canyon" });
+    const deleteOpp = createOpportunity(s.db, deleter, {
+      accountId: deleteAccount.id,
+      name: "Delete Deal",
+      stage: "Prospecting",
+      closeDate: "2026-11-08",
+    });
+    const planted = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: deleteOpp.id,
+      productId: s.product.id,
+      quantity: 1,
+    });
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, deleter, {
+          opportunityId: deleteOpp.id,
+          productId: s.product.id,
+          quantity: 1,
+        }),
+      "FORBIDDEN",
+    );
+    refused(s, () => deleteLineItem(s.db, deleter, planted.id), "FORBIDDEN");
+    expect(listLineItems(s.db, LOCAL_ACTOR, deleteOpp.id).map((line) => line.id)).toEqual([
+      planted.id,
+    ]);
+
+    const editor = catalogUser(s.db, {
+      name: "Edit Not Delete",
+      username: "editnotdelete",
+      opportunity: { canUpdate: true, canDelete: false },
+      product: { canRead: true, canUpdate: false },
+    });
+    const editAccount = createAccount(s.db, editor, { name: "Edit Canyon" });
+    const editOpp = createOpportunity(s.db, editor, {
+      accountId: editAccount.id,
+      name: "Edit Deal",
+      stage: "Prospecting",
+      closeDate: "2026-11-09",
+    });
+    const line = addLineItem(s.db, editor, {
+      opportunityId: editOpp.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    expect(line.unitPriceCents).toBe(19_999);
+    deleteLineItem(s.db, editor, line.id);
+    expect(listLineItems(s.db, editor, editOpp.id)).toEqual([]);
+
+    const blind = catalogUser(s.db, {
+      name: "No Product Read",
+      username: "noproductread",
+      opportunity: { canUpdate: true, canDelete: true },
+      product: { canRead: false, canUpdate: false },
+    });
+    const blindAccount = createAccount(s.db, blind, { name: "Blind Canyon" });
+    const blindOpp = createOpportunity(s.db, blind, {
+      accountId: blindAccount.id,
+      name: "Blind Deal",
+      stage: "Prospecting",
+      closeDate: "2026-11-10",
+    });
+    const hidden = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: blindOpp.id,
+      productId: s.product.id,
+      quantity: 4,
+    });
+    expect(listLineItems(s.db, blind, blindOpp.id)).toEqual([]);
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, blind, {
+          opportunityId: blindOpp.id,
+          productId: s.product.id,
+          quantity: 1,
+        }),
+      "NOT_FOUND",
+    );
+    deleteLineItem(s.db, blind, hidden.id);
+    expect(listLineItems(s.db, LOCAL_ACTOR, blindOpp.id)).toEqual([]);
   });
 });
