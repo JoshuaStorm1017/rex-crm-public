@@ -341,17 +341,21 @@ describe("GET /api/v1/objects/{apiName}/records", () => {
     expect(texts[0]).toBe(JSON.stringify(UNAUTHENTICATED_BODY));
   });
 
-  it("maps forbidden to 403 and does not export writes", () => {
+  it("maps forbidden to 403 and exports the write methods", () => {
     expect(apiErrorStatus("FORBIDDEN")).toBe(403);
     expect(apiErrorStatus("NOT_FOUND")).toBe(404);
     expect(apiErrorStatus("INVALID_INPUT")).toBe(400);
+    expect(apiErrorStatus("CONFLICT")).toBe(409);
     expect(apiErrorStatus("NO_ORG")).toBe(400);
-    for (const handlers of [collectionHandlers, recordHandlers]) {
-      expect(handlers.GET).toEqual(expect.any(Function));
-      expect("POST" in handlers).toBe(false);
-      expect("PATCH" in handlers).toBe(false);
-      expect("PUT" in handlers).toBe(false);
-      expect("DELETE" in handlers).toBe(false);
-    }
+    expect(collectionHandlers.GET).toEqual(expect.any(Function));
+    expect(collectionHandlers.POST).toEqual(expect.any(Function));
+    expect("PATCH" in collectionHandlers).toBe(false);
+    expect("PUT" in collectionHandlers).toBe(false);
+    expect("DELETE" in collectionHandlers).toBe(false);
+    expect(recordHandlers.GET).toEqual(expect.any(Function));
+    expect(recordHandlers.PATCH).toEqual(expect.any(Function));
+    expect(recordHandlers.DELETE).toEqual(expect.any(Function));
+    expect("POST" in recordHandlers).toBe(false);
+    expect("PUT" in recordHandlers).toBe(false);
   });
 });

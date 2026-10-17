@@ -41,6 +41,7 @@ export const ID_PREFIX = {
   campaign: "701",
   campaignMember: "00v",
   auditEvent: "0ae",
+  idempotency: "0ik",
 } as const;
 
 export type IdPrefix = (typeof ID_PREFIX)[keyof typeof ID_PREFIX];

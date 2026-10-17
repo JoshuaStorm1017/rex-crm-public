@@ -400,6 +400,50 @@ describe("dashboard pages", () => {
     expect(admin).not.toContain("Anvil Restock");
   });
 
+  it("sizes amount bars when Expected Revenue would rank the groups the other way", async () => {
+    const { db } = setup();
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Won Co" });
+    createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Won Deal",
+      stage: "Closed Won",
+      closeDate: "2026-11-01",
+      amountCents: 10_000,
+    });
+    const report = createReport(db, LOCAL_ACTOR, {
+      name: "Amount and Weight",
+      objectType: "opportunity",
+      format: "summary",
+      columns: ["name", "amountCents"],
+      groupBy: "stage",
+      aggregates: [
+        { fn: "sum", field: "amountCents" },
+        { fn: "sum", field: "expectedRevenueCents" },
+      ],
+    });
+    const board = createDashboard(db, LOCAL_ACTOR, "Weight Board");
+    addDashboardComponent(db, LOCAL_ACTOR, board.id, report.id, `<img src=x onerror=alert(1)>`);
+    actAs(LOCAL_USER_ID);
+    const html = renderToStaticMarkup(
+      await DashboardPage({ params: Promise.resolve({ id: board.id }) }),
+    );
+    expect(html).toContain("Sum of Amount by Stage");
+    expect(html).toContain("Sum of Expected Revenue");
+    expect(html).toContain("$300.00");
+    expect(html).toContain("$120.00");
+    expect(html).toContain("$20.00");
+    expect(html).toContain("width:100%");
+    expect(html).toContain("width:50%");
+    expect(html).not.toContain("width:20%");
+    expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("Won Deal");
+    expect(html).not.toContain("Anvil Restock");
+    expect(html).not.toContain("Rocket Skates");
+    expect(html).not.toContain("Won Co");
+    expect(html).not.toContain("Anvil Testing Co");
+  });
+
   it("omits a deleted dashboard from the list and the view", async () => {
     const { db, dash } = setup();
     deleteDashboard(db, LOCAL_ACTOR, dash.id);
