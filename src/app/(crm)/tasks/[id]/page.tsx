@@ -5,6 +5,7 @@ import {
   deleteTaskAction,
   reopenTaskAction,
 } from "../actions";
+import { AuditHistory } from "@/components/AuditHistory";
 import { CustomFieldsSection } from "@/components/CustomFieldsSection";
 import { ChangeOwnerLink } from "@/components/ChangeOwnerLink";
 import { DeleteButton } from "@/components/DeleteButton";
@@ -12,7 +13,7 @@ import type { TaskRelatedObjectType } from "@/lib/crm/constants";
 import { recordLabel } from "@/lib/crm/objects";
 import { getCustomValues } from "@/lib/crm/customFields";
 import { canAccessRecord } from "@/lib/crm/permissions";
-import { getTask, liveRelatedRecord } from "@/lib/crm/tasks";
+import { getTask, listTaskHistory, liveRelatedRecord } from "@/lib/crm/tasks";
 import { canChangeOwner } from "@/lib/crm/ownership";
 import { recordView } from "@/lib/crm/recentlyViewed";
 import { requireActor } from "@/lib/crm/currentUser";
@@ -171,6 +172,8 @@ export default async function TaskDetailPage({
       </section>
 
       <CustomFieldsSection reads={getCustomValues(db, actor, "task", task.id)} />
+
+      <AuditHistory entries={listTaskHistory(db, actor, task.id)} />
     </div>
   );
 }
