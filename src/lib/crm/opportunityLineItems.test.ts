@@ -157,6 +157,44 @@ describe("opportunity line items", () => {
     );
   });
 
+  it("keeps a line and its price after the product is deactivated", () => {
+    const s = setup();
+    const line = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    updateProduct(s.db, LOCAL_ACTOR, s.product.id, {
+      name: "Anvil Mk II",
+      standardPriceCents: 19_999,
+      isActive: false,
+    });
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)).toMatchObject([
+      { id: line.id, productName: "Anvil Mk II", quantity: 2, unitPriceCents: 19_999, totalCents: 39_998 },
+    ]);
+    expect(opportunityLineTotalCents(s.db, LOCAL_ACTOR, s.opp.id)).toBe(39_998);
+    expect(listAddableProducts(s.db, LOCAL_ACTOR).map((product) => product.id)).not.toContain(s.product.id);
+    refused(
+      s,
+      () => addLineItem(s.db, LOCAL_ACTOR, { opportunityId: s.opp.id, productId: s.product.id, quantity: 1 }),
+      "INVALID_PRODUCT",
+    );
+  });
+
+  it("stores a zero catalog price when the sales price is omitted", () => {
+    const s = setup();
+    const free = createProduct(s.db, LOCAL_ACTOR, { name: "Free Sample", standardPriceCents: 0 });
+    const line = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: free.id,
+      quantity: 4,
+    });
+    expect(line.unitPriceCents).toBe(0);
+    expect(line.totalCents).toBe(0);
+    expect(opportunityLineTotalCents(s.db, LOCAL_ACTOR, s.opp.id)).toBe(0);
+    expect(listAddableProducts(s.db, LOCAL_ACTOR).map((product) => product.name)).toContain("Free Sample");
+  });
+
   it("refuses a missing opportunity or product with NOT_FOUND", () => {
     const s = setup();
     refused(

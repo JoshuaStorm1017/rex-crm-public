@@ -2,16 +2,11 @@ import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import type { Db } from "../db/client";
 import {
-  accounts,
-  contacts,
-  leads,
-  opportunities,
   orgMemberships,
   orgWideDefaults,
   organizations,
   roles,
   sharingRules,
-  tasks,
   users,
 } from "../db/schema";
 import type { Actor } from "./actor";
@@ -25,6 +20,7 @@ import {
 import { DomainError } from "./errors";
 import { MAX_HIERARCHY_DEPTH } from "./hierarchy";
 import { ID_PREFIX, newId } from "./ids";
+import { objectTable } from "./objectTable";
 import { parseUsdToCents } from "./money";
 import {
   VALIDATION_FIELDS,
@@ -129,18 +125,7 @@ function isShareAccess(value: string): value is ShareAccess {
 }
 
 function tableFor(objectType: SharingObject) {
-  switch (objectType) {
-    case "account":
-      return accounts;
-    case "contact":
-      return contacts;
-    case "lead":
-      return leads;
-    case "opportunity":
-      return opportunities;
-    case "task":
-      return tasks;
-  }
+  return objectTable(objectType);
 }
 
 function columnFor(

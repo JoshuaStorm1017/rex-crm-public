@@ -20,7 +20,7 @@ import { createOpportunity } from "@/lib/crm/opportunities";
 import { addLineItem } from "@/lib/crm/opportunityLineItems";
 import { addMember, createOrganization } from "@/lib/crm/orgs";
 import { createProfile, setFieldPermission, setObjectPermission } from "@/lib/crm/profiles";
-import { createProduct } from "@/lib/crm/products";
+import { createProduct, updateProduct } from "@/lib/crm/products";
 import { createUser, getUser, type PublicUser } from "@/lib/crm/users";
 import { getDb, openMemoryDb, type Db } from "@/lib/db/client";
 import OpportunityDetailPage from "./page";
@@ -207,6 +207,46 @@ describe("opportunity product related list", () => {
     expect(asBlind).not.toContain("Painted Anvil");
     expect(asBlind).not.toContain("$1,234.56");
     expect(asBlind).not.toContain("Add product");
+  });
+
+  it("keeps a deactivated product on the deal and drops it from the picker", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const opportunity = ownDeal(db, LOCAL_ACTOR, "Retire Later");
+    const retiring = createProduct(db, LOCAL_ACTOR, { name: "Painted Anvil", standardPriceCents: PRICE });
+    const live = createProduct(db, LOCAL_ACTOR, { name: "Live Helmet", standardPriceCents: 500 });
+    addLineItem(db, LOCAL_ACTOR, { opportunityId: opportunity.id, productId: retiring.id, quantity: 2 });
+    updateProduct(db, LOCAL_ACTOR, retiring.id, {
+      name: "Painted Anvil",
+      standardPriceCents: PRICE,
+      isActive: false,
+    });
+    const operator = getUser(db, LOCAL_USER_ID);
+    if (!operator) throw new Error("seeded users were missing");
+    act(operator);
+    const page = await html(opportunity.id);
+    expect(page).toContain("Products (1)");
+    expect(page).toContain("Painted Anvil");
+    expect(page).toContain("$1,234.56");
+    expect(page).toContain("$2,469.12");
+    expect(page).toContain(`<option value="${live.id}">Live Helmet</option>`);
+    expect(page).not.toContain(`<option value="${retiring.id}">`);
+    expect(page).not.toContain("No active products to add.");
+  });
+
+  it("shows a zero catalog price as $0.00", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const opportunity = ownDeal(db, LOCAL_ACTOR, "Free Deal");
+    const free = createProduct(db, LOCAL_ACTOR, { name: "Free Sample", standardPriceCents: 0 });
+    addLineItem(db, LOCAL_ACTOR, { opportunityId: opportunity.id, productId: free.id, quantity: 4 });
+    const operator = getUser(db, LOCAL_USER_ID);
+    if (!operator) throw new Error("seeded users were missing");
+    act(operator);
+    const page = await html(opportunity.id);
+    expect(page).toContain("Free Sample");
+    expect(page).toContain("$0.00");
+    expect(page).toContain(">4<");
   });
 
   it("says there is nothing to add when every product is inactive", async () => {

@@ -700,6 +700,14 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Not done:** lines do not roll into Opportunity Amount. No edit of an existing line. `opportunityLineTotalCents` still returns the raw sum to an actor who cannot read the sale price; the page does not call it.
 - **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.
 
+## 2026-10-16 19:15 EDT — lane A, object registry
+
+- **What:** `src/lib/crm/registry.ts` is the source of truth for account, contact, lead, opportunity, and task (label, plural, path, api name, id prefix, table name, custom fields, sharing, task relation). Href, labels, list-view path and plural, the object-key lists, Change Owner's object list, sharing's table, and list/report id-org-owner-deletedAt columns read it. No migration and no user-visible change.
+- **Why:** Every later platform piece (audit, API, custom objects) needs one object list. A new per-object `case` outside the frozen query switches fails `registry.test.ts`.
+- **Left in place:** query switches in `reports.ts` (from-clause and detail rows), `ownership.ts`, `recentlyViewed.ts`, `tasks.ts`, and `ownership.pr4r4.test.ts`. Their case counts are frozen.
+- **Verify:** `npm run verify` exit 0 at 19:15 EDT. 108 files, 1223 tests, Next.js 16.3.5 build. The shell `node` was v24.2.0; `.nvmrc` says 22 and no Node 22 binary was on this machine.
+- **Next:** Account audit log (create/update/delete write old/new/actor/time; a rejected save writes nothing; org B cannot read org A's events; related list on the account page).
+
 ## 2026-10-16 19:31 EDT — product picker when Active is hidden
 
 - **What:** `listAddableProducts` keeps a product only when the stored Active flag is true, then redacts the name. The opportunity page uses that list. A hidden Active flag no longer empties the picker. Inactive, deleted, unpriced, and other-org products stay out. Active itself is not returned. A hidden product name is blank.
@@ -722,4 +730,12 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Why:** `Number("0x10")` stored 16 units with a success redirect. The line total returned the stored sale price to an actor whose line view has a null price.
 - **Verify:** `npm run verify` exit 0 on Node 22.23.3. 108 files, 1272/1272. Next.js 16.3.5 build. No browser or curl pass. Chrome DevTools did not connect.
 - **Not done:** lines do not roll into Opportunity Amount. No edit of an existing line. The opportunity page does not call `opportunityLineTotalCents`.
+- **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.
+
+## 2026-10-16 20:58 EDT — merge origin/main into the line-item branch
+
+- **What:** Merged `origin/main` (`f728fbd`, lane A's object registry and `docs/SPRINTS.md`) into this branch. The only conflicts were `STATUS.md` and `REX-LOG.md`. Both sides' entries are kept. No product code was rewritten. The QE tests from the line-item pass stay.
+- **Why:** Main had moved. A later merge would have conflicted on the logs again, and the registry is now the source of the object lists this page already uses.
+- **Verify:** `npm run verify` exit 0 on Node 22.23.3. 110 files, 1340/1340 tests, Next.js 16.3.5 build. No browser or curl pass. Chrome DevTools did not connect.
+- **Not done:** lines do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages yet.
 - **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.

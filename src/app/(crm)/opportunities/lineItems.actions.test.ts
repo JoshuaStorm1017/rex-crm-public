@@ -63,6 +63,46 @@ describe("opportunity line item actions", () => {
     expect(line).toMatchObject({ quantity: 4, unitPriceCents: 1999, totalCents: 7996 });
   });
 
+  it("deletes one posted line and leaves the other", async () => {
+    const s = setup();
+    const first = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 1,
+    });
+    const second = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    let thrown = "";
+    try {
+      await deleteOpportunityLineItemAction(s.opp.id, first.id);
+    } catch (error) {
+      thrown = error instanceof Error ? error.message : String(error);
+    }
+    expect(thrown).toBe(`REDIRECT /opportunities/${s.opp.id}`);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id).map((line) => line.id)).toEqual([second.id]);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)[0]).toMatchObject({
+      quantity: 2,
+      unitPriceCents: 2500,
+      totalCents: 5000,
+    });
+  });
+
+  it("stores a zero catalog price when the sales price is left blank", async () => {
+    const s = setup();
+    const free = createProduct(s.db, LOCAL_ACTOR, { name: "Free Sample", standardPriceCents: 0 });
+    await expect(
+      addOpportunityLineItemAction(s.opp.id, form({ productId: free.id, quantity: "4", unitPrice: "   " })),
+    ).rejects.toThrow(`REDIRECT /opportunities/${s.opp.id}`);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)[0]).toMatchObject({
+      quantity: 4,
+      unitPriceCents: 0,
+      totalCents: 0,
+    });
+  });
+
   it("returns a notice and writes nothing for a bad quantity", async () => {
     const s = setup();
     const before = s.snapshot();

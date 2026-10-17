@@ -13,6 +13,7 @@ import {
 import type { Actor } from "./actor";
 import { assertActor, isCurrentOrgAdmin } from "./actor";
 import { assertCanPerform, canReadField } from "./permissions";
+import { objectColumn } from "./objectTable";
 import { readRestrictionSql } from "./sharing";
 import {
   ACCOUNT_TYPES,
@@ -911,22 +912,11 @@ function recordColumns(objectType: ListViewObjectType): {
   ownerId: AnySQLiteColumn;
   createdAt: AnySQLiteColumn;
 } {
-  switch (objectType) {
-    case "account":
-      return { id: accounts.id, ownerId: accounts.ownerId, createdAt: accounts.createdAt };
-    case "contact":
-      return { id: contacts.id, ownerId: contacts.ownerId, createdAt: contacts.createdAt };
-    case "lead":
-      return { id: leads.id, ownerId: leads.ownerId, createdAt: leads.createdAt };
-    case "opportunity":
-      return {
-        id: opportunities.id,
-        ownerId: opportunities.ownerId,
-        createdAt: opportunities.createdAt,
-      };
-    case "task":
-      return { id: tasks.id, ownerId: tasks.ownerId, createdAt: tasks.createdAt };
-  }
+  return {
+    id: objectColumn(objectType, "id"),
+    ownerId: objectColumn(objectType, "ownerId"),
+    createdAt: objectColumn(objectType, "createdAt"),
+  };
 }
 
 function groupExpr(
@@ -1043,18 +1033,7 @@ function asListView(report: Report): ListView {
     updatedBy: report.updatedBy,
     deletedAt: report.deletedAt,
   };
-  switch (report.objectType) {
-    case "account":
-      return { ...base, objectType: "account" };
-    case "contact":
-      return { ...base, objectType: "contact" };
-    case "lead":
-      return { ...base, objectType: "lead" };
-    case "opportunity":
-      return { ...base, objectType: "opportunity" };
-    case "task":
-      return { ...base, objectType: "task" };
-  }
+  return { ...base, objectType: report.objectType } as ListView;
 }
 
 /** Detail rows reuse the list-view query and cell formatting verbatim. */

@@ -2182,6 +2182,11 @@ fresh verification evidence for each slice.
 - Not done: line items do not roll into Opportunity Amount. No edit
   of an existing line.
 
+## 2026-10-16 — lane A, standard object registry
+
+- WORKS (verified 2026-10-16 19:15 EDT, `npm run verify` exit 0, 108 files, 1223 tests, Next.js 16.3.5 build): one registry for the five standard objects. Labels, paths, id prefixes, and tables for sharing, list views, and report columns come from it. Adding a per-object `case` outside the frozen query switches fails `registry.test.ts`. No user-visible change. The shell node was v24.2.0; `.nvmrc` is 22.
+- Still separate query switches, frozen by that test: report from-clause and detail rows, change-owner load and write, recently viewed names, and task related-record lookup.
+
 ## 2026-10-16 — product picker when Active is hidden (lane B)
 
 - WORKS (verified 2026-10-16 19:31 EDT, `npm run verify` exit 0, this
@@ -2228,3 +2233,15 @@ fresh verification evidence for each slice.
 - Not done: line items do not roll into Opportunity Amount. No edit of
   an existing line. The opportunity page does not call
   `opportunityLineTotalCents`.
+
+## 2026-10-16 — merged origin/main into the line-item branch (lane B)
+
+- WORKS (verified 2026-10-16 20:58 EDT, `npm run verify` exit 0 on Node
+  22.23.3, 1340/1340 tests across 110 files, Next.js 16.3.5 build):
+  this branch now contains `origin/main` at `f728fbd` (object registry
+  and `docs/SPRINTS.md`) and the opportunity product lines. The log
+  files keep both lanes' entries. The line-item QE tests still pass
+  in that suite. No product behavior was changed in this merge. No
+  browser or curl pass. Chrome DevTools did not connect.
+- Not done: line items do not roll into Opportunity Amount. No edit of
+  an existing line. No dashboard pages yet.
