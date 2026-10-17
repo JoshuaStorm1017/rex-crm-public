@@ -19,7 +19,7 @@ import { getCustomValues } from "@/lib/crm/customFields";
 import { formatUsd } from "@/lib/crm/money";
 import { listOpportunityHistory, readOpportunity } from "@/lib/crm/opportunities";
 import { listOpportunityContactRoles } from "@/lib/crm/opportunityContactRoles";
-import { listLineItems } from "@/lib/crm/opportunityLineItems";
+import { listLineItemProductChoices, listLineItems } from "@/lib/crm/opportunityLineItems";
 import { canChangeOwner } from "@/lib/crm/ownership";
 import {
   canAccessRecord,
@@ -28,7 +28,6 @@ import {
   canReadField,
   presentRecord,
 } from "@/lib/crm/permissions";
-import { listProducts } from "@/lib/crm/products";
 import { recordView } from "@/lib/crm/recentlyViewed";
 import { listTasksForRecord, withTaskEditAccess } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
@@ -165,11 +164,7 @@ export default async function OpportunityDetailPage({
       <OpportunityProducts
         opportunityId={stored.id}
         lines={listLineItems(db, actor, stored.id)}
-        products={listProducts(db, actor).flatMap((product) =>
-          product.isActive && product.name
-            ? [{ id: product.id, name: product.name }]
-            : [],
-        )}
+        products={listLineItemProductChoices(db, actor)}
         canEdit={canEdit}
         canReadProducts={canPerform(db, actor, "product", "read")}
         canSeePrice={canReadField(db, actor, "product", "standardPriceCents")}

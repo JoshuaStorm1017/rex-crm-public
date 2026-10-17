@@ -786,3 +786,12 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Mutation, restored after the green verify:** removing the check stored `unitPriceCents` 500. That failed the QE action test, the field-deny action test, and both domain refusal tests (4 failed, 26 passed in those two files). The check was put back and those 30 tests passed.
 - **Verify:** `npm run verify` exit 0 at 01:08 EDT on Node v22.23.3. 123 files, 1395 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass.
 - **Next:** Roll line totals into Opportunity Amount in integer cents, in one transaction. `parseUsdToCents` still turns `$` or `,` into 0 cents for a profile that is allowed to edit the price.
+
+## 2026-10-17 01:32 EDT — lane A, refuse a bare price mark and a hidden active flag
+
+- **What:** `parseUsdToCents` rejects `$` and `,` instead of storing 0 cents. `$0` and `$1,234.50` still parse. `addLineItem` and the opportunity add list read the stored product `isActive`, so hiding that field does not make an active product look inactive and does not offer an inactive one. No migration.
+- **Why:** QE posted `$` and got a free line with no notice. A profile that cannot read `isActive` could not add an active product, and the add list dropped it.
+- **Tests:** The QE action test "refuses a unit price that is only a dollar sign or comma" and the QE domain test "adds an active product when the profile cannot read isActive" pass. An inactive product with that field hidden is still refused and stays off the select. `$1,234.50` still stores 123450 cents.
+- **Mutation, restored before verify:** dropping the empty-after-strip check stored 0 cents for `$`. Using the redacted `isActive` refused the active product and hid Add product. Treating only `false` as inactive wrote the inactive product. Treating a null flag as active listed Retired Anvil.
+- **Verify:** `npm run verify` exit 0 at 01:32 EDT on Node v22.23.3. 123 files, 1410 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. The page check is `renderToStaticMarkup`.
+- **Next:** Roll line totals into Opportunity Amount in integer cents, in one transaction. `parseUsdToCents` still rounds with `Math.round`, so `1.005` can land on the wrong cent. After a product is soft-deleted, its lines vanish from the related list while the row remains.

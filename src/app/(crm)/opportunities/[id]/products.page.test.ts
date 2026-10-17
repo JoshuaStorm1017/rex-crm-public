@@ -514,4 +514,101 @@ describe("opportunity products related list", () => {
     expect(otherHtml).not.toContain("Remove");
     expect(otherHtml).not.toContain('name="unitPrice"');
   });
+
+  it("lists an active product when the profile cannot read isActive", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const active = createProduct(db, LOCAL_ACTOR, {
+      name: "Live Anvil",
+      standardPriceCents: 1999,
+    });
+    const retired = createProduct(db, LOCAL_ACTOR, {
+      name: "Retired Anvil",
+      standardPriceCents: 100,
+      isActive: false,
+    });
+    const user = createUser(db, {
+      name: "Active Hider",
+      email: "page.active.hider@example.com",
+      username: "pageactivehider",
+      password: "long-enough",
+    });
+    const profileId = createProfile(db, LOCAL_ACTOR, "Hide Active Page");
+    for (const objectType of ["account", "opportunity", "product"] as const) {
+      setObjectPermission(db, LOCAL_ACTOR, profileId, objectType, FULL);
+    }
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "product", "isActive", {
+      canRead: false,
+      canEdit: false,
+    });
+    addMember(db, LOCAL_ORG_ID, user.id, "member", profileId);
+    const actor = actorFor(user.id);
+    const account = createAccount(db, actor, { name: "Active Canyon" });
+    const opportunity = createOpportunity(db, actor, {
+      accountId: account.id,
+      name: "Active Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-04",
+    });
+
+    signIn(user);
+    const html = await renderOpportunity(opportunity.id);
+    expect(html).toContain("Add product");
+    expect(html).toContain("Live Anvil");
+    expect(html).toContain(`value="${active.id}"`);
+    expect(html).not.toContain("Retired Anvil");
+    expect(html).not.toContain(retired.id);
+  });
+
+  it("shows lines to a read-only sharing recipient and hides add and remove", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Shared Quarry" });
+    const opportunity = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Shared Restock",
+      stage: "Prospecting",
+      closeDate: "2026-12-18",
+      amountCents: 9_900,
+    });
+    const product = createProduct(db, LOCAL_ACTOR, {
+      name: "Shared Anvil",
+      standardPriceCents: 2100,
+    });
+    addLineItem(db, LOCAL_ACTOR, {
+      opportunityId: opportunity.id,
+      productId: product.id,
+      quantity: 2,
+    });
+    const reader = member(db, {
+      name: "Share Page Reader",
+      email: "share.page@example.com",
+      username: "sharepage",
+      profileName: "Share Page Read",
+      opportunity: { canUpdate: true, canDelete: true },
+      productRead: true,
+    });
+    setOrgWideDefault(db, LOCAL_ACTOR, "opportunity", "private", false);
+    const role = createRole(db, LOCAL_ACTOR, { name: "Share Page Role" });
+    assignUserRole(db, LOCAL_ACTOR, reader.user.id, role.id);
+    createSharingRule(db, LOCAL_ACTOR, {
+      name: "Prospecting page read",
+      objectType: "opportunity",
+      access: "read",
+      shareWithRoleId: role.id,
+      criteria: [{ field: "stage", operator: "equals", value: "Prospecting" }],
+    });
+
+    signIn(reader.user);
+    const html = await renderOpportunity(opportunity.id);
+    expect(html).toContain("Shared Anvil");
+    expect(html).toContain("$21.00");
+    expect(html).toContain("$42.00");
+    expect(html).toContain("$99.00");
+    expect(html).toContain(CHANGE_DENIED);
+    expect(html).not.toContain("Add product");
+    expect(html).not.toContain("Remove");
+    expect(html).not.toContain('name="unitPrice"');
+    expect(html).not.toContain(`value="${product.id}"`);
+  });
 });

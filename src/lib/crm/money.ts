@@ -17,7 +17,12 @@ export function parseUsdToCents(raw: string | undefined): number | undefined {
   if (raw == null) return undefined;
   const trimmed = raw.trim();
   if (trimmed === "") return undefined;
-  const n = Number(trimmed.replace(/[$,]/g, ""));
+  // "$" and "," strip to nothing, and Number("") is 0. A mark alone is not a zero price.
+  const numeric = trimmed.replace(/[$,]/g, "").trim();
+  if (numeric === "") {
+    throw new DomainError("INVALID_MONEY", "Amount must be a number");
+  }
+  const n = Number(numeric);
   if (!Number.isFinite(n)) {
     throw new DomainError("INVALID_MONEY", "Amount must be a number");
   }

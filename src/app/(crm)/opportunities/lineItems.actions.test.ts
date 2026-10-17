@@ -391,6 +391,58 @@ describe("opportunity line item actions", () => {
     expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id).map((item) => item.id)).toEqual([line.id]);
   });
 
+  it("returns a notice and writes nothing for a non-integer quantity or an empty product", async () => {
+    const s = setup();
+    const before = s.snapshot();
+    for (const quantity of ["1.5", "abc", "1e309"]) {
+      await expect(
+        addOpportunityLineItemAction(
+          s.opp.id,
+          form({ productId: s.product.id, quantity }),
+        ),
+      ).rejects.toThrow(/notice=/);
+      expect(s.snapshot(), quantity).toBe(before);
+    }
+    await expect(
+      addOpportunityLineItemAction(s.opp.id, form({ productId: "  ", quantity: "1" })),
+    ).rejects.toThrow(
+      `REDIRECT /opportunities/${s.opp.id}?notice=${encodeURIComponent("Product not found")}`,
+    );
+    expect(s.snapshot()).toBe(before);
+  });
+
+  it("stores quantity 1 at the standard price when quantity is omitted", async () => {
+    const s = setup();
+    await expect(
+      addOpportunityLineItemAction(s.opp.id, form({ productId: s.product.id })),
+    ).rejects.toThrow(`REDIRECT /opportunities/${s.opp.id}`);
+    const [line] = listLineItems(s.db, LOCAL_ACTOR, s.opp.id);
+    expect(line).toMatchObject({ quantity: 1, unitPriceCents: 2500, totalCents: 2500 });
+  });
+
+  it("refuses a unit price with more than two decimal places and writes nothing", async () => {
+    const problems: string[] = [];
+    for (const unitPrice of ["1.005", "0.001"]) {
+      const s = setup();
+      const before = s.snapshot();
+      let message = "";
+      try {
+        await addOpportunityLineItemAction(
+          s.opp.id,
+          form({ productId: s.product.id, quantity: "2", unitPrice }),
+        );
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      if (s.snapshot() !== before || !/notice=/.test(message)) {
+        problems.push(`${unitPrice} -> ${message} rows=${s.snapshot()}`);
+      }
+    }
+    // Catalog and contract prices reject a third decimal place. The line
+    // form stores 1.005 as 100 cents and 0.001 as 0 cents.
+    expect(problems).toEqual([]);
+  });
+
   it("does not delete a line on an opportunity the actor cannot edit", async () => {
     const s = setup();
     const line = addLineItem(s.db, LOCAL_ACTOR, {

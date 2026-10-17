@@ -1,12 +1,12 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { opportunityLineItems, priceBookEntries, priceBooks } from "../db/schema";
+import { opportunityLineItems, priceBookEntries, priceBooks, products } from "../db/schema";
 import { assertActor, type Actor } from "./actor";
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
 import { readOpportunity } from "./opportunities";
 import { assertCanAccessRecord, canEditField } from "./permissions";
-import { getProduct } from "./products";
+import { getProduct, listProducts } from "./products";
 
 export type OpportunityLineItem = typeof opportunityLineItems.$inferSelect;
 export type LineItemView = OpportunityLineItem & {
@@ -46,6 +46,38 @@ function assertUnitPrice(cents: number): void {
   if (!Number.isInteger(cents) || cents < 0 || cents > LINE_ITEM_MAX_UNIT_CENTS) {
     throw new DomainError("INVALID_MONEY", "Unit price must be zero or more whole cents");
   }
+}
+
+/**
+ * Stored active flag. Field security nulls isActive on the product view,
+ * and a null there is not the same as inactive.
+ */
+function storedProductIsActive(db: Db, actor: Actor, productId: string): boolean {
+  const row = db
+    .select({ isActive: products.isActive })
+    .from(products)
+    .where(
+      and(
+        eq(products.id, productId),
+        eq(products.orgId, actor.orgId),
+        isNull(products.deletedAt),
+      ),
+    )
+    .get();
+  return row?.isActive === true;
+}
+
+/** Products the actor can name and that are stored as active. */
+export function listLineItemProductChoices(
+  db: Db,
+  actor: Actor,
+): { id: string; name: string }[] {
+  assertActor(db, actor);
+  return listProducts(db, actor).flatMap((product) =>
+    product.name && storedProductIsActive(db, actor, product.id)
+      ? [{ id: product.id, name: product.name }]
+      : [],
+  );
 }
 
 /** Stored standard price. Field security can null it on the product view. */
@@ -120,7 +152,7 @@ export function addLineItem(db: Db, actor: Actor, input: AddLineItemInput): Line
   assertQuantity(input.quantity);
   const product = getProduct(db, actor, input.productId);
   if (!product) throw new DomainError("NOT_FOUND", "Product not found");
-  if (!product.isActive) {
+  if (!storedProductIsActive(db, actor, product.id)) {
     throw new DomainError("INVALID_PRODUCT", "Inactive products cannot be added");
   }
   if (input.unitPriceCents != null) {

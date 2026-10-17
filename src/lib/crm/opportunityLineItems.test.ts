@@ -1,23 +1,38 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb } from "../db/client";
-import { opportunities, opportunityLineItems, priceBookEntries, priceBooks } from "../db/schema";
+import {
+  opportunities,
+  opportunityLineItems,
+  organizations,
+  priceBookEntries,
+  priceBooks,
+} from "../db/schema";
 import { actorFor, LOCAL_ACTOR } from "./actor";
 import { createAccount } from "./accounts";
 import { LIST_VIEW_OBJECT_TYPES, LOCAL_ORG_ID, RILEY_USER_ID } from "./constants";
 import { ID_PREFIX, newId } from "./ids";
-import { createOpportunity, getOpportunity } from "./opportunities";
+import { createOpportunity, deleteOpportunity, getOpportunity } from "./opportunities";
 import {
   addLineItem,
   deleteLineItem,
   LINE_ITEM_MAX_QUANTITY,
+  LINE_ITEM_MAX_UNIT_CENTS,
+  listLineItemProductChoices,
   listLineItems,
   opportunityLineTotalCents,
 } from "./opportunityLineItems";
 import { addMember, createOrganization } from "./orgs";
 import { createProduct, deleteProduct, updateProduct } from "./products";
 import { createProfile, setFieldPermission, setObjectPermission } from "./profiles";
-import { saveOrgWideDefaults } from "./sharing";
+import { undeleteRecord } from "./recycle";
+import {
+  assignUserRole,
+  createRole,
+  createSharingRule,
+  saveOrgWideDefaults,
+  setOrgWideDefault,
+} from "./sharing";
 import { createUser } from "./users";
 
 const RILEY = actorFor(RILEY_USER_ID, LOCAL_ORG_ID);
@@ -693,5 +708,315 @@ describe("opportunity line items", () => {
       quantity: 1,
     });
     expect(line.unitPriceCents).toBe(19_999);
+    expect(listLineItemProductChoices(s.db, actor).map((choice) => choice.id)).toContain(
+      s.product.id,
+    );
+  });
+
+  it("refuses an inactive product when the profile cannot read isActive", () => {
+    const s = setup();
+    const inactive = createProduct(s.db, LOCAL_ACTOR, {
+      name: "Retired Anvil",
+      standardPriceCents: 100,
+      isActive: false,
+    });
+    const user = createUser(s.db, {
+      name: "Inactive Hider",
+      email: "inactive.hider@example.com",
+      username: "inactivehider",
+      password: "long-enough",
+    });
+    const profileId = createProfile(s.db, LOCAL_ACTOR, "Hide Inactive");
+    const full = { canCreate: true, canRead: true, canUpdate: true, canDelete: true };
+    for (const objectType of ["account", "opportunity", "product"] as const) {
+      setObjectPermission(s.db, LOCAL_ACTOR, profileId, objectType, full);
+    }
+    setFieldPermission(s.db, LOCAL_ACTOR, profileId, "product", "isActive", {
+      canRead: false,
+      canEdit: false,
+    });
+    addMember(s.db, LOCAL_ORG_ID, user.id, "member", profileId);
+    const actor = actorFor(user.id);
+    const account = createAccount(s.db, actor, { name: "Retired Canyon" });
+    const opp = createOpportunity(s.db, actor, {
+      accountId: account.id,
+      name: "Retired Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-05",
+    });
+    expect(listLineItemProductChoices(s.db, actor).map((choice) => choice.id)).not.toContain(
+      inactive.id,
+    );
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, actor, {
+          opportunityId: opp.id,
+          productId: inactive.id,
+          quantity: 1,
+        }),
+      "INVALID_PRODUCT",
+    );
+  });
+
+  it("stores the maximum quantity and the maximum unit price", () => {
+    const s = setup();
+    const atQuantity = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: LINE_ITEM_MAX_QUANTITY,
+      unitPriceCents: 1,
+    });
+    expect(atQuantity.totalCents).toBe(LINE_ITEM_MAX_QUANTITY);
+    const atPrice = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 1,
+      unitPriceCents: LINE_ITEM_MAX_UNIT_CENTS,
+    });
+    expect(atPrice.unitPriceCents).toBe(LINE_ITEM_MAX_UNIT_CENTS);
+    expect(atPrice.totalCents).toBe(LINE_ITEM_MAX_UNIT_CENTS);
+  });
+
+  it("omits another org's product and a deleted product from the add list", () => {
+    const s = setup();
+    const retired = createProduct(s.db, LOCAL_ACTOR, {
+      name: "Retired Bolt",
+      standardPriceCents: 100,
+    });
+    deleteProduct(s.db, LOCAL_ACTOR, retired.id);
+    const outsider = createUser(s.db, {
+      name: "Quinn Sample",
+      email: "quinn.choices@example.com",
+      username: "quinnchoices",
+      password: "helmet-42",
+    });
+    const other = createOrganization(s.db, "Other Choice Org", outsider.id);
+    const foreign = createProduct(s.db, actorFor(outsider.id, other.id), {
+      name: "Foreign Bolt",
+      standardPriceCents: 500,
+    });
+    const ids = listLineItemProductChoices(s.db, LOCAL_ACTOR).map((choice) => choice.id);
+    expect(ids).toContain(s.product.id);
+    expect(ids).not.toContain(retired.id);
+    expect(ids).not.toContain(foreign.id);
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, LOCAL_ACTOR, {
+          opportunityId: s.opp.id,
+          productId: retired.id,
+          quantity: 1,
+        }),
+      "NOT_FOUND",
+    );
+  });
+
+  it("lets a read-only sharing recipient see lines and refuses add and delete", () => {
+    const s = setup();
+    const line = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    const reader = catalogUser(s.db, {
+      name: "Share Reader",
+      username: "sharereader",
+      opportunity: { canUpdate: true, canDelete: true },
+      product: { canRead: true, canUpdate: true },
+    });
+    setOrgWideDefault(s.db, LOCAL_ACTOR, "opportunity", "private", false);
+    const role = createRole(s.db, LOCAL_ACTOR, { name: "Read Share Role" });
+    assignUserRole(s.db, LOCAL_ACTOR, reader.userId, role.id);
+    createSharingRule(s.db, LOCAL_ACTOR, {
+      name: "Prospecting read",
+      objectType: "opportunity",
+      access: "read",
+      shareWithRoleId: role.id,
+      criteria: [{ field: "stage", operator: "equals", value: "Prospecting" }],
+    });
+    const hidden = createOpportunity(s.db, LOCAL_ACTOR, {
+      accountId: s.opp.accountId,
+      name: "Qualification Shelf",
+      stage: "Qualification",
+      closeDate: "2026-12-31",
+    });
+    expect(listLineItems(s.db, reader, s.opp.id)).toMatchObject([
+      { id: line.id, quantity: 2, unitPriceCents: 19_999, totalCents: 39_998 },
+    ]);
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, reader, {
+          opportunityId: s.opp.id,
+          productId: s.product.id,
+          quantity: 1,
+          unitPriceCents: 100,
+        }),
+      "FORBIDDEN",
+    );
+    refused(s, () => deleteLineItem(s.db, reader, line.id), "FORBIDDEN");
+    refused(s, () => listLineItems(s.db, reader, hidden.id), "NOT_FOUND");
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id).map((item) => item.id)).toEqual([line.id]);
+  });
+
+  it("lets a read-write sharing recipient add and remove a line", () => {
+    const s = setup();
+    const editor = catalogUser(s.db, {
+      name: "Share Editor",
+      username: "shareeditor",
+      opportunity: { canUpdate: true, canDelete: false },
+      product: { canRead: true, canUpdate: false },
+    });
+    setOrgWideDefault(s.db, LOCAL_ACTOR, "opportunity", "private", false);
+    const role = createRole(s.db, LOCAL_ACTOR, { name: "Write Share Role" });
+    assignUserRole(s.db, LOCAL_ACTOR, editor.userId, role.id);
+    createSharingRule(s.db, LOCAL_ACTOR, {
+      name: "Prospecting write",
+      objectType: "opportunity",
+      access: "read_write",
+      shareWithRoleId: role.id,
+      criteria: [{ field: "stage", operator: "equals", value: "Prospecting" }],
+    });
+    const line = addLineItem(s.db, editor, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    expect(line.unitPriceCents).toBe(19_999);
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, editor, {
+          opportunityId: s.opp.id,
+          productId: s.product.id,
+          quantity: 1,
+          unitPriceCents: 100,
+        }),
+      "FORBIDDEN",
+    );
+    deleteLineItem(s.db, editor, line.id);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)).toEqual([]);
+  });
+
+  it("lets a role-hierarchy manager change a subordinate's lines and hides them from a peer", () => {
+    const s = setup();
+    setOrgWideDefault(s.db, LOCAL_ACTOR, "opportunity", "private", true);
+    const bossRole = createRole(s.db, LOCAL_ACTOR, { name: "Line Boss" });
+    const repRole = createRole(s.db, LOCAL_ACTOR, {
+      name: "Line Rep",
+      parentRoleId: bossRole.id,
+    });
+    const peerRole = createRole(s.db, LOCAL_ACTOR, { name: "Line Peer" });
+    const boss = catalogUser(s.db, {
+      name: "Line Boss User",
+      username: "lineboss",
+      opportunity: { canUpdate: true, canDelete: true },
+      product: { canRead: true, canUpdate: true },
+    });
+    const rep = catalogUser(s.db, {
+      name: "Line Rep User",
+      username: "linerep",
+      opportunity: { canUpdate: true, canDelete: true },
+      product: { canRead: true, canUpdate: true },
+    });
+    const peer = catalogUser(s.db, {
+      name: "Line Peer User",
+      username: "linepeer",
+      opportunity: { canUpdate: true, canDelete: true },
+      product: { canRead: true, canUpdate: true },
+    });
+    assignUserRole(s.db, LOCAL_ACTOR, boss.userId, bossRole.id);
+    assignUserRole(s.db, LOCAL_ACTOR, rep.userId, repRole.id);
+    assignUserRole(s.db, LOCAL_ACTOR, peer.userId, peerRole.id);
+    const account = createAccount(s.db, rep, { name: "Rep Canyon" });
+    const opp = createOpportunity(s.db, rep, {
+      accountId: account.id,
+      name: "Rep Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-12",
+    });
+    const line = addLineItem(s.db, rep, {
+      opportunityId: opp.id,
+      productId: s.product.id,
+      quantity: 1,
+    });
+    const added = addLineItem(s.db, boss, {
+      opportunityId: opp.id,
+      productId: s.product.id,
+      quantity: 3,
+      unitPriceCents: 250,
+    });
+    expect(added.totalCents).toBe(750);
+    deleteLineItem(s.db, boss, line.id);
+    expect(listLineItems(s.db, boss, opp.id).map((item) => item.id)).toEqual([added.id]);
+    refused(s, () => listLineItems(s.db, peer, opp.id), "NOT_FOUND");
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, peer, {
+          opportunityId: opp.id,
+          productId: s.product.id,
+          quantity: 1,
+        }),
+      "NOT_FOUND",
+    );
+    refused(s, () => deleteLineItem(s.db, peer, added.id), "NOT_FOUND");
+    expect(listLineItems(s.db, rep, opp.id).map((item) => item.id)).toEqual([added.id]);
+  });
+
+  it("refuses a suspended organization and writes nothing", () => {
+    const s = setup();
+    const line = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 1,
+    });
+    s.db
+      .update(organizations)
+      .set({ status: "suspended" })
+      .where(eq(organizations.id, LOCAL_ORG_ID))
+      .run();
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, LOCAL_ACTOR, {
+          opportunityId: s.opp.id,
+          productId: s.product.id,
+          quantity: 1,
+        }),
+      "FORBIDDEN",
+    );
+    refused(s, () => listLineItems(s.db, LOCAL_ACTOR, s.opp.id), "FORBIDDEN");
+    refused(s, () => deleteLineItem(s.db, LOCAL_ACTOR, line.id), "FORBIDDEN");
+    expect(s.snapshot()).toContain(line.id);
+  });
+
+  it("keeps lines across delete and restore and refuses writes while the opportunity is deleted", () => {
+    const s = setup();
+    const line = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 4,
+    });
+    deleteOpportunity(s.db, LOCAL_ACTOR, s.opp.id);
+    expect(s.snapshot()).toContain(line.id);
+    refused(s, () => listLineItems(s.db, LOCAL_ACTOR, s.opp.id), "NOT_FOUND");
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, LOCAL_ACTOR, {
+          opportunityId: s.opp.id,
+          productId: s.product.id,
+          quantity: 1,
+        }),
+      "NOT_FOUND",
+    );
+    refused(s, () => deleteLineItem(s.db, LOCAL_ACTOR, line.id), "NOT_FOUND");
+    expect(s.snapshot()).toContain(line.id);
+    undeleteRecord(s.db, LOCAL_ACTOR, "opportunity", s.opp.id);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)).toMatchObject([
+      { id: line.id, quantity: 4, unitPriceCents: 19_999, totalCents: 79_996 },
+    ]);
   });
 });
