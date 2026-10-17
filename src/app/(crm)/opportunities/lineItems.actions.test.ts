@@ -183,7 +183,7 @@ describe("opportunity line item actions", () => {
 
   // A sales price is a dollar amount. "$" and "," are not zero, "1.999"
   // is not $2.00, and "0x10" is not $16.00. Refuse them and write nothing.
-  it.each(["$", ",", "1.999", "0x10"])(
+  it.each(["$", ",", "1.999", "0x10", "0b10", "0o10", "0X10", "1E2", "+1.00", "1_000"])(
     "refuses sales price %s and writes nothing",
     async (unitPrice) => {
       const s = setup();
@@ -391,7 +391,10 @@ describe("opportunity line item actions", () => {
   // Quantity is posted text. Number() turns these into 16, 100, 1_000_000,
   // 2, and 8. A whole number from 1 to 1_000_000 has to be refused here,
   // the same way a sales price refuses 0x10, and nothing stored.
-  it.each(["0x10", "1e2", "1e6", "0b10", "0o10"])(
+  // Number("1E6") is 1000000, which is a legal quantity. Number("4.00") and
+  // Number("+2") are whole numbers too. Number("1_000") is 1000. The posted
+  // text still has to be refused, and a trimmed hex string stays refused.
+  it.each(["0x10", "1e2", "1e6", "1E6", "0b10", "0B10", "0o10", "0O10", "0X10", "+2", "4.00", "1.0", "1_000", "  0x10  "])(
     "refuses quantity %s and writes nothing",
     async (quantity) => {
       const s = setup();
@@ -417,6 +420,28 @@ describe("opportunity line item actions", () => {
       });
     },
   );
+
+  it("stores a whole quantity from leading zeros and defaults a blank quantity to 1", async () => {
+    const s = setup();
+    await expect(
+      addOpportunityLineItemAction(s.opp.id, form({ productId: s.product.id, quantity: "0004" })),
+    ).rejects.toThrow(`REDIRECT /opportunities/${s.opp.id}`);
+    await expect(
+      addOpportunityLineItemAction(s.opp.id, form({ productId: s.product.id, quantity: "   " })),
+    ).rejects.toThrow(`REDIRECT /opportunities/${s.opp.id}`);
+    await expect(
+      addOpportunityLineItemAction(s.opp.id, form({ productId: s.product.id })),
+    ).rejects.toThrow(`REDIRECT /opportunities/${s.opp.id}`);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id).map((line) => line.quantity)).toEqual([4, 1, 1]);
+    const before = s.snapshot();
+    await expect(
+      addOpportunityLineItemAction(
+        s.opp.id,
+        form({ productId: s.product.id, quantity: "0001000001" }),
+      ),
+    ).rejects.toThrow(/notice=Quantity/);
+    expect(s.snapshot()).toBe(before);
+  });
 });
 
 function priceActor(

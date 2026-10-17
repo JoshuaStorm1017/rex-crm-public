@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
 import { opportunityLineItems, organizations, priceBookEntries, priceBooks, products } from "../db/schema";
 import { actorFor, LOCAL_ACTOR, type Actor } from "./actor";
+import { DomainError } from "./errors";
 import { createAccount } from "./accounts";
 import { LIST_VIEW_OBJECT_TYPES, LOCAL_ORG_ID, RILEY_USER_ID } from "./constants";
 import { ID_PREFIX, newId } from "./ids";
@@ -15,11 +16,12 @@ import {
   listAddableProducts,
   listLineItems,
   opportunityLineTotalCents,
+  parseLineQuantity,
 } from "./opportunityLineItems";
 import { addMember, createOrganization } from "./orgs";
 import { createProduct, deleteProduct, updateProduct } from "./products";
 import { createProfile, setFieldPermission, setObjectPermission } from "./profiles";
-import { saveOrgWideDefaults } from "./sharing";
+import { assignUserRole, createRole, saveOrgWideDefaults } from "./sharing";
 import { createUser } from "./users";
 
 const FULL = { canCreate: true, canRead: true, canUpdate: true, canDelete: true } as const;
@@ -342,6 +344,31 @@ describe("opportunity line items", () => {
     expect(err.message).not.toMatch(/39998|19999/);
   });
 
+  it("refuses the line total when the sale price cannot be read even if it can be edited", () => {
+    const s = setup();
+    const actor = seller(s.db, {
+      name: "Price Edit Only",
+      email: "price.edit@example.com",
+      username: "priceeditonly",
+      profileName: "Edit Sale Price Blind",
+      price: { canRead: false, canEdit: true },
+    });
+    const deal = createOpportunity(s.db, actor, {
+      accountId: createAccount(s.db, actor, { name: "Edit Only Co" }).id,
+      name: "Edit Only Deal",
+      stage: "Prospecting",
+      closeDate: "2026-11-04",
+    });
+    addLineItem(s.db, actor, {
+      opportunityId: deal.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    const err = refusal(() => opportunityLineTotalCents(s.db, actor, deal.id));
+    expect(err.code).toBe("FORBIDDEN");
+    expect(err.message).not.toMatch(/39998|19999|00k|006|01t/);
+  });
+
   it("shows the sale price but refuses an override when the field is not editable", () => {
     const s = setup();
     const actor = seller(s.db, {
@@ -364,6 +391,7 @@ describe("opportunity line items", () => {
     });
     expect(added.unitPriceCents).toBe(19_999);
     expect(added.totalCents).toBe(19_999);
+    expect(opportunityLineTotalCents(s.db, actor, deal.id)).toBe(19_999);
     refused(
       s,
       () =>
@@ -727,6 +755,217 @@ describe("opportunity line items", () => {
     );
     refused(s, () => deleteLineItem(s.db, LOCAL_ACTOR, line.id), "NOT_FOUND");
     expect(s.db.select().from(opportunityLineItems).all().map((row) => row.id)).toEqual([line.id]);
+  });
+
+  it("leaves a hidden product out of the total and does not reveal its price", () => {
+    const s = setup();
+    const visible = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 3,
+    });
+    const other = createProduct(s.db, LOCAL_ACTOR, { name: "Side Anvil", standardPriceCents: 500 });
+    addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: other.id,
+      quantity: 2,
+    });
+    deleteProduct(s.db, LOCAL_ACTOR, other.id);
+    const foreignOrg = createOrganization(s.db, "Foreign Catalog", LOCAL_ACTOR.userId);
+    const foreign = createProduct(s.db, actorFor(LOCAL_ACTOR.userId, foreignOrg.id), {
+      name: "Foreign Secret Anvil",
+      standardPriceCents: 100,
+    });
+    const ts = Date.now();
+    s.db.insert(opportunityLineItems).values({
+      id: newId(ID_PREFIX.opportunityLineItem),
+      orgId: LOCAL_ORG_ID,
+      opportunityId: s.opp.id,
+      productId: foreign.id,
+      quantity: 1,
+      unitPriceCents: 424_242,
+      createdAt: ts,
+      updatedAt: ts,
+      createdBy: LOCAL_ACTOR.userId,
+      updatedBy: LOCAL_ACTOR.userId,
+    }).run();
+
+    const view = listLineItems(s.db, LOCAL_ACTOR, s.opp.id);
+    expect(view.map((line) => line.id)).toEqual([visible.id]);
+    expect(view[0]?.totalCents).toBe(59_997);
+    expect(JSON.stringify(view)).not.toMatch(/424242|Side Anvil|Foreign Secret Anvil/);
+    expect(opportunityLineTotalCents(s.db, LOCAL_ACTOR, s.opp.id)).toBe(59_997);
+
+    const blind = seller(s.db, {
+      name: "No Product Read Total",
+      email: "no.read.total@example.com",
+      username: "noreadtotal",
+      profileName: "No Product Read Total",
+      price: { canRead: true, canEdit: true },
+      productRead: false,
+    });
+    const err = refusal(() => opportunityLineTotalCents(s.db, blind, s.opp.id));
+    expect(err.code).toBe("FORBIDDEN");
+    expect(err.message).not.toMatch(/59997|424242|19999|Anvil|00k|006|01t/);
+    expect(s.db.select().from(opportunityLineItems).all()).toHaveLength(3);
+  });
+
+  it("refuses a grand total that is not a safe integer and still lists each line", () => {
+    const s = setup();
+    const quantity = LINE_ITEM_MAX_QUANTITY;
+    const unitPriceCents = 5_000_000_000;
+    const lineTotalCents = quantity * unitPriceCents;
+    const first = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity,
+      unitPriceCents,
+    });
+    const second = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity,
+      unitPriceCents,
+    });
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id).map((line) => line.totalCents)).toEqual([
+      lineTotalCents,
+      lineTotalCents,
+    ]);
+    const before = s.snapshot();
+    const err = refusal(() => opportunityLineTotalCents(s.db, LOCAL_ACTOR, s.opp.id));
+    expect(err.code).toBe("INVALID_MONEY");
+    expect(err.message).not.toMatch(/e\+|9999/);
+    expect(s.snapshot()).toBe(before);
+    expect([first.id, second.id]).toHaveLength(2);
+  });
+
+  it("lets a role manager change a subordinate's lines and refuses a peer", () => {
+    const s = setup();
+    const rep = seller(s.db, {
+      name: "Rep Seller",
+      email: "rep.seller@example.com",
+      username: "repseller",
+      profileName: "Rep Seller",
+      price: { canRead: true, canEdit: true },
+    });
+    const chief = seller(s.db, {
+      name: "Chief Seller",
+      email: "chief.seller@example.com",
+      username: "chiefseller",
+      profileName: "Chief Seller",
+      price: { canRead: true, canEdit: true },
+    });
+    const peer = seller(s.db, {
+      name: "Peer Seller",
+      email: "peer.seller@example.com",
+      username: "peerseller",
+      profileName: "Peer Seller",
+      price: { canRead: true, canEdit: true },
+    });
+    const chiefRole = createRole(s.db, LOCAL_ACTOR, { name: "Chief" });
+    const repRole = createRole(s.db, LOCAL_ACTOR, { name: "Rep", parentRoleId: chiefRole.id });
+    const peerRole = createRole(s.db, LOCAL_ACTOR, { name: "Peer", parentRoleId: chiefRole.id });
+    assignUserRole(s.db, LOCAL_ACTOR, chief.userId, chiefRole.id);
+    assignUserRole(s.db, LOCAL_ACTOR, rep.userId, repRole.id);
+    assignUserRole(s.db, LOCAL_ACTOR, peer.userId, peerRole.id);
+    saveOrgWideDefaults(
+      s.db,
+      LOCAL_ACTOR,
+      LIST_VIEW_OBJECT_TYPES.map((objectType) => ({
+        objectType,
+        access: objectType === "opportunity" ? ("private" as const) : ("public_read_write" as const),
+        grantHierarchy: true,
+      })),
+    );
+    const deal = createOpportunity(s.db, rep, {
+      accountId: createAccount(s.db, rep, { name: "Rep Co" }).id,
+      name: "Rep Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-20",
+    });
+    const line = addLineItem(s.db, rep, {
+      opportunityId: deal.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    expect(listLineItems(s.db, chief, deal.id).map((row) => row.id)).toEqual([line.id]);
+    const added = addLineItem(s.db, chief, {
+      opportunityId: deal.id,
+      productId: s.product.id,
+      quantity: 1,
+      unitPriceCents: 500,
+    });
+    expect(added.totalCents).toBe(500);
+    refused(s, () => listLineItems(s.db, peer, deal.id), "NOT_FOUND");
+    refused(
+      s,
+      () => addLineItem(s.db, peer, { opportunityId: deal.id, productId: s.product.id, quantity: 1 }),
+      "NOT_FOUND",
+    );
+    refused(s, () => deleteLineItem(s.db, peer, line.id), "NOT_FOUND");
+    expect(listLineItems(s.db, rep, deal.id).map((row) => row.id)).toEqual([line.id, added.id]);
+
+    deleteLineItem(s.db, chief, line.id);
+    expect(listLineItems(s.db, rep, deal.id).map((row) => row.id)).toEqual([added.id]);
+
+    saveOrgWideDefaults(
+      s.db,
+      LOCAL_ACTOR,
+      LIST_VIEW_OBJECT_TYPES.map((objectType) => ({
+        objectType,
+        access: objectType === "opportunity" ? ("private" as const) : ("public_read_write" as const),
+        grantHierarchy: false,
+      })),
+    );
+    const before = s.snapshot();
+    refused(
+      s,
+      () => addLineItem(s.db, chief, { opportunityId: deal.id, productId: s.product.id, quantity: 1 }),
+      "NOT_FOUND",
+    );
+    refused(s, () => deleteLineItem(s.db, chief, added.id), "NOT_FOUND");
+    expect(s.snapshot()).toBe(before);
+    expect(listLineItems(s.db, rep, deal.id).map((row) => row.totalCents)).toEqual([500]);
+  });
+});
+
+describe("parseLineQuantity", () => {
+  it("keeps a whole number and strips leading zeros", () => {
+    expect(parseLineQuantity("1")).toBe(1);
+    expect(parseLineQuantity("0004")).toBe(4);
+    expect(parseLineQuantity("0001000000")).toBe(LINE_ITEM_MAX_QUANTITY);
+    expect(parseLineQuantity(String(LINE_ITEM_MAX_QUANTITY))).toBe(LINE_ITEM_MAX_QUANTITY);
+  });
+
+  it.each([
+    "0",
+    "000",
+    "0001000001",
+    String(LINE_ITEM_MAX_QUANTITY + 1),
+    "",
+    " 2",
+    "2 ",
+    "+2",
+    "4.00",
+    "1.0",
+    "1_000",
+    "0x10",
+    "0X10",
+    "1e2",
+    "1E6",
+    "0b10",
+    "0B10",
+    "0o10",
+    "0O10",
+  ])("refuses %s", (raw) => {
+    expect(() => parseLineQuantity(raw)).toThrow(DomainError);
+    try {
+      parseLineQuantity(raw);
+    } catch (error) {
+      const err = error as { code?: string; message: string };
+      expect(err.code).toBe("INVALID_QUANTITY");
+      expect(err.message).toMatch(/whole number/);
+    }
   });
 });
 

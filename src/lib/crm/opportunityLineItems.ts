@@ -42,13 +42,31 @@ function lineTotal(quantity: number, unitPriceCents: number): number {
   return total;
 }
 
+function quantityError(): DomainError {
+  return new DomainError(
+    "INVALID_QUANTITY",
+    `Quantity must be a whole number from 1 to ${LINE_ITEM_MAX_QUANTITY}`,
+  );
+}
+
 function assertQuantity(quantity: number): void {
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > LINE_ITEM_MAX_QUANTITY) {
-    throw new DomainError(
-      "INVALID_QUANTITY",
-      `Quantity must be a whole number from 1 to ${LINE_ITEM_MAX_QUANTITY}`,
-    );
+    throw quantityError();
   }
+}
+
+/**
+ * Posted quantity. Decimal digits only. `Number()` is not used on the raw
+ * text: it turns `0x10` into 16, `1e2` into 100, `1e6` into 1000000,
+ * `0b10` into 2, and `0o10` into 8.
+ */
+export function parseLineQuantity(raw: string): number {
+  if (!/^\d+$/.test(raw)) throw quantityError();
+  const digits = raw.replace(/^0+/, "") || "0";
+  if (digits.length > String(LINE_ITEM_MAX_QUANTITY).length) throw quantityError();
+  const quantity = Number(digits);
+  assertQuantity(quantity);
+  return quantity;
 }
 
 function assertUnitPrice(cents: number): void {
@@ -171,12 +189,17 @@ export function listLineItems(db: Db, actor: Actor, opportunityId: string): Line
   return linesForOpportunity(db, actor, opportunityId).map((line) => toLineView(db, actor, line));
 }
 
+/** Sum of readable line totals. A hidden sale price is refused, not returned. */
 export function opportunityLineTotalCents(
   db: Db,
   actor: Actor,
   opportunityId: string,
 ): number {
-  return linesForOpportunity(db, actor, opportunityId).reduce((sum, line) => {
+  const lines = linesForOpportunity(db, actor, opportunityId);
+  if (!seesSalePrice(db, actor)) {
+    throw new DomainError("FORBIDDEN", "You do not have permission to read the sale price");
+  }
+  return lines.reduce((sum, line) => {
     const total = lineTotal(line.row.quantity, line.row.unitPriceCents);
     return lineTotal(1, sum + total);
   }, 0);

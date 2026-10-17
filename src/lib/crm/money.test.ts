@@ -27,6 +27,16 @@ describe("parseUsdToCents", () => {
     },
   );
 
+  // Number() also accepts these: 0b10 is 2, 0o10 is 8, 0X10 is 16, 1E2 is
+  // 100, +10 is 10, and 1_000 is 1000. None of them are a dollar amount.
+  it.each(["0b10", "0o10", "0B10", "0O10", "0X10", "1E2", "+10", "+1.00", "1_000", "1_000.00", "Infinity", "NaN"])(
+    "refuses %s instead of coercing it",
+    (raw) => {
+      expect(() => parseUsdToCents(raw)).toThrow(DomainError);
+      expect(() => parseUsdToCents(raw)).toThrow(/number/);
+    },
+  );
+
   it("keeps tenths and hundredths exact, including a padded dollar amount", () => {
     expect(parseUsdToCents("0.01")).toBe(1);
     expect(parseUsdToCents("0.10")).toBe(10);

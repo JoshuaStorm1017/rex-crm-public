@@ -715,3 +715,11 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 on Node 22.23.3. 108 files, 1261/1261. Next.js 16.3.5 build. No browser or curl pass. Chrome DevTools did not connect.
 - **Not done:** lines do not roll into Opportunity Amount. No edit of an existing line.
 - **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.
+
+## 2026-10-16 20:22 EDT — refuse coerced quantities and a hidden line total
+
+- **What:** `addOpportunityLineItemAction` parses quantity as decimal digits. `0x10`, `1e2`, `1e6`, `0b10`, and `0o10` redirect with a quantity notice and write nothing. `opportunityLineTotalCents` throws `FORBIDDEN` when the actor cannot read the sale price, including when that field is still editable. An actor who can read it and cannot edit it still gets the cent total. The QE tests are kept.
+- **Why:** `Number("0x10")` stored 16 units with a success redirect. The line total returned the stored sale price to an actor whose line view has a null price.
+- **Verify:** `npm run verify` exit 0 on Node 22.23.3. 108 files, 1272/1272. Next.js 16.3.5 build. No browser or curl pass. Chrome DevTools did not connect.
+- **Not done:** lines do not roll into Opportunity Amount. No edit of an existing line. The opportunity page does not call `opportunityLineTotalCents`.
+- **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.

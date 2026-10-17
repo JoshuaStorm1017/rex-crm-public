@@ -2212,3 +2212,19 @@ fresh verification evidence for each slice.
   an existing line. `opportunityLineTotalCents` still returns the raw
   sum to an actor who cannot read the sale price; the page does not
   call it.
+
+## 2026-10-16 — quantity text and a hidden line total (lane B)
+
+- WORKS (verified 2026-10-16 20:22 EDT, `npm run verify` exit 0 on Node
+  22.23.3, 1272/1272 tests across 108 files, Next.js 16.3.5 build):
+  a posted quantity of `0x10`, `1e2`, `1e6`, `0b10`, or `0o10` redirects
+  with a quantity notice and writes no row. `1000001` still refuses.
+  `opportunityLineTotalCents` throws `FORBIDDEN` for an actor who cannot
+  read the sale price, including when that field can still be edited.
+  The message does not contain the cent amount. The same call returns
+  the total when the actor can read the price and cannot edit it. The
+  QE tests are kept. No browser or curl pass. Chrome DevTools did not
+  connect.
+- Not done: line items do not roll into Opportunity Amount. No edit of
+  an existing line. The opportunity page does not call
+  `opportunityLineTotalCents`.
