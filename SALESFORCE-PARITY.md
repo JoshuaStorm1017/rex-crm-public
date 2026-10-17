@@ -202,10 +202,10 @@ tracks the gap. It does not block other rows.
 - **Source:** Files and Salesforce CRM Content; global search; field history; setup audit trail.
 - **Expected:** Files attach to a record in the same org. Search returns only records the actor may read. Field history stores old and new values. Setup changes are audited.
 - **Dependencies:** IAM-ENFORCE-001.
-- **Status:** PARTIAL. Search is `LIKE` on name, email, company, and task subject. No files, no field history, no setup audit.
-- **Implementation:** `src/lib/crm/search.ts`.
+- **Status:** PARTIAL. Search is `LIKE` on name, email, company, and task subject. Account create, update, and delete write field history (old, new, actor, time) from one function, and the account page lists it. A rejected account save writes nothing. Another org cannot read the events. No files, no setup audit, and no history on the other objects yet.
+- **Implementation:** `src/lib/crm/search.ts`. Account history: `src/lib/crm/audit.ts`, `listAccountHistory` in `src/lib/crm/accounts.ts`.
 - **Acceptance:** A file uploaded on an account is invisible to another org and to a user without record access. Search for a unique account name in org B returns nothing for org A.
-- **Latest:** 2026-10-10. Search for another org's account name returns nothing (`orgs.test.ts`). Browser search `Acme` returned the four local matches. Not re-checked for files or history, which still do not exist.
+- **Latest:** 2026-10-16. Account history tests cover old/new/actor/time, a rejected save, and org isolation (`audit.test.ts`). The account page renders the history list. Files and setup audit still do not exist. Search was not re-run.
 - **Gaps:** Not SOSL. `%` and `_` are stripped.
 
 ### PLAT-META-012 Accessibility and mobile
@@ -293,10 +293,10 @@ tracks the gap. It does not block other rows.
 - **Source:** Shield Platform Encryption, Event Monitoring, Field Audit Trail, consent objects, backup. Architect doc: per-tenant keys, TLS, zero trust. Those are Salesforce's controls, not Rex's.
 - **Expected:** Security-relevant writes append an audit row. A backup file restores a known dataset. Encryption-at-rest has an interface even when the local key is a dev key. Consent is stored and honored by export and messaging.
 - **Dependencies:** PLAT-ORG-001.
-- **Status:** NOT STARTED. No audit table. No backup command. SQLite file is plaintext.
-- **Implementation:** —
+- **Status:** PARTIAL. `audit_events` records account create, update, and delete (old, new, actor, time) in the same transaction as the row write. A rejected save writes nothing. Org B cannot read org A's events. No backup command. SQLite file is plaintext.
+- **Implementation:** `src/lib/crm/audit.ts`, `listAccountHistory` in `src/lib/crm/accounts.ts`, `drizzle/0055_audit_events.sql`.
 - **Acceptance:** Change a field, see old/new/actor/time. Copy the db, delete a row, restore, row is back and a checksum of the fixture matches.
-- **Latest:** not run.
+- **Latest:** 2026-10-16. Account create, update, and delete write the audit row; a rejected save does not; org B cannot read org A's events (`audit.test.ts`). Backup and encryption were not run.
 - **Gaps:** Not Shield. Not customer-managed keys. Not a certified boundary. Local proof will say so.
 
 ### IAM-ENFORCE-001 One policy for every surface

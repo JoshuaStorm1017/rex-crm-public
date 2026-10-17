@@ -1,13 +1,14 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
-import { opportunityLineItems, organizations, priceBookEntries, priceBooks, products } from "../db/schema";
+import { opportunityLineItems, organizations, priceBookEntries, priceBooks, products, users } from "../db/schema";
 import { actorFor, LOCAL_ACTOR, type Actor } from "./actor";
 import { DomainError } from "./errors";
 import { createAccount } from "./accounts";
 import { LIST_VIEW_OBJECT_TYPES, LOCAL_ORG_ID, RILEY_USER_ID } from "./constants";
 import { ID_PREFIX, newId } from "./ids";
 import { createOpportunity, deleteOpportunity } from "./opportunities";
+import { undeleteRecord } from "./recycle";
 import {
   addLineItem,
   deleteLineItem,
@@ -21,7 +22,7 @@ import {
 import { addMember, createOrganization } from "./orgs";
 import { createProduct, deleteProduct, updateProduct } from "./products";
 import { createProfile, setFieldPermission, setObjectPermission } from "./profiles";
-import { assignUserRole, createRole, saveOrgWideDefaults } from "./sharing";
+import { assignUserRole, createRole, createSharingRule, saveOrgWideDefaults, setOrgWideDefault } from "./sharing";
 import { createUser } from "./users";
 
 const FULL = { canCreate: true, canRead: true, canUpdate: true, canDelete: true } as const;
@@ -964,6 +965,228 @@ describe("opportunity line items", () => {
     refused(s, () => deleteLineItem(s.db, chief, added.id), "NOT_FOUND");
     expect(s.snapshot()).toBe(before);
     expect(listLineItems(s.db, rep, deal.id).map((row) => row.totalCents)).toEqual([500]);
+  });
+
+  it("lets a non-owner edit lines only while the org default is public read/write", () => {
+    const s = setup();
+    const actor = seller(s.db, {
+      name: "Collaborator",
+      email: "collaborator.lines@example.com",
+      username: "collablines",
+      profileName: "Collaborator Lines",
+      price: { canRead: true, canEdit: true },
+    });
+    setOrgWideDefault(s.db, LOCAL_ACTOR, "opportunity", "public_read_write", false);
+    const added = addLineItem(s.db, actor, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 2,
+      unitPriceCents: 500,
+    });
+    expect(added.createdBy).toBe(actor.userId);
+    expect(added.orgId).toBe(LOCAL_ORG_ID);
+    expect(listLineItems(s.db, actor, s.opp.id)[0]).toMatchObject({
+      id: added.id,
+      quantity: 2,
+      unitPriceCents: 500,
+      totalCents: 1000,
+    });
+
+    setOrgWideDefault(s.db, LOCAL_ACTOR, "opportunity", "public_read", false);
+    expect(listLineItems(s.db, actor, s.opp.id).map((line) => line.id)).toEqual([added.id]);
+    refused(
+      s,
+      () => addLineItem(s.db, actor, { opportunityId: s.opp.id, productId: s.product.id, quantity: 1 }),
+      "FORBIDDEN",
+    );
+    refused(s, () => deleteLineItem(s.db, actor, added.id), "FORBIDDEN");
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id).map((line) => line.totalCents)).toEqual([1000]);
+  });
+
+  it("follows a sharing rule and hides deals the rule does not grant", () => {
+    const s = setup();
+    const reader = seller(s.db, {
+      name: "Southwest Seller",
+      email: "southwest.lines@example.com",
+      username: "southwestlines",
+      profileName: "Southwest Lines",
+      price: { canRead: true, canEdit: true },
+    });
+    const child = seller(s.db, {
+      name: "Southwest Rep",
+      email: "southwest.rep.lines@example.com",
+      username: "southwestreplines",
+      profileName: "Southwest Rep Lines",
+      price: { canRead: true, canEdit: true },
+    });
+    const stranger = seller(s.db, {
+      name: "Northeast Seller",
+      email: "northeast.lines@example.com",
+      username: "northeastlines",
+      profileName: "Northeast Lines",
+      price: { canRead: true, canEdit: true },
+    });
+    saveOrgWideDefaults(
+      s.db,
+      LOCAL_ACTOR,
+      LIST_VIEW_OBJECT_TYPES.map((objectType) => ({
+        objectType,
+        access: objectType === "opportunity" ? ("private" as const) : ("public_read_write" as const),
+        grantHierarchy: false,
+      })),
+    );
+    const southwest = createRole(s.db, LOCAL_ACTOR, { name: "Southwest Lines" });
+    const repRole = createRole(s.db, LOCAL_ACTOR, { name: "Southwest Rep Lines", parentRoleId: southwest.id });
+    const northeast = createRole(s.db, LOCAL_ACTOR, { name: "Northeast Lines" });
+    assignUserRole(s.db, LOCAL_ACTOR, reader.userId, southwest.id);
+    assignUserRole(s.db, LOCAL_ACTOR, child.userId, repRole.id);
+    assignUserRole(s.db, LOCAL_ACTOR, stranger.userId, northeast.id);
+
+    const sharedLine = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    const secret = createProduct(s.db, LOCAL_ACTOR, { name: "Secret Helmet", standardPriceCents: 4242 });
+    const hidden = createOpportunity(s.db, LOCAL_ACTOR, {
+      accountId: createAccount(s.db, LOCAL_ACTOR, { name: "Seattle Co" }).id,
+      name: "Seattle Secret",
+      stage: "Qualification",
+      closeDate: "2026-12-01",
+    });
+    const hiddenLine = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: hidden.id,
+      productId: secret.id,
+      quantity: 1,
+    });
+    createSharingRule(s.db, LOCAL_ACTOR, {
+      name: "Prospecting lines",
+      objectType: "opportunity",
+      access: "read",
+      shareWithRoleId: southwest.id,
+      criteria: [{ field: "stage", operator: "equals", value: "Prospecting" }],
+    });
+
+    expect(listLineItems(s.db, reader, s.opp.id)).toMatchObject([
+      {
+        id: sharedLine.id,
+        productName: "Anvil Mk II",
+        quantity: 2,
+        unitPriceCents: 19_999,
+        totalCents: 39_998,
+      },
+    ]);
+    expect(opportunityLineTotalCents(s.db, reader, s.opp.id)).toBe(39_998);
+    const addErr = refusal(() =>
+      addLineItem(s.db, reader, { opportunityId: s.opp.id, productId: s.product.id, quantity: 1 }),
+    );
+    expect(addErr.code).toBe("FORBIDDEN");
+    expect(addErr.message).not.toMatch(/Seattle Secret|Secret Helmet|4242|00k|006|01t/);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id).map((line) => line.id)).toEqual([sharedLine.id]);
+    refused(s, () => deleteLineItem(s.db, reader, sharedLine.id), "FORBIDDEN");
+
+    const hiddenErr = refusal(() => listLineItems(s.db, reader, hidden.id));
+    expect(hiddenErr.code).toBe("NOT_FOUND");
+    expect(hiddenErr.message).not.toMatch(/Seattle Secret|Secret Helmet|4242|Anvil/);
+    refused(
+      s,
+      () => addLineItem(s.db, reader, { opportunityId: hidden.id, productId: secret.id, quantity: 1 }),
+      "NOT_FOUND",
+    );
+    refused(s, () => deleteLineItem(s.db, reader, hiddenLine.id), "NOT_FOUND");
+    refused(s, () => listLineItems(s.db, child, s.opp.id), "NOT_FOUND");
+    refused(s, () => listLineItems(s.db, stranger, s.opp.id), "NOT_FOUND");
+    refused(s, () => deleteLineItem(s.db, stranger, sharedLine.id), "NOT_FOUND");
+    refused(s, () => deleteLineItem(s.db, child, hiddenLine.id), "NOT_FOUND");
+
+    createSharingRule(s.db, LOCAL_ACTOR, {
+      name: "Prospecting lines edit",
+      objectType: "opportunity",
+      access: "read_write",
+      shareWithRoleId: southwest.id,
+      criteria: [{ field: "stage", operator: "equals", value: "Prospecting" }],
+    });
+    const added = addLineItem(s.db, reader, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 1,
+      unitPriceCents: 500,
+    });
+    expect(added).toMatchObject({ createdBy: reader.userId, orgId: LOCAL_ORG_ID, totalCents: 500 });
+    deleteLineItem(s.db, reader, sharedLine.id);
+    expect(listLineItems(s.db, reader, s.opp.id).map((line) => line.id)).toEqual([added.id]);
+    refused(s, () => listLineItems(s.db, child, s.opp.id), "NOT_FOUND");
+    refused(
+      s,
+      () => addLineItem(s.db, child, { opportunityId: s.opp.id, productId: s.product.id, quantity: 1 }),
+      "NOT_FOUND",
+    );
+    refused(s, () => deleteLineItem(s.db, child, added.id), "NOT_FOUND");
+    refused(s, () => listLineItems(s.db, reader, hidden.id), "NOT_FOUND");
+    expect(s.db.select().from(opportunityLineItems).all().map((row) => row.id)).toEqual([
+      hiddenLine.id,
+      added.id,
+    ]);
+  });
+
+  it("shows the same lines after the opportunity is restored", () => {
+    const s = setup();
+    const line = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 3,
+    });
+    deleteOpportunity(s.db, LOCAL_ACTOR, s.opp.id);
+    refused(s, () => listLineItems(s.db, LOCAL_ACTOR, s.opp.id), "NOT_FOUND");
+    refused(
+      s,
+      () => addLineItem(s.db, LOCAL_ACTOR, { opportunityId: s.opp.id, productId: s.product.id, quantity: 1 }),
+      "NOT_FOUND",
+    );
+    refused(s, () => deleteLineItem(s.db, LOCAL_ACTOR, line.id), "NOT_FOUND");
+    undeleteRecord(s.db, LOCAL_ACTOR, "opportunity", s.opp.id);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)).toMatchObject([
+      { id: line.id, quantity: 3, unitPriceCents: 19_999, totalCents: 59_997, productName: "Anvil Mk II" },
+    ]);
+    deleteLineItem(s.db, LOCAL_ACTOR, line.id);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)).toEqual([]);
+  });
+
+  it("refuses a member whose login was removed and writes nothing", () => {
+    const s = setup();
+    const actor = seller(s.db, {
+      name: "Disabled Seller",
+      email: "disabled.lines@example.com",
+      username: "disabledlines",
+      profileName: "Disabled Lines",
+      price: { canRead: true, canEdit: true },
+    });
+    const deal = createOpportunity(s.db, actor, {
+      accountId: createAccount(s.db, actor, { name: "Disabled Co" }).id,
+      name: "Disabled Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-15",
+    });
+    const line = addLineItem(s.db, actor, {
+      opportunityId: deal.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    s.db.update(users).set({ passwordHash: null }).where(eq(users.id, actor.userId)).run();
+    const seen = refusal(() => listLineItems(s.db, actor, deal.id));
+    expect(seen.code).toBe("FORBIDDEN");
+    expect(seen.message).not.toMatch(/Anvil|19999|00k|006/);
+    refused(
+      s,
+      () => addLineItem(s.db, actor, { opportunityId: deal.id, productId: s.product.id, quantity: 1 }),
+      "FORBIDDEN",
+    );
+    refused(s, () => deleteLineItem(s.db, actor, line.id), "FORBIDDEN");
+    refused(s, () => opportunityLineTotalCents(s.db, actor, deal.id), "FORBIDDEN");
+    const catalog = refusal(() => listAddableProducts(s.db, actor));
+    expect(catalog.code).toBe("FORBIDDEN");
+    expect(catalog.message).not.toMatch(/Anvil/);
+    expect(listLineItems(s.db, LOCAL_ACTOR, deal.id).map((row) => row.id)).toEqual([line.id]);
   });
 });
 

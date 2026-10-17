@@ -739,3 +739,35 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 on Node 22.23.3. 110 files, 1340/1340 tests, Next.js 16.3.5 build. No browser or curl pass. Chrome DevTools did not connect.
 - **Not done:** lines do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages yet.
 - **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.
+
+## 2026-10-16 20:00 EDT — lane A, account audit log
+
+- **What:** `audit_events` (migration `0055_audit_events`). `recordAudit` is the only insert. Account create, update, and delete call it in the same transaction as the row write, with old values, new values, actor, and time. `listAccountHistory` is org-scoped, requires account read, and drops hidden fields and unreadable parents. The account page renders that list.
+- **Why:** Field history is the platform spine the registry was for. A rejected save must not invent an event, and org B must not read org A's events.
+- **Tests:** `audit.test.ts` (create/update/delete payload, rejected saves leave both tables unchanged, forged same-record-id isolation, private account, hidden phone) and `history.page.test.ts` (History list on the account page; hidden phone absent). Upgrade from `0054_quotes` adds the table and keeps the existing account.
+- **Mutation, restored before verify:** dropping the org filter showed "Leaked From B"; dropping the account-read check showed a private account and the other org's name; dropping field redaction showed the hidden phone. All three failed `audit.test.ts` or the page test.
+- **Verify:** `npm run verify` exit 0 at 20:00 EDT. 111 files, 1242 tests, Next.js 16.3.5 build. The shell `node` was v24.2.0; `.nvmrc` says 22 and no Node 22 binary was on this machine. No browser pass.
+- **Next:** Read-only API v0: `GET /api/v1/objects/{apiName}/records[/{id}]` through the existing actor, profile, field security, and sharing checks, plus `docs/api/CONVENTIONS.md`. A forged other-org id returns the same body as a missing id.
+
+## 2026-10-16 20:31 EDT — lane A, delete audit rolls related rows back
+
+- **What:** `deleteAccount` now soft-deletes related tasks and removes custom values on `tx`, inside the same transaction as the account soft-delete and `recordAudit`.
+- **Why:** Gate 2 forced the delete audit insert to fail. The account stayed live, its task was deleted, and its custom value was gone, because those cleanups ran before the transaction. Removing the update transaction also survived the suite.
+- **Tests:** create, update, and delete audit-insert failures leave the account, task, custom-value, and audit tables unchanged. Cleanup left outside the transaction failed the delete test (account live, task deleted, value gone). Removing the update transaction failed the update test (phone changed). Both probes were reverted.
+- **Verify:** `npm run verify` exit 0 at 20:31 EDT. 111 files, 1252 tests, Next.js 16.3.5 build. The shell `node` was v24.2.0; `.nvmrc` says 22. No UI change. No browser pass.
+- **Next:** Read-only API v0, after this fix ships.
+
+## 2026-10-16 20:55 EDT — lane A, Node 22 re-check of the delete rollback
+
+- **What:** No code change. Re-ran the gate fix on Node 22.23.3: related-task and custom-value cleanup stay inside `deleteAccount`'s transaction, and the audit-insert failure tests cover create, update, and delete.
+- **Why:** Gate 2's "remove update transaction" and "remove delete transaction" mutants had survived the suite. Replacing both `db.transaction` wrappers with direct `db` calls failed the update test (phone became 555-0199) and the delete test (account and task soft-deleted, custom value gone). Create rollback still passed. The wrappers were put back; `git diff` on `accounts.ts` was empty.
+- **Verify:** `npm run verify` exit 0 at 20:54 EDT on Node v22.23.3. typegen, tsc, eslint, 111 files, 1252 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No UI change. No browser pass.
+- **Next:** Read-only API v0, after this fix ships.
+
+## 2026-10-16 21:21 EDT — merge origin/main (account audit) into the line-item branch
+
+- **What:** Merged `origin/main` (`ec5cf55`, lane A's account audit log and migration `0055_audit_events`) into this branch. Conflicts were only in `STATUS.md` and `REX-LOG.md`. Both lanes' entries are kept. No product code was rewritten.
+- **Why:** Main moved while the gates ran. The line-item branch has to include the audit migration so verify stays green.
+- **Verify:** `npm run verify` exit 0 on Node 22.23.3. 112 files, 1369/1369 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser or curl pass. Chrome DevTools did not connect.
+- **Not done:** lines do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages yet.
+- **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.

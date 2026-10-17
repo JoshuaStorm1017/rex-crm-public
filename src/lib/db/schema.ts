@@ -961,3 +961,28 @@ export const campaignMembers = sqliteTable(
       .where(sql`contact_id is not null`),
   ],
 );
+
+/** Field history for a record. Writes go through `recordAudit` only. */
+export const auditEvents = sqliteTable(
+  "audit_events",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    actorId: text("actor_id")
+      .notNull()
+      .references(() => users.id),
+    objectKey: text("object_key").notNull(),
+    recordId: text("record_id").notNull(),
+    action: text("action").notNull(),
+    changesJson: text("changes_json").notNull(),
+    at: integer("at").notNull(),
+  },
+  (table) => [
+    index("audit_events_org_record_idx").on(
+      table.orgId,
+      table.objectKey,
+      table.recordId,
+      table.at,
+    ),
+  ],
+);

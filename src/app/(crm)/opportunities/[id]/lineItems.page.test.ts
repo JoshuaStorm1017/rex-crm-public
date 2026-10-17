@@ -21,6 +21,7 @@ import { addLineItem } from "@/lib/crm/opportunityLineItems";
 import { addMember, createOrganization } from "@/lib/crm/orgs";
 import { createProfile, setFieldPermission, setObjectPermission } from "@/lib/crm/profiles";
 import { createProduct, updateProduct } from "@/lib/crm/products";
+import { assignUserRole, createRole, createSharingRule, setOrgWideDefault } from "@/lib/crm/sharing";
 import { createUser, getUser, type PublicUser } from "@/lib/crm/users";
 import { getDb, openMemoryDb, type Db } from "@/lib/db/client";
 import OpportunityDetailPage from "./page";
@@ -375,5 +376,68 @@ describe("opportunity product related list", () => {
     createProduct(db, actorFor(operator.id, other.id), { name: "Foreign Anvil", standardPriceCents: 500 });
     act(operator);
     await expect(html(foreign.id)).rejects.toThrow("NOT_FOUND");
+  });
+
+  it("shows a shared deal without edit controls and hides a deal the rule misses", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const product = createProduct(db, LOCAL_ACTOR, { name: "Painted Anvil", standardPriceCents: PRICE });
+    const secret = createProduct(db, LOCAL_ACTOR, { name: "Secret Helmet", standardPriceCents: 4242 });
+    const shared = ownDeal(db, LOCAL_ACTOR, "Shared Restock");
+    const hidden = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: createAccount(db, LOCAL_ACTOR, { name: "Seattle Co" }).id,
+      name: "Seattle Secret",
+      stage: "Qualification",
+      closeDate: "2026-12-01",
+    });
+    addLineItem(db, LOCAL_ACTOR, { opportunityId: shared.id, productId: product.id, quantity: 2 });
+    addLineItem(db, LOCAL_ACTOR, { opportunityId: hidden.id, productId: secret.id, quantity: 1 });
+    const reader = member(db, {
+      name: "Southwest Reader",
+      username: "southwestreader",
+      canUpdate: true,
+      canDelete: true,
+      productRead: true,
+      price: { canRead: true, canEdit: true },
+    });
+    setOrgWideDefault(db, LOCAL_ACTOR, "opportunity", "private", false);
+    const role = createRole(db, LOCAL_ACTOR, { name: "Southwest Page" });
+    assignUserRole(db, LOCAL_ACTOR, reader.user.id, role.id);
+    createSharingRule(db, LOCAL_ACTOR, {
+      name: "Prospecting page",
+      objectType: "opportunity",
+      access: "read",
+      shareWithRoleId: role.id,
+      criteria: [{ field: "stage", operator: "equals", value: "Prospecting" }],
+    });
+    act(reader.user);
+    const readOnly = await html(shared.id);
+    expect(readOnly).toContain("Products (1)");
+    expect(readOnly).toContain("Painted Anvil");
+    expect(readOnly).toContain("$1,234.56");
+    expect(readOnly).toContain("$2,469.12");
+    expect(readOnly).toContain(DENIED);
+    expect(readOnly).not.toContain("Add product");
+    expect(readOnly).not.toContain("Remove");
+    expect(readOnly).not.toContain('name="unitPrice"');
+    expect(readOnly).not.toContain("Secret Helmet");
+    expect(readOnly).not.toContain("$42.42");
+    await expect(html(hidden.id)).rejects.toThrow(/^NOT_FOUND$/);
+
+    createSharingRule(db, LOCAL_ACTOR, {
+      name: "Prospecting page edit",
+      objectType: "opportunity",
+      access: "read_write",
+      shareWithRoleId: role.id,
+      criteria: [{ field: "stage", operator: "equals", value: "Prospecting" }],
+    });
+    const editable = await html(shared.id);
+    expect(editable).toContain("Add product");
+    expect(editable).toContain("Remove");
+    expect(editable).toContain('name="unitPrice"');
+    expect(editable).not.toContain(DENIED);
+    expect(editable).not.toContain("Seattle Secret");
+    expect(editable).not.toContain("$42.42");
+    await expect(html(hidden.id)).rejects.toThrow(/^NOT_FOUND$/);
   });
 });
