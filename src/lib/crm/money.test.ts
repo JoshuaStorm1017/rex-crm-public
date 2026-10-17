@@ -6,12 +6,53 @@ describe("parseUsdToCents", () => {
   it("parses dollars into integer cents", () => {
     expect(parseUsdToCents("10")).toBe(1000);
     expect(parseUsdToCents("$1,234.56")).toBe(123456);
+    expect(parseUsdToCents("10.5")).toBe(1050);
+    expect(parseUsdToCents("$0.00")).toBe(0);
     expect(parseUsdToCents("")).toBeUndefined();
+    expect(parseUsdToCents("   ")).toBeUndefined();
+    expect(parseUsdToCents(undefined)).toBeUndefined();
   });
 
   it("rejects negatives and garbage", () => {
     expect(() => parseUsdToCents("-1")).toThrow(DomainError);
-    expect(() => parseUsdToCents("nope")).toThrow(DomainError);
+    expect(() => parseUsdToCents("-1")).toThrow(/cannot be negative/);
+    expect(() => parseUsdToCents("nope")).toThrow(/must be a number/);
+  });
+
+  it.each(["$", ",", "1.999", "0x10", "1e2", "10.", ".5"])(
+    "refuses %s instead of coercing it",
+    (raw) => {
+      expect(() => parseUsdToCents(raw)).toThrow(DomainError);
+      expect(() => parseUsdToCents(raw)).toThrow(/number/);
+    },
+  );
+
+  // Number() also accepts these: 0b10 is 2, 0o10 is 8, 0X10 is 16, 1E2 is
+  // 100, +10 is 10, and 1_000 is 1000. None of them are a dollar amount.
+  it.each(["0b10", "0o10", "0B10", "0O10", "0X10", "1E2", "+10", "+1.00", "1_000", "1_000.00", "Infinity", "NaN"])(
+    "refuses %s instead of coercing it",
+    (raw) => {
+      expect(() => parseUsdToCents(raw)).toThrow(DomainError);
+      expect(() => parseUsdToCents(raw)).toThrow(/number/);
+    },
+  );
+
+  it("keeps tenths and hundredths exact, including a padded dollar amount", () => {
+    expect(parseUsdToCents("0.01")).toBe(1);
+    expect(parseUsdToCents("0.10")).toBe(10);
+    expect(parseUsdToCents("0.29")).toBe(29);
+    expect(parseUsdToCents("19.99")).toBe(1999);
+    expect(parseUsdToCents("  $1,234.56  ")).toBe(123456);
+  });
+
+  it("rejects a dollar sign on a negative and an amount past a safe integer", () => {
+    expect(() => parseUsdToCents("-$1.00")).toThrow(DomainError);
+    expect(() => parseUsdToCents("-$1.00")).toThrow(/cannot be negative/);
+    expect(() => parseUsdToCents("$-1.00")).toThrow(/cannot be negative/);
+    expect(() => parseUsdToCents("90071992547410.00")).toThrow(/too large/);
+    expect(() => parseUsdToCents("90071992547409.99")).toThrow(/too large/);
+    expect(parseUsdToCents("90071992547409.91")).toBe(9_007_199_254_740_991);
+    expect(() => parseUsdToCents("90071992547409.92")).toThrow(/too large/);
   });
 });
 

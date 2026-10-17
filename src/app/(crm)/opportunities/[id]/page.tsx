@@ -10,6 +10,7 @@ import { AuditHistory } from "@/components/AuditHistory";
 import { CustomFieldsSection } from "@/components/CustomFieldsSection";
 import { ChangeOwnerLink } from "@/components/ChangeOwnerLink";
 import { DeleteButton } from "@/components/DeleteButton";
+import { OpportunityLineItems } from "@/components/OpportunityLineItems";
 import { TasksRelatedList } from "@/components/TasksRelatedList";
 import { getAccount } from "@/lib/crm/accounts";
 import { CONTACT_ROLES } from "@/lib/crm/constants";
@@ -19,7 +20,14 @@ import { formatUsd } from "@/lib/crm/money";
 import { listOpportunityHistory, readOpportunity } from "@/lib/crm/opportunities";
 import { listOpportunityContactRoles } from "@/lib/crm/opportunityContactRoles";
 import { canChangeOwner } from "@/lib/crm/ownership";
-import { canAccessRecord, canPerform, presentRecord } from "@/lib/crm/permissions";
+import { listAddableProducts, listLineItems } from "@/lib/crm/opportunityLineItems";
+import {
+  canAccessRecord,
+  canPerform,
+  canReadField,
+  formFieldAllowed,
+  presentRecord,
+} from "@/lib/crm/permissions";
 import { recordView } from "@/lib/crm/recentlyViewed";
 import { listTasksForRecord, withTaskEditAccess } from "@/lib/crm/tasks";
 import { requireActor } from "@/lib/crm/currentUser";
@@ -73,6 +81,24 @@ export default async function OpportunityDetailPage({
   );
   const addRole = addOpportunityContactRoleAction.bind(null, opportunity.id);
   const relatedTasks = listTasksForRecord(db, actor, "opportunity", opportunity.id);
+  const showSalePrice = canReadField(db, actor, "product", "standardPriceCents");
+  const canSetSalePrice =
+    showSalePrice && formFieldAllowed(db, actor, "product", "standardPrice");
+  const canReadProducts = canPerform(db, actor, "product", "read");
+  const lineItems = listLineItems(db, actor, opportunity.id).map((line) => ({
+    id: line.id,
+    productId: line.productId,
+    productName: line.productName,
+    quantity: line.quantity,
+    unitPriceCents: showSalePrice ? line.unitPriceCents : null,
+    totalCents: showSalePrice ? line.totalCents : null,
+  }));
+  const productChoices = canReadProducts
+    ? listAddableProducts(db, actor).map((product) => ({
+        id: product.id,
+        name: product.name || "—",
+      }))
+    : [];
 
   return (
     <div className="space-y-6">
@@ -305,6 +331,16 @@ export default async function OpportunityDetailPage({
           )}
         </div>
       </section>
+
+      <OpportunityLineItems
+        opportunityId={opportunity.id}
+        lines={lineItems}
+        products={productChoices}
+        canEdit={canEdit}
+        canReadProducts={canReadProducts}
+        showSalePrice={showSalePrice}
+        canSetSalePrice={canSetSalePrice}
+      />
 
       <TasksRelatedList
         objectType="opportunity"

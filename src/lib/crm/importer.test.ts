@@ -78,6 +78,34 @@ describe("importAccountsCsv", () => {
     });
   });
 
+  it("reports coerced revenue as a bad row and does not store it", () => {
+    const db = openMemoryDb().db;
+    const before = snap(db);
+    const result = importAccountsCsv(
+      db,
+      LOCAL_ACTOR,
+      [
+        "Account Name,Annual Revenue",
+        "Hex Co,0x10",
+        "Dollar Co,$",
+        "Round Co,1.999",
+        "Sci Co,1e2",
+        "Kept Co,\"$1,250.50\"",
+      ].join("\n"),
+    );
+    expect(result.created.map((row) => row.row)).toEqual([6]);
+    expect(result.errors.map((row) => row.row)).toEqual([2, 3, 4, 5]);
+    for (const error of result.errors) {
+      expect(error.message).toMatch(/Amount/);
+      expect(error.message).not.toMatch(/001/);
+    }
+    const rows = db.select().from(accounts).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ name: "Kept Co", annualRevenueCents: 125050 });
+    expect(snap(db)).not.toBe(before);
+    expect(JSON.stringify(rows)).not.toMatch(/Hex Co|Dollar Co|Round Co|Sci Co/);
+  });
+
   it("reports a row with more values than the header and writes nothing", () => {
     const db = openMemoryDb().db;
     const before = snap(db);

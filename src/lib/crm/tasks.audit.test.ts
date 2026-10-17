@@ -1595,4 +1595,71 @@ describe("task audit log", () => {
       "Listed call",
     );
   });
+
+  it("hides an opportunity name, amount, and id when the profile cannot read that deal", () => {
+    const db = memory();
+    const quarry = account(db, LOCAL_ACTOR, "Name Co");
+    const deal = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: quarry.id,
+      name: "Qxsecretopp",
+      stage: "Prospecting",
+      closeDate: "2026-12-15",
+      amountCents: 777701,
+      description: "Deal body secret",
+    });
+    const task = createTask(db, LOCAL_ACTOR, {
+      name: "Follow the deal",
+      relatedObjectType: "opportunity",
+      relatedRecordId: deal.id,
+      description: "Task note stays",
+    });
+    const profileId = createProfile(db, LOCAL_ACTOR, "No Opp Name");
+    for (const objectType of ["task", "account", "opportunity"] as const) {
+      setObjectPermission(db, LOCAL_ACTOR, profileId, objectType, {
+        canCreate: false,
+        canRead: true,
+        canUpdate: false,
+        canDelete: false,
+      });
+    }
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "opportunity", "name", {
+      canRead: false,
+      canEdit: false,
+    });
+    const user = createUser(db, {
+      name: "Opp Name Reader",
+      email: "opp.name.reader@example.com",
+      username: "oppnamereader",
+      password: "long-enough",
+    });
+    addMember(db, LOCAL_ORG_ID, user.id, "member", profileId);
+    const reader = actorFor(user.id);
+
+    const hiddenName = JSON.stringify(listTaskHistory(db, reader, task.id));
+    expect(hiddenName).toContain("Follow the deal");
+    expect(hiddenName).toContain("Task note stays");
+    expect(hiddenName).toContain("Opportunity");
+    expect(hiddenName).not.toContain("Qxsecretopp");
+    expect(hiddenName).not.toContain(deal.id);
+    expect(hiddenName).not.toContain("777701");
+    expect(hiddenName).not.toContain("$7,777.01");
+    expect(hiddenName).not.toContain("Deal body secret");
+    expect(JSON.stringify(listTaskHistory(db, LOCAL_ACTOR, task.id))).toContain("Qxsecretopp");
+
+    setObjectPermission(db, LOCAL_ACTOR, profileId, "opportunity", {
+      canCreate: false,
+      canRead: false,
+      canUpdate: false,
+      canDelete: false,
+    });
+    const blind = JSON.stringify(listTaskHistory(db, reader, task.id));
+    expect(blind).toContain("Follow the deal");
+    expect(blind).toContain("Task note stays");
+    expect(blind).not.toContain("Qxsecretopp");
+    expect(blind).not.toContain(deal.id);
+    expect(blind).not.toContain("777701");
+    expect(blind).not.toContain("$7,777.01");
+    expect(blind).not.toContain("Deal body secret");
+    expect(JSON.stringify(listTaskHistory(db, LOCAL_ACTOR, task.id))).toContain("Qxsecretopp");
+  });
 });
