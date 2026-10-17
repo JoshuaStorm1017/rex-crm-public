@@ -1221,8 +1221,20 @@ describe("contact audit log", () => {
     const before = dump(db);
     expectCode(() => convertLead(db, LOCAL_ACTOR, blocked.id), "VALIDATION_RULE");
     expect(dump(db)).toEqual(before);
-    expect(JSON.stringify(db.select().from(auditEvents).all())).not.toContain("Orbit City");
-    expect(JSON.stringify(db.select().from(auditEvents).all())).not.toContain("Elroy");
+    const orbit = db
+      .select()
+      .from(auditEvents)
+      .all()
+      .filter(
+        (row) => row.changesJson.includes("Orbit City") || row.changesJson.includes("Elroy"),
+      );
+    expect(orbit).toEqual([
+      expect.objectContaining({
+        objectKey: "lead",
+        recordId: blocked.id,
+        action: "create",
+      }),
+    ]);
 
     createCustomField(db, LOCAL_ACTOR, {
       objectType: "contact",
