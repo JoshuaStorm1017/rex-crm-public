@@ -9,9 +9,12 @@ import {
   listAccountHistory,
   updateAccount,
 } from "./accounts";
+import { recordAudit } from "./audit";
+import { createAutomationRule } from "./automationRules";
 import { LOCAL_ORG_ID, RILEY_USER_ID } from "./constants";
 import { createContact } from "./contacts";
 import { createCustomField, setCustomValues, withCustomFieldWrite } from "./customFields";
+import { createDuplicateRule } from "./duplicateRules";
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
 import { importAccountsCsv } from "./importer";
@@ -19,7 +22,8 @@ import { convertLead, createLead, getLead } from "./leads";
 import { createOpportunity } from "./opportunities";
 import { addMember, createOrganization } from "./orgs";
 import { createProfile, setFieldPermission, setObjectPermission } from "./profiles";
-import { setOrgWideDefault } from "./sharing";
+import { undeleteRecord } from "./recycle";
+import { assignUserRole, createRole, createSharingRule, setOrgWideDefault } from "./sharing";
 import { createTask } from "./tasks";
 import { createUser } from "./users";
 import { createValidationRule } from "./validationRules";
@@ -725,5 +729,383 @@ describe("account audit log", () => {
     expect(stored?.deletedAt).toBeNull();
     const storedTask = db.select().from(tasks).all().find((row) => row.id === task.id);
     expect(storedTask?.deletedAt).toBeNull();
+  });
+
+  it("refuses a direct audit insert from a non-member and from another org", () => {
+    const db = memory();
+    const other = otherOrg(db);
+    const stranger = createUser(db, {
+      name: "Audit Stranger",
+      email: "audit.stranger@example.com",
+      username: "auditstranger",
+      password: "long-enough",
+    });
+    const event = {
+      objectKey: "account" as const,
+      recordId: "001FORGED",
+      action: "create" as const,
+      before: null,
+      after: { name: "Should Not Land", phone: "555-0199" },
+      at: 1,
+    };
+    const before = dump(db);
+    expectCode(() => recordAudit(db, actorFor(stranger.id), event), "FORBIDDEN");
+    expectCode(
+      () => recordAudit(db, actorFor(LOCAL_ACTOR.userId, other.orgId), event),
+      "FORBIDDEN",
+    );
+    expectCode(
+      () => recordAudit(db, { userId: "", orgId: LOCAL_ORG_ID }, event),
+      "FORBIDDEN",
+    );
+    expect(dump(db)).toEqual(before);
+    expect(JSON.stringify(db.select().from(auditEvents).all())).not.toContain("Should Not Land");
+    expect(JSON.stringify(db.select().from(auditEvents).all())).not.toContain(other.orgId);
+  });
+
+  it("records a public read/write edit as the editor and still refuses their delete", () => {
+    const db = memory();
+    setOrgWideDefault(db, LOCAL_ACTOR, "account", "public_read_write", true);
+    const created = createAccount(db, LOCAL_ACTOR, {
+      name: "Shared Desk",
+      phone: "555-0101",
+    });
+    updateAccount(db, riley, created.id, { phone: "555-2222" });
+    const latest = listAccountHistory(db, LOCAL_ACTOR, created.id)[0];
+    expect(latest?.action).toBe("update");
+    expect(latest?.actorId).toBe(RILEY_USER_ID);
+    expect(latest?.actorName).toBe("Riley Demo");
+    expect(latest?.changes.find((change) => change.field === "phone")).toEqual({
+      field: "phone",
+      label: "Phone",
+      before: "555-0101",
+      after: "555-2222",
+    });
+    expect(latest?.changes.find((change) => change.field === "name")).toBeUndefined();
+    expect(listAccountHistory(db, riley, created.id)[0]?.actorName).toBe("Riley Demo");
+
+    const beforeDelete = dump(db);
+    expectCode(() => deleteAccount(db, riley, created.id), "FORBIDDEN");
+    expect(dump(db)).toEqual(beforeDelete);
+    expect(
+      db.select().from(auditEvents).all().some((row) => row.action === "delete"),
+    ).toBe(false);
+    expect(
+      db.select().from(accounts).all().find((row) => row.id === created.id)?.deletedAt,
+    ).toBeNull();
+  });
+
+  it("writes nothing when an update is rejected by validation, duplicates, or a cycle", () => {
+    const db = memory();
+    createValidationRule(db, LOCAL_ACTOR, {
+      name: "Customers need a website",
+      objectType: "account",
+      errorMessage: "Customers need a website.",
+      errorField: "website",
+      criteria: [
+        { field: "type", operator: "equals", value: "Customer" },
+        { field: "website", operator: "is_blank" },
+      ],
+    });
+    const plain = createAccount(db, LOCAL_ACTOR, { name: "Plain Co", type: "Prospect" });
+    const beforeValidation = dump(db);
+    expectCode(
+      () => updateAccount(db, LOCAL_ACTOR, plain.id, { type: "Customer" }),
+      "VALIDATION_RULE",
+    );
+    expect(dump(db)).toEqual(beforeValidation);
+    expect(JSON.stringify(listAccountHistory(db, LOCAL_ACTOR, plain.id))).not.toContain(
+      "Customer",
+    );
+
+    const first = createAccount(db, LOCAL_ACTOR, { name: "Unique Anvil" });
+    const second = createAccount(db, LOCAL_ACTOR, { name: "Other Anvil" });
+    createDuplicateRule(db, LOCAL_ACTOR, {
+      name: "Unique account names",
+      objectType: "account",
+      matchField: "name",
+      errorMessage: "An account with this name already exists.",
+    });
+    const beforeDuplicate = dump(db);
+    expectCode(
+      () => updateAccount(db, LOCAL_ACTOR, second.id, { name: "Unique Anvil" }),
+      "DUPLICATE",
+    );
+    expect(dump(db)).toEqual(beforeDuplicate);
+    expect(JSON.stringify(listAccountHistory(db, LOCAL_ACTOR, second.id))).not.toContain(
+      "Unique Anvil",
+    );
+    expect(JSON.stringify(listAccountHistory(db, LOCAL_ACTOR, first.id))).toContain(
+      "Unique Anvil",
+    );
+
+    const parent = createAccount(db, LOCAL_ACTOR, { name: "Cycle Parent" });
+    const child = createAccount(db, LOCAL_ACTOR, {
+      name: "Cycle Child",
+      parentAccountId: parent.id,
+    });
+    const beforeCycle = dump(db);
+    expectCode(
+      () => updateAccount(db, LOCAL_ACTOR, parent.id, { parentAccountId: child.id }),
+      "INVALID_PARENT",
+    );
+    expectCode(
+      () => updateAccount(db, LOCAL_ACTOR, child.id, { parentAccountId: child.id }),
+      "INVALID_PARENT",
+    );
+    expect(dump(db)).toEqual(beforeCycle);
+    expect(JSON.stringify(listAccountHistory(db, LOCAL_ACTOR, parent.id))).not.toContain(
+      "Cycle Child",
+    );
+  });
+
+  it("stores the value automation wrote, including a zero revenue", () => {
+    const db = memory();
+    createAutomationRule(db, LOCAL_ACTOR, {
+      name: "Customers are robotics",
+      objectType: "account",
+      runOn: "create",
+      field: "industry",
+      value: "Robotics",
+      criteria: [{ field: "type", operator: "equals", value: "Customer" }],
+    });
+    const created = createAccount(db, LOCAL_ACTOR, {
+      name: "Auto Co",
+      type: "Customer",
+      industry: "Hardware",
+      annualRevenueCents: 0,
+    });
+    expect(created.industry).toBe("Robotics");
+    const entry = listAccountHistory(db, LOCAL_ACTOR, created.id).find(
+      (row) => row.action === "create",
+    );
+    expect(entry?.changes.find((change) => change.field === "industry")).toEqual({
+      field: "industry",
+      label: "Industry",
+      before: null,
+      after: "Robotics",
+    });
+    expect(entry?.changes.find((change) => change.field === "annualRevenueCents")).toEqual({
+      field: "annualRevenueCents",
+      label: "Annual Revenue",
+      before: null,
+      after: "$0.00",
+    });
+    expect(JSON.stringify(entry)).not.toContain("Hardware");
+  });
+
+  it("lets a manager and a sharing rule read history, and hides it from everyone else", () => {
+    const db = memory();
+    setOrgWideDefault(db, LOCAL_ACTOR, "account", "private", true);
+    const chiefRole = createRole(db, LOCAL_ACTOR, { name: "History Chief" });
+    const repRole = createRole(db, LOCAL_ACTOR, {
+      name: "History Rep",
+      parentRoleId: chiefRole.id,
+    });
+    const chiefUser = createUser(db, {
+      name: "History Chief",
+      email: "history.chief@example.com",
+      username: "historychief",
+      password: "long-enough",
+    });
+    const repUser = createUser(db, {
+      name: "History Rep",
+      email: "history.rep@example.com",
+      username: "historyrep",
+      password: "long-enough",
+    });
+    const outsiderUser = createUser(db, {
+      name: "History Outsider",
+      email: "history.outsider@example.com",
+      username: "historyoutsider",
+      password: "long-enough",
+    });
+    addMember(db, LOCAL_ORG_ID, chiefUser.id, "member");
+    addMember(db, LOCAL_ORG_ID, repUser.id, "member");
+    addMember(db, LOCAL_ORG_ID, outsiderUser.id, "member");
+    assignUserRole(db, LOCAL_ACTOR, chiefUser.id, chiefRole.id);
+    assignUserRole(db, LOCAL_ACTOR, repUser.id, repRole.id);
+    const chief = actorFor(chiefUser.id);
+    const rep = actorFor(repUser.id);
+    const outsider = actorFor(outsiderUser.id);
+
+    const owned = createAccount(db, rep, { name: "Rep Secret", phone: "555-3131" });
+    updateAccount(db, rep, owned.id, { phone: "555-3132" });
+    const chiefView = JSON.stringify(listAccountHistory(db, chief, owned.id));
+    expect(chiefView).toContain("Rep Secret");
+    expect(chiefView).toContain("555-3131");
+    expect(chiefView).toContain("555-3132");
+    expect(chiefView).toContain("History Rep");
+    const outsiderView = JSON.stringify(listAccountHistory(db, outsider, owned.id));
+    expect(outsiderView).toBe("[]");
+    expect(outsiderView).not.toContain("Rep Secret");
+    expect(outsiderView).not.toContain("555-3132");
+
+    setOrgWideDefault(db, LOCAL_ACTOR, "account", "private", false);
+    const withoutHierarchy = JSON.stringify(listAccountHistory(db, chief, owned.id));
+    expect(withoutHierarchy).toBe("[]");
+    expect(withoutHierarchy).not.toContain("555-3132");
+
+    const southwest = createRole(db, LOCAL_ACTOR, { name: "History Southwest" });
+    assignUserRole(db, LOCAL_ACTOR, RILEY_USER_ID, southwest.id);
+    createSharingRule(db, LOCAL_ACTOR, {
+      name: "Arizona history",
+      objectType: "account",
+      access: "read",
+      shareWithRoleId: southwest.id,
+      criteria: [{ field: "billingState", operator: "equals", value: "AZ" }],
+    });
+    const shared = createAccount(db, LOCAL_ACTOR, {
+      name: "Mesa Shared",
+      billingState: "AZ",
+      phone: "555-5050",
+    });
+    const hidden = createAccount(db, LOCAL_ACTOR, {
+      name: "Seattle Hidden",
+      billingState: "WA",
+      phone: "555-4040",
+    });
+    const sharedView = JSON.stringify(listAccountHistory(db, riley, shared.id));
+    expect(sharedView).toContain("Mesa Shared");
+    expect(sharedView).toContain("555-5050");
+    const hiddenView = JSON.stringify(listAccountHistory(db, riley, hidden.id));
+    expect(hiddenView).toBe("[]");
+    expect(hiddenView).not.toContain("Seattle Hidden");
+    expect(hiddenView).not.toContain("555-4040");
+    expect(JSON.stringify(listAccountHistory(db, riley, owned.id))).not.toContain("Rep Secret");
+    expect(JSON.stringify(listAccountHistory(db, outsider, shared.id))).not.toContain(
+      "Mesa Shared",
+    );
+  });
+
+  it("drops forged values that are not account fields and orders equal timestamps by id", () => {
+    const db = memory();
+    const other = otherOrg(db);
+    const foreign = createAccount(db, other.actor, {
+      name: "Secret Parent Co",
+      phone: "555-0198",
+    });
+    const created = createAccount(db, LOCAL_ACTOR, { name: "Listed Child" });
+    const at = 5_000_000_000_000;
+    db.insert(auditEvents)
+      .values({
+        id: `${ID_PREFIX.auditEvent}AAAA`,
+        orgId: LOCAL_ORG_ID,
+        actorId: LOCAL_ACTOR.userId,
+        objectKey: "account",
+        recordId: created.id,
+        action: "update",
+        changesJson: JSON.stringify({
+          old: { name: "Listed Child" },
+          new: { name: "Older Tie" },
+        }),
+        at,
+      })
+      .run();
+    db.insert(auditEvents)
+      .values({
+        id: `${ID_PREFIX.auditEvent}ZZZZ`,
+        orgId: LOCAL_ORG_ID,
+        actorId: LOCAL_ACTOR.userId,
+        objectKey: "account",
+        recordId: created.id,
+        action: "update",
+        changesJson: JSON.stringify({
+          old: { parentAccountId: null, name: "Older Tie" },
+          new: {
+            parentAccountId: foreign.id,
+            name: "Newer Tie",
+            phone: true,
+            industry: ["secret-industry"],
+            description: { leak: "nested-secret" },
+          },
+        }),
+        at,
+      })
+      .run();
+    db.insert(auditEvents)
+      .values({
+        id: `${ID_PREFIX.auditEvent}BAD1`,
+        orgId: LOCAL_ORG_ID,
+        actorId: LOCAL_ACTOR.userId,
+        objectKey: "account",
+        recordId: created.id,
+        action: "update",
+        changesJson: JSON.stringify(["nope-array"]),
+        at: at - 1,
+      })
+      .run();
+
+    const history = listAccountHistory(db, LOCAL_ACTOR, created.id);
+    expect(history[0]?.id).toBe(`${ID_PREFIX.auditEvent}ZZZZ`);
+    expect(history[1]?.id).toBe(`${ID_PREFIX.auditEvent}AAAA`);
+    const shown = JSON.stringify(history);
+    expect(shown).toContain("Newer Tie");
+    expect(shown).toContain("Older Tie");
+    expect(shown).not.toContain("Secret Parent Co");
+    expect(shown).not.toContain(foreign.id);
+    expect(shown).not.toContain("555-0198");
+    expect(shown).not.toContain("secret-industry");
+    expect(shown).not.toContain("nested-secret");
+    expect(shown).not.toContain("nope-array");
+    expect(shown).not.toContain("true");
+  });
+
+  it("hides history while an account is deleted and shows it again after restore", () => {
+    const db = memory();
+    const other = otherOrg(db);
+    const parent = createAccount(db, LOCAL_ACTOR, { name: "Kept Parent" });
+    const child = createAccount(db, LOCAL_ACTOR, {
+      name: "Restored Child",
+      parentAccountId: parent.id,
+      phone: "555-0101",
+    });
+    updateAccount(db, LOCAL_ACTOR, child.id, { phone: "555-0109" });
+    deleteAccount(db, LOCAL_ACTOR, child.id);
+
+    expect(
+      db
+        .select()
+        .from(auditEvents)
+        .all()
+        .some((row) => row.recordId === child.id && row.action === "delete"),
+    ).toBe(true);
+    expect(listAccountHistory(db, LOCAL_ACTOR, child.id)).toEqual([]);
+    expect(JSON.stringify(listAccountHistory(db, other.actor, child.id))).not.toContain(
+      "Restored Child",
+    );
+
+    undeleteRecord(db, LOCAL_ACTOR, "account", child.id);
+    const history = listAccountHistory(db, LOCAL_ACTOR, child.id);
+    expect(history.map((entry) => entry.action)).toEqual(["delete", "update", "create"]);
+    const deleted = history[0];
+    expect(deleted?.changes.find((change) => change.field === "name")).toEqual({
+      field: "name",
+      label: "Name",
+      before: "Restored Child",
+      after: null,
+    });
+    expect(deleted?.changes.find((change) => change.field === "phone")).toEqual({
+      field: "phone",
+      label: "Phone",
+      before: "555-0109",
+      after: null,
+    });
+    expect(deleted?.changes.find((change) => change.field === "parentAccountId")).toEqual({
+      field: "parentAccountId",
+      label: "Parent Account",
+      before: "Kept Parent",
+      after: null,
+    });
+    expect(JSON.stringify(deleted)).not.toContain(parent.id);
+
+    setOrgWideDefault(db, LOCAL_ACTOR, "account", "private", true);
+    const hidden = JSON.stringify(listAccountHistory(db, riley, child.id));
+    expect(hidden).toBe("[]");
+    expect(hidden).not.toContain("Restored Child");
+    expect(hidden).not.toContain("555-0109");
+    expect(JSON.stringify(listAccountHistory(db, other.actor, child.id))).not.toContain(
+      "Kept Parent",
+    );
   });
 });

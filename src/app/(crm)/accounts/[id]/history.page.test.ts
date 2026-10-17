@@ -217,5 +217,34 @@ describe("account history related list", () => {
     expect(deleted).toContain("Name: Gone Co");
     expect(deleted).toContain("2026-10-16 18:04");
     expect(deleted).not.toContain("→");
+
+    const hostile = renderToStaticMarkup(
+      AuditHistory({
+        entries: [
+          {
+            id: "0aeHOSTILE",
+            action: "update",
+            actorId: LOCAL_USER_ID,
+            actorName: "Eve <script>alert(1)</script>",
+            at: Date.UTC(2026, 9, 16, 18, 5),
+            changes: [
+              {
+                field: "description",
+                label: "Description",
+                before: "<b>old</b>",
+                after: "new <img src=x onerror=alert(1)>",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(hostile).toContain("Eve &lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(hostile).toContain("&lt;b&gt;old&lt;/b&gt;");
+    expect(hostile).toContain("new &lt;img src=x onerror=alert(1)&gt;");
+    expect(hostile).toContain("Description: &lt;b&gt;old&lt;/b&gt; → new &lt;img src=x onerror=alert(1)&gt;");
+    expect(hostile).not.toContain("<script");
+    expect(hostile).not.toContain("<img");
+    expect(hostile).not.toContain("<b>");
   });
 });

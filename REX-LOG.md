@@ -716,3 +716,10 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Tests:** create, update, and delete audit-insert failures leave the account, task, custom-value, and audit tables unchanged. Cleanup left outside the transaction failed the delete test (account live, task deleted, value gone). Removing the update transaction failed the update test (phone changed). Both probes were reverted.
 - **Verify:** `npm run verify` exit 0 at 20:31 EDT. 111 files, 1252 tests, Next.js 16.3.5 build. The shell `node` was v24.2.0; `.nvmrc` says 22. No UI change. No browser pass.
 - **Next:** Read-only API v0, after this fix ships.
+
+## 2026-10-16 20:55 EDT — lane A, Node 22 re-check of the delete rollback
+
+- **What:** No code change. Re-ran the gate fix on Node 22.23.3: related-task and custom-value cleanup stay inside `deleteAccount`'s transaction, and the audit-insert failure tests cover create, update, and delete.
+- **Why:** Gate 2's "remove update transaction" and "remove delete transaction" mutants had survived the suite. Replacing both `db.transaction` wrappers with direct `db` calls failed the update test (phone became 555-0199) and the delete test (account and task soft-deleted, custom value gone). Create rollback still passed. The wrappers were put back; `git diff` on `accounts.ts` was empty.
+- **Verify:** `npm run verify` exit 0 at 20:54 EDT on Node v22.23.3. typegen, tsc, eslint, 111 files, 1252 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No UI change. No browser pass.
+- **Next:** Read-only API v0, after this fix ships.

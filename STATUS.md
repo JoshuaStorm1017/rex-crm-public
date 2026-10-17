@@ -2182,3 +2182,7 @@ fresh verification evidence for each slice.
 - WORKS (verified 2026-10-16 20:31 EDT, `npm run verify` exit 0, 111 files, 1252 tests, Next.js 16.3.5 build): account delete now soft-deletes related tasks and removes custom values inside the same transaction as the account row and the audit insert. Forcing the delete audit insert to fail leaves the account live, the task live, and the custom value stored. Forcing the create insert to fail writes no account. Forcing the update insert to fail leaves the previous phone. The shell node was v24.2.0; `.nvmrc` is 22.
 - Probes, both reverted: cleanup left outside the transaction failed the delete test (account still live, task deleted, custom value gone). The update transaction removed failed the update test (phone changed, no update audit row).
 - No UI change. No browser pass.
+
+## 2026-10-16 — lane A, Node 22 re-check
+
+- WORKS (verified 2026-10-16 20:54 EDT, Node v22.23.3, `npm run verify` exit 0, 111 files, 1252 tests, Next.js 16.3.5 build): same delete-audit rollback as the 20:31 entry. Replacing the update and delete `db.transaction` wrappers with direct `db` calls failed the audit-insert tests (phone stuck at 555-0199; account and task soft-deleted and the custom value removed). Wrappers restored before verify. No UI change. No browser pass.
