@@ -23,7 +23,8 @@ export type DashboardMeasureView = {
   value: number | null;
 };
 
-export type DashboardBar = { label: string; value: number };
+/** `value` is null when every measured amount in the group is blank. Zero is a real total. */
+export type DashboardBar = { label: string; value: number | null };
 
 export type DashboardComponentResult =
   | {
@@ -185,7 +186,8 @@ export function runDashboard(
         const primary = result.measures[0];
         const bars = (result.groups ?? []).map((group) => ({
           label: group.label,
-          value: primary ? (group.values[primary.key] ?? 0) : group.count,
+          // Keep a blank sum null. `?? 0` would print it as $0.00 beside an em dash total.
+          value: primary ? (group.values[primary.key] ?? null) : group.count,
         }));
         return {
           id: row.id,

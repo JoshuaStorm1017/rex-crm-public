@@ -22,7 +22,7 @@ import { createAccount } from "@/lib/crm/accounts";
 import { LIST_VIEW_OBJECT_TYPES, LOCAL_ORG_ID, RILEY_USER_ID } from "@/lib/crm/constants";
 import { addDashboardComponent, createDashboard, deleteDashboard } from "@/lib/crm/dashboards";
 import { createOpportunity } from "@/lib/crm/opportunities";
-import { createOrganization } from "@/lib/crm/orgs";
+import { addMember, createOrganization } from "@/lib/crm/orgs";
 import {
   assignProfile,
   createProfile,
@@ -51,6 +51,13 @@ async function detailHtml(id: string): Promise<string> {
   return renderToStaticMarkup(
     await DashboardPage({ params: Promise.resolve({ id }) }),
   );
+}
+
+function barAround(html: string, label: string): string {
+  const start = html.indexOf(`title="${label}"`);
+  expect(start, label).toBeGreaterThanOrEqual(0);
+  const next = html.indexOf('title="', start + 'title="'.length);
+  return html.slice(start, next === -1 ? start + 400 : next);
 }
 
 function pipeline(db: Db) {
@@ -297,6 +304,79 @@ describe("dashboard pages", () => {
     expect(html).toContain("$100.00");
     expect(html).toContain("Qualification");
     expect(html).not.toContain("$0.00");
+    const blank = barAround(html, "Qualification");
+    expect(blank).toContain(">—<");
+    expect(blank).toContain("width:0%");
+    expect(barAround(html, "Prospecting")).toContain("width:100%");
+  });
+
+  it("charts a zero amount as $0.00 and a blank amount as an em dash", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Anvil Testing Co" });
+    createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Priced",
+      stage: "Prospecting",
+      closeDate: "2026-10-31",
+      amountCents: 10_000,
+    });
+    createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Unpriced",
+      stage: "Qualification",
+      closeDate: "2026-11-30",
+    });
+    createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Free",
+      stage: "Negotiation",
+      closeDate: "2026-12-01",
+      amountCents: 0,
+    });
+    const report = createReport(db, LOCAL_ACTOR, {
+      name: "Pipeline by Stage",
+      objectType: "opportunity",
+      format: "summary",
+      columns: ["name", "amountCents"],
+      groupBy: "stage",
+      aggregates: [{ fn: "sum", field: "amountCents" }],
+    });
+    const dash = createDashboard(db, LOCAL_ACTOR, "Sales Overview");
+    addDashboardComponent(db, LOCAL_ACTOR, dash.id, report.id);
+    act(LOCAL_ACTOR);
+    const html = await detailHtml(dash.id);
+    const priced = barAround(html, "Prospecting");
+    const blank = barAround(html, "Qualification");
+    const zero = barAround(html, "Negotiation");
+    expect(priced).toContain("$100.00");
+    expect(priced).toContain("width:100%");
+    expect(blank).toContain(">—<");
+    expect(blank).not.toContain("$0.00");
+    expect(blank).toContain("width:0%");
+    expect(zero).toContain("$0.00");
+    expect(zero).toContain("width:0%");
+    expect(html).not.toContain(">null<");
+  });
+
+  it("hides the add form from a membership admin who is not modify-all", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const { dash } = pipeline(db);
+    const orgAdmin = createUser(db, {
+      name: "Casey Admin",
+      email: "casey.admin@example.com",
+      username: "caseyadmin",
+      password: "long-enough",
+    });
+    addMember(db, LOCAL_ORG_ID, orgAdmin.id, "admin");
+    act(actorFor(orgAdmin.id));
+    const html = await detailHtml(dash.id);
+    expect(html).toContain("$200.00");
+    expect(html).toContain("Prospecting");
+    expect(html).not.toContain('name="reportId"');
+    const own = createDashboard(db, actorFor(orgAdmin.id), "Casey Board");
+    expect(await detailHtml(own.id)).toContain('name="reportId"');
   });
 
   it("shows an empty board without a report picker, and a deleted board as not found", async () => {

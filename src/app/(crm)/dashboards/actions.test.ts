@@ -18,7 +18,7 @@ import { actorFor, LOCAL_ACTOR } from "@/lib/crm/actor";
 import { LOCAL_ORG_ID, RILEY_USER_ID } from "@/lib/crm/constants";
 import { requireActor } from "@/lib/crm/currentUser";
 import { listDashboards, runDashboard } from "@/lib/crm/dashboards";
-import { createOrganization } from "@/lib/crm/orgs";
+import { addMember, createOrganization } from "@/lib/crm/orgs";
 import { createReport } from "@/lib/crm/reports";
 import { createUser } from "@/lib/crm/users";
 import { getDb, openMemoryDb } from "@/lib/db/client";
@@ -144,6 +144,41 @@ describe("dashboard actions", () => {
       form({ reportId: report.id, title: "Stolen" }),
     );
     expect(foreignDashState).toMatchObject({ code: "NOT_FOUND" });
+    expect(JSON.stringify(db.select().from(dashboardComponents).all())).toBe(before);
+    expect(runDashboard(db, LOCAL_ACTOR, dash.id).components).toEqual([]);
+  });
+
+  it("refuses a membership admin who is not modify-all and writes nothing", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    vi.mocked(requireActor).mockResolvedValue(LOCAL_ACTOR as never);
+    const report = createReport(db, LOCAL_ACTOR, {
+      name: "All Accounts",
+      objectType: "account",
+      format: "tabular",
+      columns: ["name"],
+    });
+    await expect(createDashboardAction(null, form({ name: "Board" }))).rejects.toThrow(
+      /REDIRECT \/dashboards\//,
+    );
+    const [dash] = listDashboards(db, LOCAL_ACTOR);
+    const orgAdmin = createUser(db, {
+      name: "Org Admin",
+      email: "org.action@example.com",
+      username: "orgaction",
+      password: "long-enough",
+    });
+    addMember(db, LOCAL_ORG_ID, orgAdmin.id, "admin");
+    expect(orgAdmin.role).toBe("user");
+    vi.mocked(requireActor).mockResolvedValue(actorFor(orgAdmin.id) as never);
+    const before = JSON.stringify(db.select().from(dashboardComponents).all());
+    const state = await addDashboardComponentAction(
+      dash.id,
+      null,
+      form({ reportId: report.id, title: "Stolen" }),
+    );
+    expect(state).toMatchObject({ code: "FORBIDDEN" });
+    expect(state?.error).not.toMatch(/01Z|00O/);
     expect(JSON.stringify(db.select().from(dashboardComponents).all())).toBe(before);
     expect(runDashboard(db, LOCAL_ACTOR, dash.id).components).toEqual([]);
   });

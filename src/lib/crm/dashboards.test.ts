@@ -1,6 +1,7 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb } from "../db/client";
-import { dashboardComponents, dashboards } from "../db/schema";
+import { dashboardComponents, dashboards, users } from "../db/schema";
 import { actorFor, LOCAL_ACTOR } from "./actor";
 import { createAccount } from "./accounts";
 import { LIST_VIEW_OBJECT_TYPES, LOCAL_ORG_ID, RILEY_USER_ID } from "./constants";
@@ -15,7 +16,7 @@ import {
   runDashboard,
 } from "./dashboards";
 import { createOpportunity } from "./opportunities";
-import { createOrganization } from "./orgs";
+import { addMember, createOrganization } from "./orgs";
 import { assignProfile, createProfile, setFieldPermission, setObjectPermission } from "./profiles";
 import { createReport, deleteReport } from "./reports";
 import { saveOrgWideDefaults } from "./sharing";
@@ -301,6 +302,87 @@ describe("dashboards", () => {
     const [c] = runDashboard(db, LOCAL_ACTOR, dash.id).components;
     expect(c.status === "ok" && c.measures[0]?.value).toBeNull();
     expect(c.status === "ok" && c.bars).toEqual([{ label: "Qualification", value: null }]);
+  });
+
+  it("keeps a real zero and does not let a blank sibling become zero", () => {
+    const db = openMemoryDb().db;
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Anvil Testing Co" });
+    createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Priced",
+      stage: "Prospecting",
+      closeDate: "2026-10-31",
+      amountCents: 5_000,
+    });
+    createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Unpriced Sibling",
+      stage: "Prospecting",
+      closeDate: "2026-11-15",
+    });
+    createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Unpriced Deal",
+      stage: "Qualification",
+      closeDate: "2026-11-30",
+    });
+    createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Free Deal",
+      stage: "Negotiation",
+      closeDate: "2026-12-01",
+      amountCents: 0,
+    });
+    const report = createReport(db, LOCAL_ACTOR, {
+      name: "Pipeline by Stage",
+      objectType: "opportunity",
+      format: "summary",
+      columns: ["name", "amountCents"],
+      groupBy: "stage",
+      aggregates: [{ fn: "sum", field: "amountCents" }],
+    });
+    const dash = createDashboard(db, LOCAL_ACTOR, "Sales Overview");
+    addDashboardComponent(db, LOCAL_ACTOR, dash.id, report.id);
+    const [c] = runDashboard(db, LOCAL_ACTOR, dash.id).components;
+    expect(c.status === "ok" && c.measures[0]?.value).toBe(5_000);
+    expect(c.status === "ok" && c.bars).toEqual([
+      { label: "Prospecting", value: 5_000 },
+      { label: "Qualification", value: null },
+      { label: "Negotiation", value: 0 },
+    ]);
+  });
+
+  it("refuses a membership admin and a global admin who is only a member", () => {
+    const s = setup();
+    const orgAdmin = createUser(s.db, {
+      name: "Org Admin",
+      email: "org.only@example.com",
+      username: "orgonly",
+      password: "long-enough",
+    });
+    addMember(s.db, LOCAL_ORG_ID, orgAdmin.id, "admin");
+    expect(orgAdmin.role).toBe("user");
+    const orgActor = actorFor(orgAdmin.id);
+    expect(canEditDashboard(s.db, orgActor, s.dash)).toBe(false);
+    refused(s, () => addDashboardComponent(s.db, orgActor, s.dash.id, s.report.id), "FORBIDDEN");
+    refused(s, () => deleteDashboard(s.db, orgActor, s.dash.id), "FORBIDDEN");
+    const own = createDashboard(s.db, orgActor, "Org Admin Board");
+    expect(canEditDashboard(s.db, orgActor, own)).toBe(true);
+    addDashboardComponent(s.db, orgActor, own.id, s.report.id);
+
+    const globalAdmin = createUser(s.db, {
+      name: "Global Member",
+      email: "global.only@example.com",
+      username: "globalonly",
+      password: "long-enough",
+    });
+    s.db.update(users).set({ role: "admin" }).where(eq(users.id, globalAdmin.id)).run();
+    addMember(s.db, LOCAL_ORG_ID, globalAdmin.id, "member");
+    const globalActor = actorFor(globalAdmin.id);
+    expect(canEditDashboard(s.db, globalActor, s.dash)).toBe(false);
+    refused(s, () => addDashboardComponent(s.db, globalActor, s.dash.id, s.report.id), "FORBIDDEN");
+    refused(s, () => deleteDashboard(s.db, globalActor, s.dash.id), "FORBIDDEN");
+    expect(getDashboard(s.db, globalActor, s.dash.id)?.name).toBe("Sales Overview");
   });
 
   it("refuses a deleted dashboard with the same not-found as a missing id", () => {

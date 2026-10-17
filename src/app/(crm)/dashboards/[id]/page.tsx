@@ -16,13 +16,15 @@ type ReadyComponent = Extract<DashboardComponentResult, { status: "ok" }>;
 
 function ComponentBars({ component }: { component: ReadyComponent }) {
   if (component.bars.length === 0) return null;
-  const max = Math.max(0, ...component.bars.map((bar) => bar.value));
+  // A blank measure is null. It does not stretch the scale; the label stays an em dash.
+  const magnitude = (value: number | null) => value ?? 0;
+  const max = Math.max(0, ...component.bars.map((bar) => magnitude(bar.value)));
   return (
     <figure className="mt-3">
       <figcaption className="mb-2 text-sm font-medium">{component.barLabel}</figcaption>
       <div className="space-y-2">
         {component.bars.map((bar, index) => {
-          const width = max > 0 ? (Math.max(0, bar.value) / max) * 100 : 0;
+          const width = max > 0 ? (Math.max(0, magnitude(bar.value)) / max) * 100 : 0;
           const text = component.barMeasure
             ? formatReportValue(component.barMeasure, bar.value)
             : String(bar.value);

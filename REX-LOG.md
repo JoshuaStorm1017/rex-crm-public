@@ -839,3 +839,12 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 at 23:47 EDT on Node v22.23.3. typegen, tsc, eslint, 120 files, 1479 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. The page check is `renderToStaticMarkup`. Chrome DevTools did not connect.
 - **Not done:** line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard delete or component remove. No running-user. No dashboard filters.
 - **Next:** roll line totals into Opportunity Amount in one transaction, integer cents, with tests for add, edit, and delete.
+
+## 2026-10-17 00:08 EDT — blank dashboard bar amounts stay null
+
+- **What:** `runDashboard` keeps a null group measure as null. `DashboardBar.value` is `number | null`. The bar label goes through `formatReportValue`, so a blank amount is an em dash. Width treats null as no length.
+- **Why:** QE saw a Negotiation deal with a blank Amount charted as $0.00. The record and the Sum of Amount total already left that blank out.
+- **Tests:** Kept the QE tests in `dashboards.test.ts` and `dashboards/page.test.ts`. Both pass.
+- **Verify:** `npm run verify` exit 0 at 00:08 EDT on Node v22.23.3. typegen, tsc, eslint, 120 files, 1492 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
+- **Not done:** line items do not roll into Opportunity Amount. No dashboard delete, component remove, running-user, or filters.
+- **Next:** roll line totals into Opportunity Amount in one transaction, integer cents, with tests for add, edit, and delete.
