@@ -18,7 +18,7 @@ import { actorFor, LOCAL_ACTOR } from "@/lib/crm/actor";
 import { createAccount } from "@/lib/crm/accounts";
 import { LOCAL_ORG_ID, RILEY_USER_ID } from "@/lib/crm/constants";
 import { requireActor } from "@/lib/crm/currentUser";
-import { createOpportunity } from "@/lib/crm/opportunities";
+import { createOpportunity, getOpportunity } from "@/lib/crm/opportunities";
 import { addLineItem, listLineItems } from "@/lib/crm/opportunityLineItems";
 import { addMember, createOrganization } from "@/lib/crm/orgs";
 import { createProduct } from "@/lib/crm/products";
@@ -440,6 +440,76 @@ describe("opportunity line item actions", () => {
     }
     // Catalog and contract prices reject a third decimal place. The line
     // form stores 1.005 as 100 cents and 0.001 as 0 cents.
+    expect(problems).toEqual([]);
+  });
+
+  it("stores an exact leading-dot or leading-plus price and leaves the amount alone", async () => {
+    const s = setup();
+    await expect(
+      addOpportunityLineItemAction(
+        s.opp.id,
+        form({ productId: s.product.id, quantity: "2", unitPrice: ".50" }),
+      ),
+    ).rejects.toThrow(`REDIRECT /opportunities/${s.opp.id}`);
+    await expect(
+      addOpportunityLineItemAction(
+        s.opp.id,
+        form({ productId: s.product.id, quantity: "1", unitPrice: "+12.50" }),
+      ),
+    ).rejects.toThrow(`REDIRECT /opportunities/${s.opp.id}`);
+    const lines = listLineItems(s.db, LOCAL_ACTOR, s.opp.id);
+    expect(lines).toMatchObject([
+      { quantity: 2, unitPriceCents: 50, totalCents: 100 },
+      { quantity: 1, unitPriceCents: 1250, totalCents: 1250 },
+    ]);
+    expect(getOpportunity(s.db, LOCAL_ACTOR, s.opp.id)?.amountCents ?? null).toBeNull();
+  });
+
+  it("returns a notice and writes nothing for a negative quantity or a price above the maximum", async () => {
+    const s = setup();
+    const before = s.snapshot();
+    await expect(
+      addOpportunityLineItemAction(
+        s.opp.id,
+        form({ productId: s.product.id, quantity: "-3", unitPrice: "10.00" }),
+      ),
+    ).rejects.toThrow(/notice=Quantity/);
+    await expect(
+      addOpportunityLineItemAction(
+        s.opp.id,
+        form({ productId: s.product.id, quantity: "1", unitPrice: "100000000.01" }),
+      ),
+    ).rejects.toThrow(/notice=/);
+    await expect(
+      addOpportunityLineItemAction(
+        s.opp.id,
+        form({ productId: s.product.id, quantity: "1", unitPrice: "$1,234.567" }),
+      ),
+    ).rejects.toThrow(/notice=/);
+    expect(s.snapshot()).toBe(before);
+  });
+
+  it("refuses a sub-cent or third-decimal price that skips the plain digit check", async () => {
+    const problems: string[] = [];
+    for (const unitPrice of [".001", "$.001", "+0.001", "1e-3", "0.001e0", ".105", "1.005e0", "+1.005"]) {
+      const s = setup();
+      const before = s.snapshot();
+      let message = "";
+      try {
+        await addOpportunityLineItemAction(
+          s.opp.id,
+          form({ productId: s.product.id, quantity: "2", unitPrice }),
+        );
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      if (s.snapshot() !== before || !/notice=/.test(message)) {
+        problems.push(`${unitPrice} -> ${message} rows=${s.snapshot()}`);
+      }
+    }
+    // "0.001" and "1.005" are refused. A leading dot, a plus, or an exponent
+    // still takes the Number() path: ".001" and "1e-3" save 0 cents, ".105"
+    // saves 11 cents, and "+1.005" and "1.005e0" save 100 cents.
     expect(problems).toEqual([]);
   });
 

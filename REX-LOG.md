@@ -795,3 +795,12 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Mutation, restored before verify:** dropping the empty-after-strip check stored 0 cents for `$`. Using the redacted `isActive` refused the active product and hid Add product. Treating only `false` as inactive wrote the inactive product. Treating a null flag as active listed Retired Anvil.
 - **Verify:** `npm run verify` exit 0 at 01:32 EDT on Node v22.23.3. 123 files, 1410 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. The page check is `renderToStaticMarkup`.
 - **Next:** Roll line totals into Opportunity Amount in integer cents, in one transaction. `parseUsdToCents` still rounds with `Math.round`, so `1.005` can land on the wrong cent. After a product is soft-deleted, its lines vanish from the related list while the row remains.
+
+## 2026-10-17 01:55 EDT — lane A, refuse a third decimal on a unit price
+
+- **What:** `parseUsdToCents` refuses more than two decimal places and turns a plain dollar string into cents from the digits. The opportunity line form uses that parser, so `1.005` and `0.001` redirect with a notice and write no row. `$12.50` is still 1250 cents. No migration.
+- **Why:** QE posted `1.005` and the line saved as 100 cents. `0.001` saved as 0 cents, a free line. Catalog and contract prices already refuse a third decimal.
+- **Tests:** The QE action test "refuses a unit price with more than two decimal places and writes nothing" passes. Money tests cover `1.005`, `0.001`, `$1.005`, `19.999`, and `0.105`, and exact cents for `12.50`, `19.99`, and `0.10`.
+- **Mutation, restored after the green verify:** dropping the fraction-length check stored 105 cents for `1.005` and 1 cent for `0.001`, with no notice. That failed the QE action test and the money parser test (2 failed, 22 passed). The check was put back. Those 24 tests passed.
+- **Verify:** `npm run verify` exit 0 at 01:55 EDT on Node v22.23.3. 123 files, 1423 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
+- **Next:** Roll line totals into Opportunity Amount in integer cents, in one transaction. `parseUsdToCents` still accepts `1e2` and `0x10`. After a product is soft-deleted, its lines vanish from the related list while the row remains.
