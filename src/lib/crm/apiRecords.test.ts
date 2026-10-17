@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
-import { organizations } from "../db/schema";
+import { accounts, contacts, organizations } from "../db/schema";
 import { LOCAL_ACTOR, actorFor, type Actor } from "./actor";
 import { getApiRecord, listApiRecords } from "./apiRecords";
 import { createAccount, deleteAccount } from "./accounts";
@@ -9,9 +9,10 @@ import { LOCAL_ORG_ID, LOCAL_USER_ID, RILEY_USER_ID } from "./constants";
 import { createContact } from "./contacts";
 import { createCustomField, setCustomValues } from "./customFields";
 import { DomainError } from "./errors";
-import { createLead } from "./leads";
+import { convertLead, createLead } from "./leads";
 import { createOpportunity } from "./opportunities";
 import { addMember, createOrganization } from "./orgs";
+import { changeOwner } from "./ownership";
 import { createProfile, setFieldPermission, setObjectPermission } from "./profiles";
 import { setOrgWideDefault } from "./sharing";
 import { completeTask, createTask } from "./tasks";
@@ -72,6 +73,7 @@ describe("read-only API records", () => {
         createdAt: new Date(created.createdAt).toISOString(),
         updatedAt: new Date(created.updatedAt).toISOString(),
         ownerId: LOCAL_ACTOR.userId,
+        parentAccountId: null,
       },
     });
     expect(record.fields.id).toBeUndefined();
@@ -139,6 +141,7 @@ describe("read-only API records", () => {
     const contactRecord = getApiRecord(db, reader, "Contact", contact.id);
     expect(contactRecord.fields.phone).toBe("555-0177");
     expect(contactRecord.fields.lastName).toBe("Quill");
+    expect(contactRecord.fields.accountId).toBe(account.id);
   });
 
   it("uses the same not-found error for a hidden, deleted, foreign, or missing id", () => {
@@ -696,5 +699,236 @@ describe("read-only API records", () => {
     );
     expect(rest.records.map((row) => row.id)).toEqual(visible.slice(50));
     expect(rest.nextCursor).toBeNull();
+  });
+
+  it("omits a lookup id when the actor cannot read the target", () => {
+    const db = memory();
+    const parent = createAccount(db, LOCAL_ACTOR, { name: "Secret Parent" });
+    const child = createAccount(db, LOCAL_ACTOR, {
+      name: "Visible Child",
+      parentAccountId: parent.id,
+    });
+    const manager = createContact(db, LOCAL_ACTOR, {
+      accountId: parent.id,
+      firstName: "Hidden",
+      lastName: "Boss",
+    });
+    const rep = createContact(db, LOCAL_ACTOR, {
+      accountId: parent.id,
+      lastName: "Visible",
+      reportsToId: manager.id,
+    });
+    const deal = createOpportunity(db, LOCAL_ACTOR, {
+      name: "Visible Deal",
+      accountId: parent.id,
+      stage: "Prospecting",
+      closeDate: "2026-12-31",
+      amountCents: 2500,
+    });
+    const hiddenTask = createTask(db, LOCAL_ACTOR, {
+      name: "Call the quarry",
+      relatedObjectType: "account",
+      relatedRecordId: parent.id,
+    });
+    const lead = createLead(db, LOCAL_ACTOR, {
+      firstName: "Converted",
+      lastName: "Lead",
+      company: "Converted Quarry",
+    });
+    const converted = convertLead(db, LOCAL_ACTOR, lead.id, {
+      createOpportunity: true,
+      opportunityName: "Converted Deal",
+      closeDate: "2026-12-31",
+    });
+    changeOwner(db, LOCAL_ACTOR, "account", child.id, { newOwnerId: RILEY_USER_ID });
+    changeOwner(db, LOCAL_ACTOR, "contact", rep.id, { newOwnerId: RILEY_USER_ID });
+    const visibleTask = createTask(db, LOCAL_ACTOR, {
+      name: "Call the rep",
+      relatedObjectType: "contact",
+      relatedRecordId: rep.id,
+    });
+    setOrgWideDefault(db, LOCAL_ACTOR, "account", "private", true);
+    setOrgWideDefault(db, LOCAL_ACTOR, "contact", "private", true);
+
+    const childRecord = getApiRecord(db, riley, "Account", child.id);
+    expect(childRecord.fields.name).toBe("Visible Child");
+    expect(childRecord.fields).not.toHaveProperty("parentAccountId");
+    const childList = JSON.stringify(page(db, riley, "Account"));
+    expect(childList).toContain(child.id);
+    expect(childList).not.toContain(parent.id);
+    expect(childList).not.toContain("Secret Parent");
+
+    const repRecord = getApiRecord(db, riley, "Contact", rep.id);
+    expect(repRecord.fields.lastName).toBe("Visible");
+    expect(repRecord.fields).not.toHaveProperty("accountId");
+    expect(repRecord.fields).not.toHaveProperty("reportsToId");
+    const repList = JSON.stringify(page(db, riley, "Contact"));
+    expect(repList).toContain(rep.id);
+    expect(repList).not.toContain(parent.id);
+    expect(repList).not.toContain(manager.id);
+    expect(repList).not.toContain("Hidden Boss");
+
+    const dealRecord = getApiRecord(db, riley, "Opportunity", deal.id);
+    expect(dealRecord.fields.name).toBe("Visible Deal");
+    expect(dealRecord.fields.amountCents).toEqual({ amount: 2500, currency: "USD" });
+    expect(dealRecord.fields).not.toHaveProperty("accountId");
+    expect(JSON.stringify(dealRecord)).not.toContain(parent.id);
+    expect(JSON.stringify(page(db, riley, "Opportunity"))).not.toContain(parent.id);
+
+    const hiddenTaskRecord = getApiRecord(db, riley, "Task", hiddenTask.id);
+    expect(hiddenTaskRecord.fields.name).toBe("Call the quarry");
+    expect(hiddenTaskRecord.fields.relatedObjectType).toBe("account");
+    expect(hiddenTaskRecord.fields).not.toHaveProperty("relatedRecordId");
+    expect(JSON.stringify(hiddenTaskRecord)).not.toContain(parent.id);
+    expect(JSON.stringify(page(db, riley, "Task"))).not.toContain(parent.id);
+
+    const visibleTaskRecord = getApiRecord(db, riley, "Task", visibleTask.id);
+    expect(visibleTaskRecord.fields.relatedRecordId).toBe(rep.id);
+    expect(visibleTaskRecord.fields.relatedObjectType).toBe("contact");
+
+    const leadRecord = getApiRecord(db, riley, "Lead", lead.id);
+    expect(leadRecord.fields.lastName).toBe("Lead");
+    expect(leadRecord.fields).not.toHaveProperty("convertedAccountId");
+    expect(leadRecord.fields).not.toHaveProperty("convertedContactId");
+    expect(leadRecord.fields.convertedOpportunityId).toBe(converted.opportunityId);
+    const leadText = JSON.stringify(leadRecord);
+    expect(leadText).not.toContain(converted.accountId);
+    expect(leadText).not.toContain(converted.contactId);
+    expect(JSON.stringify(page(db, riley, "Lead"))).not.toContain(converted.accountId);
+
+    const operatorChild = getApiRecord(db, LOCAL_ACTOR, "Account", child.id);
+    expect(operatorChild.fields.parentAccountId).toBe(parent.id);
+    const operatorRep = getApiRecord(db, LOCAL_ACTOR, "Contact", rep.id);
+    expect(operatorRep.fields.accountId).toBe(parent.id);
+    expect(operatorRep.fields.reportsToId).toBe(manager.id);
+    const operatorLead = getApiRecord(db, LOCAL_ACTOR, "Lead", lead.id);
+    expect(operatorLead.fields.convertedAccountId).toBe(converted.accountId);
+    expect(operatorLead.fields.convertedContactId).toBe(converted.contactId);
+    expect(operatorLead.fields.convertedOpportunityId).toBe(converted.opportunityId);
+  });
+
+  it("omits a deleted, foreign, or profile-hidden lookup and keeps a readable id", () => {
+    const db = memory();
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Named Quarry", phone: "555-0160" });
+    const contact = createContact(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      lastName: "Still Here",
+    });
+    const named = getApiRecord(db, LOCAL_ACTOR, "Contact", contact.id);
+    expect(named.fields.accountId).toBe(account.id);
+
+    const profileId = createProfile(db, LOCAL_ACTOR, "No Account Object");
+    setObjectPermission(db, LOCAL_ACTOR, profileId, "contact", {
+      canCreate: false,
+      canRead: true,
+      canUpdate: false,
+      canDelete: false,
+    });
+    setObjectPermission(db, LOCAL_ACTOR, profileId, "account", {
+      canCreate: false,
+      canRead: false,
+      canUpdate: false,
+      canDelete: false,
+    });
+    const blocked = createUser(db, {
+      name: "No Account",
+      email: "no.account@example.com",
+      username: "noaccount",
+      password: "long-enough",
+    });
+    addMember(db, LOCAL_ORG_ID, blocked.id, "member", profileId);
+    const blockedRecord = getApiRecord(db, actorFor(blocked.id), "Contact", contact.id);
+    expect(blockedRecord.fields.lastName).toBe("Still Here");
+    expect(blockedRecord.fields).not.toHaveProperty("accountId");
+    expect(JSON.stringify(page(db, actorFor(blocked.id), "Contact"))).not.toContain(account.id);
+    expect(JSON.stringify(blockedRecord)).not.toContain("Named Quarry");
+
+    const nameHidden = createProfile(db, LOCAL_ACTOR, "No Account Name");
+    setObjectPermission(db, LOCAL_ACTOR, nameHidden, "contact", {
+      canCreate: false,
+      canRead: true,
+      canUpdate: false,
+      canDelete: false,
+    });
+    setObjectPermission(db, LOCAL_ACTOR, nameHidden, "account", {
+      canCreate: false,
+      canRead: true,
+      canUpdate: false,
+      canDelete: false,
+    });
+    setFieldPermission(db, LOCAL_ACTOR, nameHidden, "account", "name", {
+      canRead: false,
+      canEdit: false,
+    });
+    const namer = createUser(db, {
+      name: "Name Hidden",
+      email: "name.hidden@example.com",
+      username: "namehidden",
+      password: "long-enough",
+    });
+    addMember(db, LOCAL_ORG_ID, namer.id, "member", nameHidden);
+    const withId = getApiRecord(db, actorFor(namer.id), "Contact", contact.id);
+    expect(withId.fields.accountId).toBe(account.id);
+    expect(getApiRecord(db, actorFor(namer.id), "Account", account.id).fields).not.toHaveProperty(
+      "name",
+    );
+
+    const fieldHidden = createProfile(db, LOCAL_ACTOR, "No Account Field");
+    setObjectPermission(db, LOCAL_ACTOR, fieldHidden, "contact", {
+      canCreate: false,
+      canRead: true,
+      canUpdate: false,
+      canDelete: false,
+    });
+    setObjectPermission(db, LOCAL_ACTOR, fieldHidden, "account", {
+      canCreate: false,
+      canRead: true,
+      canUpdate: false,
+      canDelete: false,
+    });
+    setFieldPermission(db, LOCAL_ACTOR, fieldHidden, "contact", "accountId", {
+      canRead: false,
+      canEdit: false,
+    });
+    const fielder = createUser(db, {
+      name: "Field Hidden",
+      email: "field.hidden@example.com",
+      username: "fieldhidden",
+      password: "long-enough",
+    });
+    addMember(db, LOCAL_ORG_ID, fielder.id, "member", fieldHidden);
+    const hiddenField = getApiRecord(db, actorFor(fielder.id), "Contact", contact.id);
+    expect(hiddenField.fields).not.toHaveProperty("accountId");
+    expect(JSON.stringify(hiddenField)).not.toContain(account.id);
+
+    db.update(accounts).set({ deletedAt: Date.now() }).where(eq(accounts.id, account.id)).run();
+    const afterDelete = getApiRecord(db, LOCAL_ACTOR, "Contact", contact.id);
+    expect(afterDelete.fields.lastName).toBe("Still Here");
+    expect(afterDelete.fields).not.toHaveProperty("accountId");
+    expect(JSON.stringify(afterDelete)).not.toContain(account.id);
+    expect(JSON.stringify(page(db, LOCAL_ACTOR, "Contact"))).not.toContain(account.id);
+
+    const foreignUser = createUser(db, {
+      name: "Foreign Owner",
+      email: "foreign.lookup@example.com",
+      username: "foreignlookup",
+      password: "long-enough",
+    });
+    const foreignOrg = createOrganization(db, "Foreign Lookup Org", foreignUser.id);
+    const foreignAccount = createAccount(db, actorFor(foreignUser.id, foreignOrg.id), {
+      name: "Foreign Lookup Co",
+      phone: "555-0193",
+    });
+    db.update(contacts)
+      .set({ accountId: foreignAccount.id })
+      .where(eq(contacts.id, contact.id))
+      .run();
+    const planted = getApiRecord(db, LOCAL_ACTOR, "Contact", contact.id);
+    expect(planted.fields).not.toHaveProperty("accountId");
+    const plantedText = JSON.stringify(planted);
+    expect(plantedText).not.toContain(foreignAccount.id);
+    expect(plantedText).not.toContain("Foreign Lookup Co");
+    expect(plantedText).not.toContain("555-0193");
+    expect(JSON.stringify(page(db, LOCAL_ACTOR, "Contact"))).not.toContain(foreignAccount.id);
   });
 });

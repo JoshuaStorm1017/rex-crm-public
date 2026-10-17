@@ -908,3 +908,12 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 at 03:26 EDT on Node v22.23.3. typegen, tsc, eslint, 125 files, 1552 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
 - **Not done:** line items do not roll into Opportunity Amount. No edit of an existing line. No bearer token. The read API still returns a lookup id when the related record is unreadable.
 - **Next:** Sprint 1 items 5 and 6 (amount rollup, dashboard pages) belong to the other lane. The next platform piece is custom objects, or hiding a lookup id the actor cannot read.
+
+## 2026-10-17 03:59 EDT — lane A, hide unreadable lookup ids
+
+- **What:** The read API omits a lookup id unless this actor can read that record. The fields are `parentAccountId`, `accountId`, `reportsToId`, `convertedAccountId`, `convertedContactId`, `convertedOpportunityId`, and `relatedRecordId`. An empty lookup stays `null`. A hidden name on a readable record does not drop the id. `relatedObjectType` stays when the task's record id is omitted. Write responses use the same serializer. `docs/api/CONVENTIONS.md` records the rule. No migration.
+- **Why:** A contact, deal, task, or converted lead the actor can read was returning the id of a private, deleted, or other-org parent. That id is the same secret the record GET already refuses to admit.
+- **Tests:** `apiRecords.test.ts`. Get and list. Private parent and manager, public deal and task pointing at a private account, converted lead ids checked one by one, profile without account read, hidden name, hidden `accountId` field, soft-deleted account, planted other-org account id. The operator still receives the ids.
+- **Mutation, restored before the log:** skipping the check returned the private parent id. Returning null instead of omitting the field failed the same tests. Treating every task target as an account dropped the readable contact id.
+- **Verify:** `npm run verify` exit 0 at 03:58 EDT on Node v22.23.3. typegen, tsc, eslint, 125 files, 1557 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass.
+- **Next:** Custom objects (Sprint 2 item 7), registry-driven. Change owner, restore, purge, and a parent cascade still do not write an audit row. Sprint 1 items 5 and 6 stay with the other lane.

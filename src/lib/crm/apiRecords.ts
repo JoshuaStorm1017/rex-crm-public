@@ -5,8 +5,9 @@ import { getContact, listContacts } from "./contacts";
 import { DomainError } from "./errors";
 import { getLead, listLeads } from "./leads";
 import { getOpportunity, listOpportunities } from "./opportunities";
-import { fieldAccess, type FieldAccess } from "./permissions";
+import { fieldAccess } from "./permissions";
 import {
+  STANDARD_OBJECT_KEYS,
   STANDARD_OBJECTS,
   type StandardObject,
   type StandardObjectKey,
@@ -37,6 +38,23 @@ const OMIT_FIELDS = new Set([
   "relatedHref",
   "canEdit",
 ]);
+
+/**
+ * Lookup fields, as a map so a new per-object case is not a switch.
+ * `related` reads `relatedObjectType` on the same row. A task cannot
+ * point at a task.
+ */
+const LOOKUPS: Record<StandardObjectKey, Partial<Record<string, StandardObjectKey | "related">>> = {
+  account: { parentAccountId: "account" },
+  contact: { accountId: "account", reportsToId: "contact" },
+  lead: {
+    convertedAccountId: "account",
+    convertedContactId: "contact",
+    convertedOpportunityId: "opportunity",
+  },
+  opportunity: { accountId: "account" },
+  task: { relatedRecordId: "related" },
+};
 
 export type ApiMoney = { amount: number; currency: "USD" };
 
@@ -127,19 +145,50 @@ function encode(field: string, value: unknown): ApiFieldValue {
   return null;
 }
 
+function relatedTarget(value: unknown): StandardObjectKey | undefined {
+  if (value === "task" || typeof value !== "string") return undefined;
+  if (!(STANDARD_OBJECT_KEYS as readonly string[]).includes(value)) return undefined;
+  return value as StandardObjectKey;
+}
+
+/**
+ * An id is returned only when this actor can read that record. Omitting
+ * it (rather than null) keeps a hidden parent distinct from an empty one,
+ * so a client that writes back the body does not clear the stored id.
+ * A hidden name on a record the actor can read does not hide the id.
+ */
+function concealedLookup(
+  db: Db,
+  actor: Actor,
+  objectKey: StandardObjectKey,
+  field: string,
+  source: Record<string, unknown>,
+): boolean {
+  const spec = LOOKUPS[objectKey][field];
+  if (!spec) return false;
+  const value = source[field];
+  if (value == null || value === "") return false;
+  if (typeof value !== "string") return true;
+  const target = spec === "related" ? relatedTarget(source.relatedObjectType) : spec;
+  if (!target) return true;
+  return READERS[target].get(db, actor, value) == null;
+}
+
 /**
  * Hidden fields are omitted. A readable empty field stays null. Null must
  * not mean "you are not allowed to see this".
  */
-function serialize(access: FieldAccess, apiName: string, row: Readable): ApiRecord {
+function serialize(db: Db, actor: Actor, object: StandardObject, row: Readable): ApiRecord {
+  const access = fieldAccess(db, actor, object.key);
   const source = row as unknown as Record<string, unknown>;
   const fields: Record<string, ApiFieldValue> = {};
   for (const key of Object.keys(source).sort()) {
     if (OMIT_FIELDS.has(key)) continue;
     if (!access.canRead(key)) continue;
+    if (concealedLookup(db, actor, object.key, key, source)) continue;
     fields[key] = encode(key, source[key]);
   }
-  return { id: row.id, apiName, fields };
+  return { id: row.id, apiName: object.apiName, fields };
 }
 
 /** The same shape as a read, for a row a write just stored. */
@@ -150,7 +199,7 @@ export function toApiRecord(
   row: Readable,
 ): ApiRecord {
   const object = requireObject(apiName);
-  return serialize(fieldAccess(db, actor, object.key), object.apiName, row);
+  return serialize(db, actor, object, row);
 }
 
 export function getApiRecord(
@@ -162,7 +211,7 @@ export function getApiRecord(
   const object = requireObject(apiName);
   const row = READERS[object.key].get(db, actor, id);
   if (!row) throw new DomainError("NOT_FOUND", "Record not found");
-  return serialize(fieldAccess(db, actor, object.key), object.apiName, row);
+  return serialize(db, actor, object, row);
 }
 
 export function listApiRecords(
@@ -184,9 +233,7 @@ export function listApiRecords(
   const last = page[page.length - 1];
   const more = sliceStart + page.length < sorted.length;
   return {
-    records: page.map((row) =>
-      serialize(fieldAccess(db, actor, object.key), object.apiName, row),
-    ),
+    records: page.map((row) => serialize(db, actor, object, row)),
     nextCursor: more && last ? encodeCursor(last.id) : null,
   };
 }

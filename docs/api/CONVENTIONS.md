@@ -73,6 +73,18 @@ Timestamps (`createdAt`, `updatedAt`, `convertedAt`, `completedAt`) are
 ISO-8601 UTC (`2026-10-16T18:00:00.000Z`). Calendar dates (`closeDate`,
 `dueDate`) stay `YYYY-MM-DD`.
 
+## Lookups
+
+`parentAccountId`, `accountId`, `reportsToId`, `convertedAccountId`,
+`convertedContactId`, `convertedOpportunityId`, and `relatedRecordId`
+are record ids. The id is included only when this actor can read that
+record. A private record, another organization's record, a soft-deleted
+record, a missing record, and a record the profile cannot read are
+omitted. The field is not `null` in those cases, so it does not look
+empty. `null` means the lookup itself is empty. A hidden name on a
+record the actor can still read does not remove the id.
+`relatedObjectType` stays when `relatedRecordId` is omitted.
+
 ## Errors
 
 ```json
