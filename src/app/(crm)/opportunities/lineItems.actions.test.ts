@@ -181,9 +181,8 @@ describe("opportunity line item actions", () => {
     expect(s.snapshot()).toBe(before);
   });
 
-  // The catalog parser rejects these. parseUsdToCents turns "$" and "," into
-  // 0 cents, "1.999" into 200, and "0x10" into 1600, then the action writes
-  // the line. A sales price has to be refused and nothing stored.
+  // A sales price is a dollar amount. "$" and "," are not zero, "1.999"
+  // is not $2.00, and "0x10" is not $16.00. Refuse them and write nothing.
   it.each(["$", ",", "1.999", "0x10"])(
     "refuses sales price %s and writes nothing",
     async (unitPrice) => {
@@ -203,6 +202,7 @@ describe("opportunity line item actions", () => {
         .from(opportunityLineItems)
         .all()
         .map((row) => row.unitPriceCents);
+      expect(s.snapshot()).toBe(before);
       expect({ thrown, stored }).toEqual({
         thrown: expect.stringMatching(/notice=/),
         stored: [],
@@ -358,6 +358,65 @@ describe("opportunity line item actions", () => {
       unitPriceCents: 2500,
     });
   });
+
+  it("stores the maximum sales price and refuses one cent more", async () => {
+    const s = setup();
+    await expect(
+      addOpportunityLineItemAction(
+        s.opp.id,
+        form({ productId: s.product.id, quantity: "1", unitPrice: "$100,000,000.00" }),
+      ),
+    ).rejects.toThrow(`REDIRECT /opportunities/${s.opp.id}`);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)[0]).toMatchObject({
+      quantity: 1,
+      unitPriceCents: 10_000_000_000,
+      totalCents: 10_000_000_000,
+    });
+    const before = s.snapshot();
+    await expect(
+      addOpportunityLineItemAction(
+        s.opp.id,
+        form({ productId: s.product.id, quantity: "1", unitPrice: "$100,000,000.01" }),
+      ),
+    ).rejects.toThrow(/notice=Unit%20price/);
+    await expect(
+      addOpportunityLineItemAction(
+        s.opp.id,
+        form({ productId: s.product.id, quantity: "1000001" }),
+      ),
+    ).rejects.toThrow(/notice=Quantity/);
+    expect(s.snapshot()).toBe(before);
+  });
+
+  // Quantity is posted text. Number() turns these into 16, 100, 1_000_000,
+  // 2, and 8. A whole number from 1 to 1_000_000 has to be refused here,
+  // the same way a sales price refuses 0x10, and nothing stored.
+  it.each(["0x10", "1e2", "1e6", "0b10", "0o10"])(
+    "refuses quantity %s and writes nothing",
+    async (quantity) => {
+      const s = setup();
+      const before = s.snapshot();
+      let thrown = "";
+      try {
+        await addOpportunityLineItemAction(
+          s.opp.id,
+          form({ productId: s.product.id, quantity, unitPrice: "$19.99" }),
+        );
+      } catch (error) {
+        thrown = error instanceof Error ? error.message : String(error);
+      }
+      const stored = s.db
+        .select()
+        .from(opportunityLineItems)
+        .all()
+        .map((row) => row.quantity);
+      expect({ thrown, stored, unchanged: s.snapshot() === before }).toEqual({
+        thrown: expect.stringMatching(/notice=Quantity/),
+        stored: [],
+        unchanged: true,
+      });
+    },
+  );
 });
 
 function priceActor(

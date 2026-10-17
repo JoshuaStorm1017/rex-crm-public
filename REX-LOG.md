@@ -707,3 +707,11 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0. This shell's `node -v` is v24.2.0. 108 files, 1239/1239. Next.js 16.3.5 build. The QE page test passes via `renderToStaticMarkup`. No browser pass. Chrome DevTools did not connect.
 - **Not done:** lines do not roll into Opportunity Amount. No edit of an existing line. `opportunityLineTotalCents` still returns the raw sum to an actor who cannot read the sale price; the page does not call it.
 - **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.
+
+## 2026-10-16 19:56 EDT — refuse junk sales prices
+
+- **What:** `parseUsdToCents` no longer uses `Number()`. `$` and `,` are not 0 cents, `1.999` is not 200, and `0x10` is not 1600. Posting those as a line sales price redirects with a notice and writes nothing. Blank still uses the catalog price. `$0.00` is still 0. `$19.99` is still 1999. The QE tests are kept.
+- **Why:** QE posted `$` on the opportunity page and got a $0.00 line with no notice. The line action calls this parser, and so do the other money fields.
+- **Verify:** `npm run verify` exit 0 on Node 22.23.3. 108 files, 1261/1261. Next.js 16.3.5 build. No browser or curl pass. Chrome DevTools did not connect.
+- **Not done:** lines do not roll into Opportunity Amount. No edit of an existing line.
+- **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.

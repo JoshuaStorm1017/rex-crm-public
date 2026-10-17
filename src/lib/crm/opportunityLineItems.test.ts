@@ -250,6 +250,7 @@ describe("opportunity line items", () => {
       "NOT_FOUND",
     );
     refused(s, () => deleteLineItem(s.db, otherActor, line.id), "NOT_FOUND");
+    refused(s, () => opportunityLineTotalCents(s.db, otherActor, s.opp.id), "NOT_FOUND");
     // The other org's row must not be found by this org, even on a shared opportunity id.
     refused(s, () => deleteLineItem(s.db, LOCAL_ACTOR, "00ksameid"), "NOT_FOUND");
     expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id).map((l) => l.id)).toEqual([line.id]);
@@ -309,6 +310,36 @@ describe("opportunity line items", () => {
       () => addLineItem(s.db, actor, { opportunityId: deal.id, productId: inactive.id, quantity: 1 }),
       "INVALID_PRODUCT",
     );
+  });
+
+  it("does not reveal a hidden sale price through the line total", () => {
+    const s = setup();
+    const actor = seller(s.db, {
+      name: "Total Hidden",
+      email: "total.hidden@example.com",
+      username: "totalhidden",
+      profileName: "Hide Total Price",
+      price: { canRead: false, canEdit: false },
+    });
+    const deal = createOpportunity(s.db, actor, {
+      accountId: createAccount(s.db, actor, { name: "Total Hidden Co" }).id,
+      name: "Total Hidden Deal",
+      stage: "Prospecting",
+      closeDate: "2026-11-03",
+    });
+    addLineItem(s.db, actor, {
+      opportunityId: deal.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    expect(listLineItems(s.db, actor, deal.id)[0]).toMatchObject({
+      unitPriceCents: null,
+      totalCents: null,
+      quantity: 2,
+    });
+    const err = refusal(() => opportunityLineTotalCents(s.db, actor, deal.id));
+    expect(err.code).toBe("FORBIDDEN");
+    expect(err.message).not.toMatch(/39998|19999/);
   });
 
   it("shows the sale price but refuses an override when the field is not editable", () => {

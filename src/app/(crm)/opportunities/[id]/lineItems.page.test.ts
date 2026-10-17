@@ -310,6 +310,21 @@ describe("opportunity product related list", () => {
     expect(page).toContain("Anvil &lt;script&gt;alert(1)&lt;/script&gt;");
   });
 
+  it("shows a line-item refusal notice and escapes it", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const opportunity = ownDeal(db, LOCAL_ACTOR, "Notice Deal");
+    const operator = getUser(db, LOCAL_USER_ID);
+    if (!operator) throw new Error("seeded users were missing");
+    act(operator);
+    const page = renderToStaticMarkup(await OpportunityDetailPage({
+      params: Promise.resolve({ id: opportunity.id }),
+      searchParams: Promise.resolve({ notice: "Amount must be a number <script>" }),
+    }));
+    expect(page).toContain("Amount must be a number &lt;script&gt;");
+    expect(page).not.toContain("Amount must be a number <script>");
+  });
+
   it("does not render an opportunity that belongs to another org", async () => {
     const db = openMemoryDb().db;
     vi.mocked(getDb).mockReturnValue(db);

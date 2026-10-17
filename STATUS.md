@@ -2197,3 +2197,18 @@ fresh verification evidence for each slice.
   an existing line. `opportunityLineTotalCents` still returns the raw
   sum to an actor who cannot read the sale price; the page does not
   call it.
+
+## 2026-10-16 — sales price must be a dollar amount (lane B)
+
+- WORKS (verified 2026-10-16 19:56 EDT, `npm run verify` exit 0 on Node
+  22.23.3, 1261/1261 tests across 108 files, Next.js 16.3.5 build):
+  a posted line sales price of `$`, `,`, `1.999`, or `0x10` redirects
+  with a notice and writes no row. The action tests cover that. Blank
+  still stores the catalog price. `$0.00` still stores 0. `$19.99`
+  still stores 1999 cents. `parseUsdToCents` refuses those strings for
+  every money field that calls it. No browser or curl pass this session.
+  Chrome DevTools did not connect.
+- Not done: line items do not roll into Opportunity Amount. No edit of
+  an existing line. `opportunityLineTotalCents` still returns the raw
+  sum to an actor who cannot read the sale price; the page does not
+  call it.
