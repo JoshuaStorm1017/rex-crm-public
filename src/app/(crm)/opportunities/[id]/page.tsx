@@ -10,7 +10,7 @@ import { AuditHistory } from "@/components/AuditHistory";
 import { CustomFieldsSection } from "@/components/CustomFieldsSection";
 import { ChangeOwnerLink } from "@/components/ChangeOwnerLink";
 import { DeleteButton } from "@/components/DeleteButton";
-import { OpportunityProducts } from "@/components/OpportunityProducts";
+import { OpportunityLineItems } from "@/components/OpportunityLineItems";
 import { TasksRelatedList } from "@/components/TasksRelatedList";
 import { getAccount } from "@/lib/crm/accounts";
 import { CONTACT_ROLES } from "@/lib/crm/constants";
@@ -19,8 +19,8 @@ import { getCustomValues } from "@/lib/crm/customFields";
 import { formatUsd } from "@/lib/crm/money";
 import { listOpportunityHistory, readOpportunity } from "@/lib/crm/opportunities";
 import { listOpportunityContactRoles } from "@/lib/crm/opportunityContactRoles";
-import { listLineItemProductChoices, listLineItems } from "@/lib/crm/opportunityLineItems";
 import { canChangeOwner } from "@/lib/crm/ownership";
+import { listAddableProducts, listLineItems } from "@/lib/crm/opportunityLineItems";
 import {
   canAccessRecord,
   canEditField,
@@ -81,6 +81,24 @@ export default async function OpportunityDetailPage({
   );
   const addRole = addOpportunityContactRoleAction.bind(null, opportunity.id);
   const relatedTasks = listTasksForRecord(db, actor, "opportunity", opportunity.id);
+  const showSalePrice = canReadField(db, actor, "product", "standardPriceCents");
+  const canSetSalePrice =
+    showSalePrice && canEditField(db, actor, "product", "standardPriceCents");
+  const canReadProducts = canPerform(db, actor, "product", "read");
+  const lineItems = listLineItems(db, actor, opportunity.id).map((line) => ({
+    id: line.id,
+    productId: line.productId,
+    productName: line.productName,
+    quantity: line.quantity,
+    unitPriceCents: showSalePrice ? line.unitPriceCents : null,
+    totalCents: showSalePrice ? line.totalCents : null,
+  }));
+  const productChoices = canReadProducts
+    ? listAddableProducts(db, actor).map((product) => ({
+        id: product.id,
+        name: product.name || "—",
+      }))
+    : [];
 
   return (
     <div className="space-y-6">
@@ -160,16 +178,6 @@ export default async function OpportunityDetailPage({
           <p className="mt-4 text-sm text-[#5c564c]">{opportunity.description}</p>
         ) : null}
       </section>
-
-      <OpportunityProducts
-        opportunityId={stored.id}
-        lines={listLineItems(db, actor, stored.id)}
-        products={listLineItemProductChoices(db, actor)}
-        canEdit={canEdit}
-        canReadProducts={canPerform(db, actor, "product", "read")}
-        canSeePrice={canReadField(db, actor, "product", "standardPriceCents")}
-        canOverridePrice={canEditField(db, actor, "product", "standardPriceCents")}
-      />
 
       <CustomFieldsSection
         reads={getCustomValues(db, actor, "opportunity", opportunity.id)}
@@ -323,6 +331,16 @@ export default async function OpportunityDetailPage({
           )}
         </div>
       </section>
+
+      <OpportunityLineItems
+        opportunityId={opportunity.id}
+        lines={lineItems}
+        products={productChoices}
+        canEdit={canEdit}
+        canReadProducts={canReadProducts}
+        showSalePrice={showSalePrice}
+        canSetSalePrice={canSetSalePrice}
+      />
 
       <TasksRelatedList
         objectType="opportunity"

@@ -29,18 +29,21 @@ import { requireActor } from "@/lib/crm/currentUser";
 import { createAccount } from "@/lib/crm/accounts";
 import { LOCAL_ACTOR, actorFor } from "@/lib/crm/actor";
 import { LOCAL_ORG_ID, LOCAL_USER_ID, RILEY_USER_ID } from "@/lib/crm/constants";
+import { DomainError } from "@/lib/crm/errors";
 import {
   createOpportunity,
   deleteOpportunity,
   updateOpportunity,
 } from "@/lib/crm/opportunities";
+import { addLineItem, deleteLineItem } from "@/lib/crm/opportunityLineItems";
 import { addMember, createOrganization } from "@/lib/crm/orgs";
+import { createProduct } from "@/lib/crm/products";
 import { createProfile, setFieldPermission, setObjectPermission } from "@/lib/crm/profiles";
 import { undeleteRecord } from "@/lib/crm/recycle";
 import { setOrgWideDefault } from "@/lib/crm/sharing";
 import { createUser, getUser } from "@/lib/crm/users";
 import { getDb, openMemoryDb } from "@/lib/db/client";
-import { opportunities } from "@/lib/db/schema";
+import { auditEvents, opportunities } from "@/lib/db/schema";
 import OpportunityDetailPage from "./page";
 
 async function renderOpportunity(id: string): Promise<string> {
@@ -345,5 +348,160 @@ describe("opportunity history related list", () => {
     expect(hiddenHistory).not.toContain("Quiet note");
     expect(hiddenHistory).not.toContain(quarry.id);
     expect(hidden).not.toContain("Quiet note");
+  });
+
+  it("keeps a product line out of history and hides it from a public reader who cannot edit", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const operator = getUser(db, LOCAL_ACTOR.userId);
+    const riley = getUser(db, RILEY_USER_ID);
+    if (!operator || !riley) throw new Error("seeded user missing");
+    vi.mocked(requireActor).mockResolvedValue({
+      userId: LOCAL_ACTOR.userId,
+      orgId: LOCAL_ORG_ID,
+      user: operator,
+    });
+    const quarry = createAccount(db, LOCAL_ACTOR, { name: "Catalog Co" });
+    const created = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: quarry.id,
+      name: "Catalog Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-15",
+      amountCents: 1000,
+    });
+    const product = createProduct(db, LOCAL_ACTOR, {
+      name: "Painted Anvil",
+      standardPriceCents: 123456,
+    });
+    const beforeLine = db.select().from(auditEvents).all().length;
+    const line = addLineItem(db, LOCAL_ACTOR, {
+      opportunityId: created.id,
+      productId: product.id,
+      quantity: 2,
+    });
+    expect(db.select().from(auditEvents).all()).toHaveLength(beforeLine);
+
+    const html = await renderOpportunity(created.id);
+    const productsAt = html.indexOf("Products (");
+    const historyAt = html.indexOf("History (");
+    expect(productsAt).toBeGreaterThan(-1);
+    expect(historyAt).toBeGreaterThan(productsAt);
+    const products = html.slice(productsAt, historyAt);
+    const history = html.slice(historyAt);
+    expect(products).toContain("Products (1)");
+    expect(products).toContain("Painted Anvil");
+    expect(products).toContain("$1,234.56");
+    expect(products).toContain("$2,469.12");
+    expect(history.startsWith("History (1)")).toBe(true);
+    expect(history).toContain("Created");
+    expect(history).toContain("Amount: $10.00");
+    expect(history).not.toContain("Updated");
+    expect(history).not.toContain("Painted Anvil");
+    expect(history).not.toContain("$1,234.56");
+    expect(history).not.toContain("$2,469.12");
+    expect(history).not.toContain(String(123456));
+    expect(history).not.toContain(product.id);
+    expect(history).not.toContain(line.id);
+
+    let refused: unknown;
+    try {
+      addLineItem(db, actorFor(RILEY_USER_ID), {
+        opportunityId: created.id,
+        productId: product.id,
+        quantity: 1,
+      });
+    } catch (error) {
+      refused = error;
+    }
+    expect(refused).toBeInstanceOf(DomainError);
+    expect((refused as DomainError).code).toBe("FORBIDDEN");
+    expect((refused as DomainError).message).not.toContain(product.id);
+    expect((refused as DomainError).message).not.toContain(created.id);
+    let badQuantity: unknown;
+    try {
+      addLineItem(db, LOCAL_ACTOR, {
+        opportunityId: created.id,
+        productId: product.id,
+        quantity: 0,
+      });
+    } catch (error) {
+      badQuantity = error;
+    }
+    expect(badQuantity).toBeInstanceOf(DomainError);
+    expect((badQuantity as DomainError).code).toBe("INVALID_QUANTITY");
+    expect(db.select().from(auditEvents).all()).toHaveLength(beforeLine);
+
+    deleteLineItem(db, LOCAL_ACTOR, line.id);
+    expect(db.select().from(auditEvents).all()).toHaveLength(beforeLine);
+    const afterDelete = await renderOpportunity(created.id);
+    const afterHistory = afterDelete.slice(afterDelete.indexOf("History ("));
+    expect(afterHistory.startsWith("History (1)")).toBe(true);
+    expect(afterDelete).toContain("Products (0)");
+    expect(afterHistory).not.toContain("Painted Anvil");
+
+    vi.mocked(requireActor).mockResolvedValue({
+      userId: RILEY_USER_ID,
+      orgId: LOCAL_ORG_ID,
+      user: riley,
+    });
+    const readerHtml = await renderOpportunity(created.id);
+    const readerHistory = readerHtml.slice(readerHtml.indexOf("History ("));
+    expect(readerHistory.startsWith("History (1)")).toBe(true);
+    expect(readerHistory).toContain("Catalog Deal");
+    expect(readerHistory).toContain("Amount: $10.00");
+    expect(readerHistory).toContain("Local Operator");
+    expect(readerHtml).toContain(
+      "You do not have permission to change products on this opportunity.",
+    );
+    expect(readerHtml).not.toContain("Add product");
+    expect(readerHtml).not.toContain(">Remove<");
+    expect(readerHtml).not.toContain(`/opportunities/${created.id}/edit`);
+    expect(readerHtml).not.toContain(">Delete<");
+    expect(readerHistory).not.toContain(quarry.id);
+
+    const blindUser = createUser(db, {
+      name: "No Sale Price",
+      email: "no.sale.price@example.com",
+      username: "nosaleprice",
+      password: "long-enough",
+    });
+    const profileId = createProfile(db, LOCAL_ACTOR, "No Sale Price");
+    for (const objectType of ["account", "opportunity", "product"] as const) {
+      setObjectPermission(db, LOCAL_ACTOR, profileId, objectType, {
+        canCreate: false,
+        canRead: true,
+        canUpdate: false,
+        canDelete: false,
+      });
+    }
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "product", "standardPriceCents", {
+      canRead: false,
+      canEdit: false,
+    });
+    addMember(db, LOCAL_ORG_ID, blindUser.id, "member", profileId);
+    const restored = addLineItem(db, LOCAL_ACTOR, {
+      opportunityId: created.id,
+      productId: product.id,
+      quantity: 2,
+    });
+    const blind = getUser(db, blindUser.id);
+    if (!blind) throw new Error("reader missing");
+    vi.mocked(requireActor).mockResolvedValue({
+      userId: blindUser.id,
+      orgId: LOCAL_ORG_ID,
+      user: blind,
+    });
+    const blindHtml = await renderOpportunity(created.id);
+    const blindHistory = blindHtml.slice(blindHtml.indexOf("History ("));
+    expect(blindHtml).toContain("Products (1)");
+    expect(blindHtml).toContain("Painted Anvil");
+    expect(blindHistory.startsWith("History (1)")).toBe(true);
+    expect(blindHistory).toContain("Amount: $10.00");
+    expect(blindHtml).not.toContain("$1,234.56");
+    expect(blindHtml).not.toContain("$2,469.12");
+    expect(blindHtml).not.toContain("123456");
+    expect(blindHtml).not.toContain(String(restored.unitPriceCents));
+    expect(blindHistory).not.toContain(product.id);
+    expect(blindHistory).not.toContain(restored.id);
   });
 });

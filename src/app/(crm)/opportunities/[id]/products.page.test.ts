@@ -348,15 +348,12 @@ describe("opportunity products related list", () => {
     expect(hiddenName).not.toContain("Quiet Anvil");
     expect(hiddenName).not.toContain("Visible Anvil");
     expect(hiddenName).not.toContain("Secret Anvil");
-    expect(hiddenName).not.toContain("Add product");
-    expect(hiddenName).toContain("No active products to add.");
+    expect(hiddenName).toContain("Add product");
+    expect(hiddenName).toContain(`value="${priced.id}"`);
     expect(hiddenName).toContain("Products (3)");
     expect(hiddenName).toContain("$12,345.67");
     expect(hiddenName).toContain("$24,691.34");
-    expect(hiddenName).not.toContain(priced.id);
-    expect(hiddenName).not.toContain(named.id);
-    expect(hiddenName).not.toContain(secret.id);
-    expect(hiddenName).not.toContain("/products/");
+    expect(hiddenName).not.toContain("Foreign Bolt");
 
     const blind = member(db, {
       name: "Blind Reader",

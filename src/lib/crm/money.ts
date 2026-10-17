@@ -13,36 +13,34 @@ export function centsToInput(cents: number | null | undefined): string {
   return (cents / 100).toFixed(2);
 }
 
+/**
+ * Dollar text to integer cents. Blank is omitted (`undefined`). `$` and
+ * thousands separators are allowed. `Number()` is not used: it turns `$`
+ * and `,` into 0, `0x10` into 16, and rounds `1.999` to 200.
+ */
 export function parseUsdToCents(raw: string | undefined): number | undefined {
   if (raw == null) return undefined;
   const trimmed = raw.trim();
   if (trimmed === "") return undefined;
-  // "$" and "," strip to nothing, and Number("") is 0. A mark alone is not a zero price.
-  const numeric = trimmed.replace(/[$,]/g, "").trim();
-  if (numeric === "") {
-    throw new DomainError("INVALID_MONEY", "Amount must be a number");
-  }
-  // A third decimal place must not round. 1.005 * 100 is 100.4999…, and
-  // Math.round stores 100 cents. Catalog prices already refuse that text.
-  const plain = /^(\d+)(?:\.(\d+))?$/.exec(numeric);
-  if (plain) {
-    const fraction = plain[2] ?? "";
-    if (fraction.length > 2) {
-      throw new DomainError(
-        "INVALID_MONEY",
-        "Amount must be a dollar amount with at most two decimal places",
-      );
-    }
-    const dollars = Number(plain[1]);
-    const cents = dollars * 100 + Number(fraction.padEnd(2, "0"));
-    if (Number.isSafeInteger(dollars) && Number.isSafeInteger(cents)) return cents;
-  }
-  const n = Number(numeric);
-  if (!Number.isFinite(n)) {
-    throw new DomainError("INVALID_MONEY", "Amount must be a number");
-  }
-  if (n < 0) {
+  const text = trimmed.replace(/[$,]/g, "");
+  if (/^-\d+(\.\d{1,2})?$/.test(text)) {
     throw new DomainError("INVALID_MONEY", "Amount cannot be negative");
   }
-  return Math.round(n * 100);
+  if (!/^\d+(\.\d{1,2})?$/.test(text)) {
+    throw new DomainError(
+      "INVALID_MONEY",
+      "Amount must be a number with at most two decimal places",
+    );
+  }
+  const [whole, frac = ""] = text.split(".");
+  const dollars = Number(whole);
+  const extra = Number(frac.padEnd(2, "0"));
+  if (!Number.isSafeInteger(dollars) || !Number.isSafeInteger(extra)) {
+    throw new DomainError("INVALID_MONEY", "Amount is too large");
+  }
+  const cents = dollars * 100 + extra;
+  if (!Number.isSafeInteger(cents)) {
+    throw new DomainError("INVALID_MONEY", "Amount is too large");
+  }
+  return cents;
 }

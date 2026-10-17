@@ -15,7 +15,7 @@ GET /api/v1/objects/{apiName}/records/{id}
 `Opportunity`, `Task`. It is case-sensitive. One path serves standard
 objects and, later, custom objects. There is no `/api/v1/accounts`.
 
-v0 reads those five objects. `Product` and custom objects are not in v0.
+Reads and writes cover those five objects. `Product` and custom objects are not in v0.
 
 ## Authentication
 
@@ -82,9 +82,10 @@ ISO-8601 UTC (`2026-10-16T18:00:00.000Z`). Calendar dates (`closeDate`,
 | Status | Code | When |
 | --- | --- | --- |
 | 401 | `UNAUTHENTICATED` | No usable session |
-| 400 | `INVALID_INPUT` | `limit` or `cursor` is not valid |
-| 403 | `FORBIDDEN` | The actor's organization or user is not active |
+| 400 | `INVALID_INPUT` | `limit`, `cursor`, body, or `Idempotency-Key` is not valid |
+| 403 | `FORBIDDEN` | The actor's organization or user is not active, or the actor can see the record but may not change it |
 | 404 | `NOT_FOUND` | Unknown object, or a record the actor cannot read |
+| 409 | `CONFLICT` | `If-Match` is stale, or the idempotency key was already used |
 
 Unknown `apiName`: message `Object not found`. A missing id, another
 organization's id, a private record, a soft-deleted record, and a
@@ -105,13 +106,45 @@ ascending. The next page starts after the last id of this page. The
 cursor is not a lookup: it does not reveal whether that id exists.
 Other query parameters are ignored in v0.
 
+## Writes
+
+```
+POST   /api/v1/objects/{apiName}/records
+PATCH  /api/v1/objects/{apiName}/records/{id}
+DELETE /api/v1/objects/{apiName}/records/{id}
+```
+
+Writes call the same domain functions as the UI. POST returns 201
+`{ "record": ... }`. PATCH returns 200 with that shape. DELETE returns
+204 and an empty body. A later read still applies sharing, so a create
+response can name a row that a later read hides.
+
+Every write sends `Idempotency-Key`: 8 to 128 characters from
+`A-Za-z0-9_-`. The key belongs to the session's organization and user.
+The same key and the same request return the stored response and do
+not write again. Object key order does not matter. The same key with a
+different method, id, or body is 409 `CONFLICT`, message
+`Idempotency key was already used`. A rejected request does not store
+the key. Another organization's copy of the key is a different key.
+
+PATCH requires `If-Match` set to the record's `updatedAt` from a read
+(optionally quoted). A mismatch is 409 `CONFLICT`, message
+`Record has changed`. A missing `If-Match` is 400. DELETE does not use
+`If-Match`.
+
+The body is `{ "fields": { } }`. Names match reads. Money is the read
+shape, and `null` on update clears a field. An absent field is left
+unchanged. Unknown fields, system fields (`id`, `ownerId`, `createdAt`,
+`updatedAt`, and the rest), a raw money number, and any currency other
+than `USD` are 400 `INVALID_INPUT`. Custom values are not written in v0.
+
+A missing id, another organization's id, a private record, and a
+soft-deleted record are 404 `Record not found`, the same body as a
+read. A record the actor can see but may not change is 403. Nothing
+is written on those failures, including no idempotency row.
+
 ## Later versions, decided now
 
-Writes will be `POST`, `PATCH`, and `DELETE` on the same record URL,
-through the same domain functions as the UI. They will require an
-`Idempotency-Key`. Updates will require `If-Match` on `updatedAt`. A
-mismatch will be `409`. v0 does not implement writes.
-
-Rate-limit headers, bulk jobs, and an OpenAPI document generated from
-the registry are not in v0. When they arrive they keep this error
-shape and these field names.
+Rate-limit headers, bearer tokens, bulk jobs, and an OpenAPI document
+generated from the registry are not in v0. When they arrive they keep
+this error shape and these field names.

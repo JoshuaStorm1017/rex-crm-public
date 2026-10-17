@@ -7,19 +7,41 @@ describe("parseUsdToCents", () => {
     expect(parseUsdToCents("10")).toBe(1000);
     expect(parseUsdToCents("$1,234.56")).toBe(123456);
     expect(parseUsdToCents("$1,234.50")).toBe(123450);
+    expect(parseUsdToCents("10.5")).toBe(1050);
+    expect(parseUsdToCents("$12.5")).toBe(1250);
+    expect(parseUsdToCents("$0.00")).toBe(0);
     expect(parseUsdToCents("$0")).toBe(0);
     expect(parseUsdToCents("")).toBeUndefined();
+    expect(parseUsdToCents("   ")).toBeUndefined();
+    expect(parseUsdToCents(undefined)).toBeUndefined();
   });
 
   it("rejects negatives and garbage", () => {
     expect(() => parseUsdToCents("-1")).toThrow(DomainError);
-    expect(() => parseUsdToCents("nope")).toThrow(DomainError);
-    expect(() => parseUsdToCents("$")).toThrow(DomainError);
-    expect(() => parseUsdToCents(",")).toThrow(DomainError);
+    expect(() => parseUsdToCents("-1")).toThrow(/cannot be negative/);
+    expect(() => parseUsdToCents("nope")).toThrow(/must be a number/);
   });
 
-  it("rejects a third decimal place instead of rounding to the wrong cent", () => {
-    for (const raw of ["1.005", "0.001", "$1.005", "19.999", "0.105"]) {
+  it.each(["$", ",", "1.999", "1.005", "0.001", "$1.005", "0.105", "0x10", "1e2", "10.", ".5", ".50", ".001", "+12.50", "+1.005"])(
+    "refuses %s instead of coercing it",
+    (raw) => {
+      expect(() => parseUsdToCents(raw)).toThrow(DomainError);
+      expect(() => parseUsdToCents(raw)).toThrow(/number/);
+    },
+  );
+
+  // Number() also accepts these: 0b10 is 2, 0o10 is 8, 0X10 is 16, 1E2 is
+  // 100, +10 is 10, and 1_000 is 1000. None of them are a dollar amount.
+  it.each(["0b10", "0o10", "0B10", "0O10", "0X10", "1E2", "+10", "+1.00", "1_000", "1_000.00", "Infinity", "NaN"])(
+    "refuses %s instead of coercing it",
+    (raw) => {
+      expect(() => parseUsdToCents(raw)).toThrow(DomainError);
+      expect(() => parseUsdToCents(raw)).toThrow(/number/);
+    },
+  );
+
+  it("refuses a third decimal without putting the amount in the message", () => {
+    for (const raw of ["1.005", "0.001", "$1.005", "19.999", "0.105", "$1,234.567", "1.230", "  1.005  "]) {
       expect(() => parseUsdToCents(raw)).toThrow(DomainError);
       try {
         parseUsdToCents(raw);
@@ -31,42 +53,22 @@ describe("parseUsdToCents", () => {
     }
   });
 
-  it("stores two decimal places as exact cents", () => {
-    expect(parseUsdToCents("12.50")).toBe(1250);
-    expect(parseUsdToCents("$12.5")).toBe(1250);
-    expect(parseUsdToCents("19.99")).toBe(1999);
+  it("keeps tenths and hundredths exact, including a padded dollar amount", () => {
+    expect(parseUsdToCents("0.01")).toBe(1);
     expect(parseUsdToCents("0.10")).toBe(10);
-    expect(parseUsdToCents("0.00")).toBe(0);
-    expect(parseUsdToCents("1")).toBe(100);
-    expect(parseUsdToCents(".50")).toBe(50);
-    expect(parseUsdToCents(".5")).toBe(50);
-    expect(parseUsdToCents("+12.50")).toBe(1250);
+    expect(parseUsdToCents("0.29")).toBe(29);
+    expect(parseUsdToCents("19.99")).toBe(1999);
+    expect(parseUsdToCents("  $1,234.56  ")).toBe(123456);
   });
 
-  it("rejects a grouped amount that still has a third decimal", () => {
-    for (const raw of ["$1,234.567", "1.230", "  1.005  "]) {
-      expect(() => parseUsdToCents(raw)).toThrow(DomainError);
-      try {
-        parseUsdToCents(raw);
-      } catch (error) {
-        expect(error).toMatchObject({ code: "INVALID_MONEY" });
-      }
-    }
-  });
-
-  it("rejects a sub-cent or third decimal that is not a plain digit string", () => {
-    // "0.001" and "1.005" are refused. These spell the same amounts with a
-    // leading dot, a plus, or an exponent, and must not become 0 or 100 cents.
-    for (const raw of [".001", "$.001", "+0.001", "1e-3", "0.001e0", ".105", "1.005e0", "+1.005"]) {
-      let stored: number | undefined;
-      try {
-        stored = parseUsdToCents(raw);
-      } catch (error) {
-        expect(error).toMatchObject({ code: "INVALID_MONEY" });
-        continue;
-      }
-      expect({ raw, stored }).toEqual({ raw, stored: undefined });
-    }
+  it("rejects a dollar sign on a negative and an amount past a safe integer", () => {
+    expect(() => parseUsdToCents("-$1.00")).toThrow(DomainError);
+    expect(() => parseUsdToCents("-$1.00")).toThrow(/cannot be negative/);
+    expect(() => parseUsdToCents("$-1.00")).toThrow(/cannot be negative/);
+    expect(() => parseUsdToCents("90071992547410.00")).toThrow(/too large/);
+    expect(() => parseUsdToCents("90071992547409.99")).toThrow(/too large/);
+    expect(parseUsdToCents("90071992547409.91")).toBe(9_007_199_254_740_991);
+    expect(() => parseUsdToCents("90071992547409.92")).toThrow(/too large/);
   });
 });
 

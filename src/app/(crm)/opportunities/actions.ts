@@ -32,7 +32,7 @@ import {
 } from "@/lib/crm/form";
 import { requireActor } from "@/lib/crm/currentUser";
 import { parseUsdToCents } from "@/lib/crm/money";
-import { addLineItem, deleteLineItem } from "@/lib/crm/opportunityLineItems";
+import { addLineItem, deleteLineItem, parseLineQuantity } from "@/lib/crm/opportunityLineItems";
 import { parseOpportunityUpdateFormData } from "@/lib/crm/recordFormData";
 import { getDb } from "@/lib/db/client";
 
@@ -235,7 +235,7 @@ export async function addOpportunityLineItemAction(
     addLineItem(getDb(), actor, {
       opportunityId,
       productId: String(formData.get("productId") ?? ""),
-      quantity: Number(blank(formData.get("quantity")) ?? "1"),
+      quantity: parseLineQuantity(blank(formData.get("quantity")) ?? "1"),
       unitPriceCents: parseUsdToCents(blank(formData.get("unitPrice"))),
     });
     revalidatePath(`/opportunities/${opportunityId}`);

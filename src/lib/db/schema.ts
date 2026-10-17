@@ -986,3 +986,30 @@ export const auditEvents = sqliteTable(
     ),
   ],
 );
+
+/**
+ * One stored response per organization, user, and Idempotency-Key.
+ * Inserts go through `apiWrites.ts` only. A retry reads this row.
+ */
+export const apiIdempotencyKeys = sqliteTable(
+  "api_idempotency_keys",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    actorId: text("actor_id")
+      .notNull()
+      .references(() => users.id),
+    idempotencyKey: text("idempotency_key").notNull(),
+    requestHash: text("request_hash").notNull(),
+    statusCode: integer("status_code").notNull(),
+    responseJson: text("response_json").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("api_idempotency_org_actor_key_uidx").on(
+      table.orgId,
+      table.actorId,
+      table.idempotencyKey,
+    ),
+  ],
+);

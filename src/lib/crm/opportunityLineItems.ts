@@ -1,17 +1,26 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { opportunityLineItems, priceBookEntries, priceBooks, products } from "../db/schema";
+import { opportunityLineItems, priceBookEntries, products } from "../db/schema";
 import { assertActor, type Actor } from "./actor";
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
 import { readOpportunity } from "./opportunities";
-import { assertCanAccessRecord, canEditField } from "./permissions";
-import { getProduct, listProducts } from "./products";
+import {
+  assertCanAccessRecord,
+  canEditField,
+  canPerform,
+  canReadField,
+  presentRecord,
+} from "./permissions";
+import { ensureStandardPriceBook, getProduct } from "./products";
 
 export type OpportunityLineItem = typeof opportunityLineItems.$inferSelect;
-export type LineItemView = OpportunityLineItem & {
+export type LineItemView = Omit<OpportunityLineItem, "unitPriceCents"> & {
   productName: string;
-  totalCents: number;
+  /** Null when the actor cannot read the product sale price. */
+  unitPriceCents: number | null;
+  /** Null when the actor cannot read the product sale price. */
+  totalCents: number | null;
 };
 
 export const LINE_ITEM_MAX_QUANTITY = 1_000_000;
@@ -33,71 +42,37 @@ function lineTotal(quantity: number, unitPriceCents: number): number {
   return total;
 }
 
+function quantityError(): DomainError {
+  return new DomainError(
+    "INVALID_QUANTITY",
+    `Quantity must be a whole number from 1 to ${LINE_ITEM_MAX_QUANTITY}`,
+  );
+}
+
 function assertQuantity(quantity: number): void {
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > LINE_ITEM_MAX_QUANTITY) {
-    throw new DomainError(
-      "INVALID_QUANTITY",
-      `Quantity must be a whole number from 1 to ${LINE_ITEM_MAX_QUANTITY}`,
-    );
+    throw quantityError();
   }
+}
+
+/**
+ * Posted quantity. Decimal digits only. `Number()` is not used on the raw
+ * text: it turns `0x10` into 16, `1e2` into 100, `1e6` into 1000000,
+ * `0b10` into 2, and `0o10` into 8.
+ */
+export function parseLineQuantity(raw: string): number {
+  if (!/^\d+$/.test(raw)) throw quantityError();
+  const digits = raw.replace(/^0+/, "") || "0";
+  if (digits.length > String(LINE_ITEM_MAX_QUANTITY).length) throw quantityError();
+  const quantity = Number(digits);
+  assertQuantity(quantity);
+  return quantity;
 }
 
 function assertUnitPrice(cents: number): void {
   if (!Number.isInteger(cents) || cents < 0 || cents > LINE_ITEM_MAX_UNIT_CENTS) {
     throw new DomainError("INVALID_MONEY", "Unit price must be zero or more whole cents");
   }
-}
-
-/**
- * Stored active flag. Field security nulls isActive on the product view,
- * and a null there is not the same as inactive.
- */
-function storedProductIsActive(db: Db, actor: Actor, productId: string): boolean {
-  const row = db
-    .select({ isActive: products.isActive })
-    .from(products)
-    .where(
-      and(
-        eq(products.id, productId),
-        eq(products.orgId, actor.orgId),
-        isNull(products.deletedAt),
-      ),
-    )
-    .get();
-  return row?.isActive === true;
-}
-
-/** Products the actor can name and that are stored as active. */
-export function listLineItemProductChoices(
-  db: Db,
-  actor: Actor,
-): { id: string; name: string }[] {
-  assertActor(db, actor);
-  return listProducts(db, actor).flatMap((product) =>
-    product.name && storedProductIsActive(db, actor, product.id)
-      ? [{ id: product.id, name: product.name }]
-      : [],
-  );
-}
-
-/** Stored standard price. Field security can null it on the product view. */
-function storedStandardPriceCents(db: Db, actor: Actor, productId: string): number | null {
-  const row = db
-    .select({ unitPriceCents: priceBookEntries.unitPriceCents })
-    .from(priceBookEntries)
-    .innerJoin(
-      priceBooks,
-      and(
-        eq(priceBooks.id, priceBookEntries.priceBookId),
-        eq(priceBooks.orgId, actor.orgId),
-        eq(priceBooks.isStandard, true),
-      ),
-    )
-    .where(
-      and(eq(priceBookEntries.productId, productId), eq(priceBookEntries.orgId, actor.orgId)),
-    )
-    .get();
-  return row?.unitPriceCents ?? null;
 }
 
 function requireOpportunity(db: Db, actor: Actor, id: string, action: "read" | "edit") {
@@ -107,8 +82,41 @@ function requireOpportunity(db: Db, actor: Actor, id: string, action: "read" | "
   return opp;
 }
 
-/** Line items on a readable opportunity whose product the actor can read. */
-export function listLineItems(db: Db, actor: Actor, opportunityId: string): LineItemView[] {
+/** Sale price is the product price field. Hidden still means the line can be added at the stored standard price. */
+function seesSalePrice(db: Db, actor: Actor): boolean {
+  return canReadField(db, actor, "product", "standardPriceCents");
+}
+
+function storedCatalogProduct(db: Db, actor: Actor, productId: string) {
+  const book = ensureStandardPriceBook(db, actor.orgId);
+  if (!book) return undefined;
+  return db
+    .select({
+      isActive: products.isActive,
+      standardPriceCents: priceBookEntries.unitPriceCents,
+    })
+    .from(products)
+    .innerJoin(
+      priceBookEntries,
+      and(
+        eq(priceBookEntries.productId, products.id),
+        eq(priceBookEntries.priceBookId, book.id),
+        eq(priceBookEntries.orgId, actor.orgId),
+      ),
+    )
+    .where(
+      and(
+        eq(products.id, productId),
+        eq(products.orgId, actor.orgId),
+        isNull(products.deletedAt),
+      ),
+    )
+    .get();
+}
+
+type ReadableLine = { row: OpportunityLineItem; productName: string };
+
+function linesForOpportunity(db: Db, actor: Actor, opportunityId: string): ReadableLine[] {
   assertActor(db, actor);
   requireOpportunity(db, actor, opportunityId, "read");
   return db
@@ -125,25 +133,81 @@ export function listLineItems(db: Db, actor: Actor, opportunityId: string): Line
     .flatMap((row) => {
       const product = getProduct(db, actor, row.productId);
       if (!product) return [];
-      return [
-        {
-          ...row,
-          productName: product.name,
-          totalCents: lineTotal(row.quantity, row.unitPriceCents),
-        },
-      ];
+      return [{ row, productName: product.name || "" }];
     });
 }
 
+function toLineView(db: Db, actor: Actor, line: ReadableLine): LineItemView {
+  const seePrice = seesSalePrice(db, actor);
+  return {
+    ...line.row,
+    productName: line.productName,
+    unitPriceCents: seePrice ? line.row.unitPriceCents : null,
+    totalCents: seePrice ? lineTotal(line.row.quantity, line.row.unitPriceCents) : null,
+  };
+}
+
+export type AddableProduct = { id: string; name: string };
+
+/**
+ * Products an editor can put on a deal. Active is the stored column, read
+ * before field redaction, so a hidden Active flag does not look inactive.
+ * The name is redacted. Active itself is not returned.
+ */
+export function listAddableProducts(db: Db, actor: Actor): AddableProduct[] {
+  assertActor(db, actor);
+  if (!canPerform(db, actor, "product", "read")) return [];
+  const book = ensureStandardPriceBook(db, actor.orgId);
+  if (!book) return [];
+  return db
+    .select({
+      id: products.id,
+      name: products.name,
+      isActive: products.isActive,
+    })
+    .from(products)
+    .innerJoin(
+      priceBookEntries,
+      and(
+        eq(priceBookEntries.productId, products.id),
+        eq(priceBookEntries.priceBookId, book.id),
+        eq(priceBookEntries.orgId, actor.orgId),
+      ),
+    )
+    .where(and(eq(products.orgId, actor.orgId), isNull(products.deletedAt)))
+    .orderBy(asc(products.name), asc(products.id))
+    .all()
+    .flatMap((row) => {
+      if (!row.isActive) return [];
+      const name = presentRecord(db, actor, "product", { id: row.id, name: row.name }).name;
+      return [{ id: row.id, name: name || "" }];
+    });
+}
+
+/** Products the actor can name on a deal. Same rows as `listAddableProducts`. */
+export function listLineItemProductChoices(db: Db, actor: Actor): AddableProduct[] {
+  return listAddableProducts(db, actor);
+}
+
+/** Line items on a readable opportunity whose product the actor can read. */
+export function listLineItems(db: Db, actor: Actor, opportunityId: string): LineItemView[] {
+  return linesForOpportunity(db, actor, opportunityId).map((line) => toLineView(db, actor, line));
+}
+
+/** Sum of readable line totals. A hidden sale price is refused, not returned. */
 export function opportunityLineTotalCents(
   db: Db,
   actor: Actor,
   opportunityId: string,
 ): number {
-  return listLineItems(db, actor, opportunityId).reduce(
-    (sum, item) => lineTotal(1, sum + item.totalCents),
-    0,
-  );
+  const lines = linesForOpportunity(db, actor, opportunityId);
+  if (!seesSalePrice(db, actor)) {
+    throw new DomainError("FORBIDDEN", "You do not have permission to read the sale price");
+  }
+  return lines.reduce((sum, line) => {
+    const total = lineTotal(line.row.quantity, line.row.unitPriceCents);
+    return lineTotal(1, sum + total);
+  }, 0);
 }
 
 export function addLineItem(db: Db, actor: Actor, input: AddLineItemInput): LineItemView {
@@ -152,23 +216,25 @@ export function addLineItem(db: Db, actor: Actor, input: AddLineItemInput): Line
   assertQuantity(input.quantity);
   const product = getProduct(db, actor, input.productId);
   if (!product) throw new DomainError("NOT_FOUND", "Product not found");
-  if (!storedProductIsActive(db, actor, product.id)) {
+  const stored = storedCatalogProduct(db, actor, input.productId);
+  if (!stored) throw new DomainError("NOT_FOUND", "Product not found");
+  if (!stored.isActive) {
     throw new DomainError("INVALID_PRODUCT", "Inactive products cannot be added");
   }
-  if (input.unitPriceCents != null) {
+  let unitPriceCents: number;
+  if (input.unitPriceCents !== undefined) {
     // A missing field row stays editable. Product update is still required,
     // the same check that hides the unit price input on the opportunity page.
     if (!canEditField(db, actor, "product", "standardPriceCents")) {
       throw new DomainError("FORBIDDEN", "You cannot edit standardPriceCents");
     }
+    assertUnitPrice(input.unitPriceCents);
+    unitPriceCents = input.unitPriceCents;
+  } else {
+    unitPriceCents = stored.standardPriceCents;
+    assertUnitPrice(unitPriceCents);
   }
-  const unitPriceCents =
-    input.unitPriceCents ?? storedStandardPriceCents(db, actor, product.id);
-  if (unitPriceCents == null) {
-    throw new DomainError("INVALID_MONEY", "Enter a unit price for this product");
-  }
-  assertUnitPrice(unitPriceCents);
-  const totalCents = lineTotal(input.quantity, unitPriceCents);
+  lineTotal(input.quantity, unitPriceCents);
   const ts = Date.now();
   const row: OpportunityLineItem = {
     id: newId(ID_PREFIX.opportunityLineItem),
@@ -183,7 +249,7 @@ export function addLineItem(db: Db, actor: Actor, input: AddLineItemInput): Line
     updatedBy: actor.userId,
   };
   db.insert(opportunityLineItems).values(row).run();
-  return { ...row, productName: product.name, totalCents };
+  return toLineView(db, actor, { row, productName: product.name || "" });
 }
 
 export function deleteLineItem(db: Db, actor: Actor, id: string): void {
