@@ -855,3 +855,12 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 at 01:13 EDT. `node` on PATH is v24.2.0. typegen, tsc, eslint, 123 files, 1508 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
 - **Not done:** line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages. `SALESFORCE-PARITY.md` on main still says tasks have no history; that sentence was left as main wrote it.
 - **Next:** dashboard list, view, and create pages, then roll line totals into Opportunity Amount in one transaction.
+
+## 2026-10-17 02:43 — lane A, write API v0
+
+- **What:** `POST`, `PATCH`, and `DELETE /api/v1/objects/{apiName}/records` for the five standard objects. Writes go through the existing create, update, and delete functions. `Idempotency-Key` is stored only after a successful write, in that same transaction, and is scoped to the organization and the user. `PATCH` requires `If-Match` equal to the read `updatedAt`. Migration `0056_api_idempotency`.
+- **Why:** Sprint 2 item 9. The read API could not create or change a record. A retried POST must not insert a second row, and a hidden id must look the same as a missing id.
+- **Tests:** `writes.route.test.ts` (12) and the 0055-to-0056 migration test. Create once and replay, a reused key with a different body, rejected requests store no key, If-Match and null clear, delete replay, one 404 body for a forged id, a private id, and a missing id, read-only create and a hidden phone, another org's key, contact, lead, opportunity, and task, unknown object, non-member.
+- **Verify:** `npm run verify` exit 0 at 02:43. typegen, tsc, eslint, 124 files, 1523 tests, Next.js 16.3.5 build. `node` on PATH is v24.2.0. No Node 22 binary was on this machine. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. API only.
+- **Not done:** no bearer token. Product and custom objects are not writable. The read API still returns a lookup id when the related record is unreadable. Change owner, restore, purge, and a parent cascade still do not write an audit row. About 510 net non-test lines, including conventions and migration 0056, over the ~400 guide. The 0056 snapshot is generated and not in that count.
+- **Next:** Sprint 1 items 5 and 6 (amount rollup, dashboard pages) belong to the other lane. The next platform piece is custom objects, or hiding a lookup id the actor cannot read.

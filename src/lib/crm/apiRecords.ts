@@ -142,6 +142,17 @@ function serialize(access: FieldAccess, apiName: string, row: Readable): ApiReco
   return { id: row.id, apiName, fields };
 }
 
+/** The same shape as a read, for a row a write just stored. */
+export function toApiRecord(
+  db: Db,
+  actor: Actor,
+  apiName: string,
+  row: Readable,
+): ApiRecord {
+  const object = requireObject(apiName);
+  return serialize(fieldAccess(db, actor, object.key), object.apiName, row);
+}
+
 export function getApiRecord(
   db: Db,
   actor: Actor,

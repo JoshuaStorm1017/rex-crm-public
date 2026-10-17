@@ -2344,3 +2344,7 @@ fresh verification evidence for each slice.
 
 - WORKS (verified 2026-10-17 01:13 EDT, `npm run verify` exit 0, `node` on PATH v24.2.0, 1508/1508 tests across 123 files, Next.js 16.3.5 build): this branch now contains `origin/main` at `13b9040` (opportunity and task field history) and the opportunity product lines. The opportunity page shows Products and, under Tasks, History. Conflicts were only in `STATUS.md` and `REX-LOG.md`. Both lanes' entries are kept. No product behavior was changed in this merge. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
 - Not done: line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages. `SALESFORCE-PARITY.md` still says tasks have no history, which is the sentence main shipped.
+
+## 2026-10-17 — lane A, write API v0
+
+- WORKS (verified 2026-10-17 02:43, `npm run verify` exit 0, `node` on PATH v24.2.0, 1523/1523 tests across 124 files, Next.js 16.3.5 build): `POST`, `PATCH`, and `DELETE /api/v1/objects/{apiName}/records` for Account, Contact, Lead, Opportunity, and Task. Writes call the existing domain functions. A successful write stores `Idempotency-Key` in the same transaction, scoped to the organization and the user. A rejected save stores no key. `PATCH` requires `If-Match`. A missing id, another org's id, a private id, and a forged id return one 404 body, `Record not found`. No bearer token. No browser pass. `NO_COLOR`/`FORCE_COLOR` warnings only. No Node 22 binary was on this machine.
