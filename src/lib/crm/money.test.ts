@@ -6,8 +6,11 @@ describe("parseUsdToCents", () => {
   it("parses dollars into integer cents", () => {
     expect(parseUsdToCents("10")).toBe(1000);
     expect(parseUsdToCents("$1,234.56")).toBe(123456);
+    expect(parseUsdToCents("$1,234.50")).toBe(123450);
     expect(parseUsdToCents("10.5")).toBe(1050);
+    expect(parseUsdToCents("$12.5")).toBe(1250);
     expect(parseUsdToCents("$0.00")).toBe(0);
+    expect(parseUsdToCents("$0")).toBe(0);
     expect(parseUsdToCents("")).toBeUndefined();
     expect(parseUsdToCents("   ")).toBeUndefined();
     expect(parseUsdToCents(undefined)).toBeUndefined();
@@ -19,7 +22,7 @@ describe("parseUsdToCents", () => {
     expect(() => parseUsdToCents("nope")).toThrow(/must be a number/);
   });
 
-  it.each(["$", ",", "1.999", "0x10", "1e2", "10.", ".5"])(
+  it.each(["$", ",", "1.999", "1.005", "0.001", "$1.005", "0.105", "0x10", "1e2", "10.", ".5", ".50", ".001", "+12.50", "+1.005"])(
     "refuses %s instead of coercing it",
     (raw) => {
       expect(() => parseUsdToCents(raw)).toThrow(DomainError);
@@ -36,6 +39,19 @@ describe("parseUsdToCents", () => {
       expect(() => parseUsdToCents(raw)).toThrow(/number/);
     },
   );
+
+  it("refuses a third decimal without putting the amount in the message", () => {
+    for (const raw of ["1.005", "0.001", "$1.005", "19.999", "0.105", "$1,234.567", "1.230", "  1.005  "]) {
+      expect(() => parseUsdToCents(raw)).toThrow(DomainError);
+      try {
+        parseUsdToCents(raw);
+      } catch (error) {
+        expect(error).toMatchObject({ code: "INVALID_MONEY" });
+        expect((error as Error).message).toMatch(/two decimal places/);
+        expect((error as Error).message).not.toMatch(/\d{3,}/);
+      }
+    }
+  });
 
   it("keeps tenths and hundredths exact, including a padded dollar amount", () => {
     expect(parseUsdToCents("0.01")).toBe(1);

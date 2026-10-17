@@ -840,6 +840,42 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 at 23:57 EDT on Node v22.23.3. 122 files, 1371 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. The page check is `renderToStaticMarkup`.
 - **Next:** Sprint 1 platform items 1–3 are in. Opportunity line items on the opportunity page are the next sprint item. Change owner, restore, purge, and a parent cascade still do not write a history row.
 
+## 2026-10-17 00:45 EDT — lane A, opportunity products on the record
+
+- **What:** The opportunity page lists products (name, quantity, unit price, line total). Add and Remove follow opportunity edit. A hidden product price is an em dash and the override input is omitted. A hidden name, an unreadable product, and another org's product stay off the page. An explicit unit price the profile cannot edit is refused and writes nothing. Omitting the price stores the standard price book cents. Amount is unchanged. No migration.
+- **Why:** Sprint 1 item 4. The domain and the actions already saved lines. The record page did not show them, so a seller could not see or add products on the deal.
+- **Tests:** `products.page.test.ts` (3), plus one domain test and one action test. Editor versus reader, edit-not-delete versus delete-not-edit, hidden price, hidden name, no product read, and a foreign product.
+- **Mutation, restored before verify:** dropping the price-edit check let the override through. Using the redacted product price refused the default with "Enter a unit price for this product". Showing the form for every viewer put Add product on Riley's page. Always rendering Remove put Remove on Riley's page. Passing delete instead of edit put Add and Remove on the delete-not-edit owner.
+- **Verify:** `npm run verify` exit 0 at 00:45 EDT on Node v22.23.3. 123 files, 1384 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. The page check is `renderToStaticMarkup`.
+- **Next:** Roll line totals into Opportunity Amount in integer cents, in one transaction. Change owner, restore, purge, and a parent cascade still do not write a history row.
+
+## 2026-10-17 01:09 EDT — lane A, line price needs product update
+
+- **What:** A posted opportunity line price now goes through `canEditField` for product `standardPriceCents`. A profile that can edit the deal and only read products is refused, including a price of 0, and no line is written. Omitting the price still stores the standard price. A field row that denies the price is still refused. No migration.
+- **Why:** The opportunity page hid the unit price input because product update was false. `addLineItem` only called `assertEditableFields`, and a missing field row allows the edit, so a posted `5.00` was stored as 500 cents.
+- **Tests:** The QE action test "refuses a posted unit price when the profile cannot update products" passes. A domain test refuses 500 and 0 cents, then stores 19999 when the price is omitted. The field-deny and omit-price tests still pass.
+- **Mutation, restored after the green verify:** removing the check stored `unitPriceCents` 500. That failed the QE action test, the field-deny action test, and both domain refusal tests (4 failed, 26 passed in those two files). The check was put back and those 30 tests passed.
+- **Verify:** `npm run verify` exit 0 at 01:08 EDT on Node v22.23.3. 123 files, 1395 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass.
+- **Next:** Roll line totals into Opportunity Amount in integer cents, in one transaction. `parseUsdToCents` still turns `$` or `,` into 0 cents for a profile that is allowed to edit the price.
+
+## 2026-10-17 01:32 EDT — lane A, refuse a bare price mark and a hidden active flag
+
+- **What:** `parseUsdToCents` rejects `$` and `,` instead of storing 0 cents. `$0` and `$1,234.50` still parse. `addLineItem` and the opportunity add list read the stored product `isActive`, so hiding that field does not make an active product look inactive and does not offer an inactive one. No migration.
+- **Why:** QE posted `$` and got a free line with no notice. A profile that cannot read `isActive` could not add an active product, and the add list dropped it.
+- **Tests:** The QE action test "refuses a unit price that is only a dollar sign or comma" and the QE domain test "adds an active product when the profile cannot read isActive" pass. An inactive product with that field hidden is still refused and stays off the select. `$1,234.50` still stores 123450 cents.
+- **Mutation, restored before verify:** dropping the empty-after-strip check stored 0 cents for `$`. Using the redacted `isActive` refused the active product and hid Add product. Treating only `false` as inactive wrote the inactive product. Treating a null flag as active listed Retired Anvil.
+- **Verify:** `npm run verify` exit 0 at 01:32 EDT on Node v22.23.3. 123 files, 1410 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. The page check is `renderToStaticMarkup`.
+- **Next:** Roll line totals into Opportunity Amount in integer cents, in one transaction. `parseUsdToCents` still rounds with `Math.round`, so `1.005` can land on the wrong cent. After a product is soft-deleted, its lines vanish from the related list while the row remains.
+
+## 2026-10-17 01:55 EDT — lane A, refuse a third decimal on a unit price
+
+- **What:** `parseUsdToCents` refuses more than two decimal places and turns a plain dollar string into cents from the digits. The opportunity line form uses that parser, so `1.005` and `0.001` redirect with a notice and write no row. `$12.50` is still 1250 cents. No migration.
+- **Why:** QE posted `1.005` and the line saved as 100 cents. `0.001` saved as 0 cents, a free line. Catalog and contract prices already refuse a third decimal.
+- **Tests:** The QE action test "refuses a unit price with more than two decimal places and writes nothing" passes. Money tests cover `1.005`, `0.001`, `$1.005`, `19.999`, and `0.105`, and exact cents for `12.50`, `19.99`, and `0.10`.
+- **Mutation, restored after the green verify:** dropping the fraction-length check stored 105 cents for `1.005` and 1 cent for `0.001`, with no notice. That failed the QE action test and the money parser test (2 failed, 22 passed). The check was put back. Those 24 tests passed.
+- **Verify:** `npm run verify` exit 0 at 01:55 EDT on Node v22.23.3. 123 files, 1423 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
+- **Next:** Roll line totals into Opportunity Amount in integer cents, in one transaction. `parseUsdToCents` still accepts `1e2` and `0x10`. After a product is soft-deleted, its lines vanish from the related list while the row remains.
+
 ## 2026-10-17 00:29 EDT — split the branch down to the opportunity product list
 
 - **What:** Removed the read-API lookup concealment and the dashboard list/view/create pages from this branch. Those files match `origin/main` again. This change is the opportunity product related list: add and delete through the existing actions, sale price hidden without field access, inactive products and invalid quantities refused.
@@ -863,4 +899,12 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Tests:** `writes.route.test.ts` (12) and the 0055-to-0056 migration test. Create once and replay, a reused key with a different body, rejected requests store no key, If-Match and null clear, delete replay, one 404 body for a forged id, a private id, and a missing id, read-only create and a hidden phone, another org's key, contact, lead, opportunity, and task, unknown object, non-member.
 - **Verify:** `npm run verify` exit 0 at 02:43. typegen, tsc, eslint, 124 files, 1523 tests, Next.js 16.3.5 build. `node` on PATH is v24.2.0. No Node 22 binary was on this machine. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. API only.
 - **Not done:** no bearer token. Product and custom objects are not writable. The read API still returns a lookup id when the related record is unreadable. Change owner, restore, purge, and a parent cascade still do not write an audit row. About 510 net non-test lines, including conventions and migration 0056, over the ~400 guide. The 0056 snapshot is generated and not in that count.
+- **Next:** Sprint 1 items 5 and 6 (amount rollup, dashboard pages) belong to the other lane. The next platform piece is custom objects, or hiding a lookup id the actor cannot read.
+
+## 2026-10-17 03:26 EDT — merge origin/main (write API v0) into the product-page branch
+
+- **What:** Merged `origin/main` `f6c0b69` (write API v0, migration 0056, and the opportunity product list) into `rex/laneA-1017-0031`. Kept main's line list, sale-price redaction, strict money parser, and quantity parser. A posted line price requires product update via `canEditField`, so a product reader cannot store an override and the price box stays hidden. Omitting the price stores the standard price. A hidden product name stays off the page; the picker still offers the product. The page renders `OpportunityLineItems`.
+- **Why:** Main moved while this branch was open. Both sides edited the product list and the money parser. The merge keeps both behaviors.
+- **Verify:** `npm run verify` exit 0 at 03:26 EDT on Node v22.23.3. typegen, tsc, eslint, 125 files, 1552 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
+- **Not done:** line items do not roll into Opportunity Amount. No edit of an existing line. No bearer token. The read API still returns a lookup id when the related record is unreadable.
 - **Next:** Sprint 1 items 5 and 6 (amount rollup, dashboard pages) belong to the other lane. The next platform piece is custom objects, or hiding a lookup id the actor cannot read.

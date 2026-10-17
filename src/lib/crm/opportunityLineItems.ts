@@ -7,7 +7,7 @@ import { ID_PREFIX, newId } from "./ids";
 import { readOpportunity } from "./opportunities";
 import {
   assertCanAccessRecord,
-  assertEditableFields,
+  canEditField,
   canPerform,
   canReadField,
   presentRecord,
@@ -184,6 +184,11 @@ export function listAddableProducts(db: Db, actor: Actor): AddableProduct[] {
     });
 }
 
+/** Products the actor can name on a deal. Same rows as `listAddableProducts`. */
+export function listLineItemProductChoices(db: Db, actor: Actor): AddableProduct[] {
+  return listAddableProducts(db, actor);
+}
+
 /** Line items on a readable opportunity whose product the actor can read. */
 export function listLineItems(db: Db, actor: Actor, opportunityId: string): LineItemView[] {
   return linesForOpportunity(db, actor, opportunityId).map((line) => toLineView(db, actor, line));
@@ -218,7 +223,11 @@ export function addLineItem(db: Db, actor: Actor, input: AddLineItemInput): Line
   }
   let unitPriceCents: number;
   if (input.unitPriceCents !== undefined) {
-    assertEditableFields(db, actor, "product", ["standardPriceCents"]);
+    // A missing field row stays editable. Product update is still required,
+    // the same check that hides the unit price input on the opportunity page.
+    if (!canEditField(db, actor, "product", "standardPriceCents")) {
+      throw new DomainError("FORBIDDEN", "You cannot edit standardPriceCents");
+    }
     assertUnitPrice(input.unitPriceCents);
     unitPriceCents = input.unitPriceCents;
   } else {

@@ -23,9 +23,9 @@ import { canChangeOwner } from "@/lib/crm/ownership";
 import { listAddableProducts, listLineItems } from "@/lib/crm/opportunityLineItems";
 import {
   canAccessRecord,
+  canEditField,
   canPerform,
   canReadField,
-  formFieldAllowed,
   presentRecord,
 } from "@/lib/crm/permissions";
 import { recordView } from "@/lib/crm/recentlyViewed";
@@ -83,7 +83,7 @@ export default async function OpportunityDetailPage({
   const relatedTasks = listTasksForRecord(db, actor, "opportunity", opportunity.id);
   const showSalePrice = canReadField(db, actor, "product", "standardPriceCents");
   const canSetSalePrice =
-    showSalePrice && formFieldAllowed(db, actor, "product", "standardPrice");
+    showSalePrice && canEditField(db, actor, "product", "standardPriceCents");
   const canReadProducts = canPerform(db, actor, "product", "read");
   const lineItems = listLineItems(db, actor, opportunity.id).map((line) => ({
     id: line.id,

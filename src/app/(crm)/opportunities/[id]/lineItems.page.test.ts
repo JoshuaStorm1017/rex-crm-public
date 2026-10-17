@@ -540,7 +540,9 @@ describe("opportunity product related list", () => {
     const editable = await html(shared.id);
     expect(editable).toContain("Add product");
     expect(editable).toContain("Remove");
-    expect(editable).toContain('name="unitPrice"');
+    // This profile can edit the deal and cannot update products, so the
+    // sale-price box stays off. A posted price is refused the same way.
+    expect(editable).not.toContain('name="unitPrice"');
     expect(editable).not.toContain(DENIED);
     expect(editable).not.toContain("Seattle Secret");
     expect(editable).not.toContain("$42.42");

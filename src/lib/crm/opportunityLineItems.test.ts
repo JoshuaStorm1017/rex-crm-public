@@ -15,6 +15,7 @@ import {
   LINE_ITEM_MAX_QUANTITY,
   LINE_ITEM_MAX_UNIT_CENTS,
   listAddableProducts,
+  listLineItemProductChoices,
   listLineItems,
   opportunityLineTotalCents,
   parseLineQuantity,
@@ -1538,6 +1539,126 @@ describe("opportunity line items", () => {
     expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)).toMatchObject([
       { id: added.id, unitPriceCents: 19_999, totalCents: 39_998 },
     ]);
+  });
+
+  it("refuses a posted price when the profile cannot update products", () => {
+    const s = setup();
+    const user = createUser(s.db, {
+      name: "Catalog Reader",
+      email: "catalog.reader@example.com",
+      username: "catalogreader",
+      password: "long-enough",
+    });
+    const profileId = createProfile(s.db, LOCAL_ACTOR, "Catalog Reader");
+    setObjectPermission(s.db, LOCAL_ACTOR, profileId, "account", FULL);
+    setObjectPermission(s.db, LOCAL_ACTOR, profileId, "opportunity", FULL);
+    setObjectPermission(s.db, LOCAL_ACTOR, profileId, "product", {
+      canCreate: false,
+      canRead: true,
+      canUpdate: false,
+      canDelete: false,
+    });
+    addMember(s.db, LOCAL_ORG_ID, user.id, "member", profileId);
+    const actor = actorFor(user.id);
+    const opp = createOpportunity(s.db, actor, {
+      accountId: createAccount(s.db, actor, { name: "Reader Canyon" }).id,
+      name: "Reader Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-02",
+    });
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, actor, {
+          opportunityId: opp.id,
+          productId: s.product.id,
+          quantity: 2,
+          unitPriceCents: 500,
+        }),
+      "FORBIDDEN",
+    );
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, actor, {
+          opportunityId: opp.id,
+          productId: s.product.id,
+          quantity: 2,
+          unitPriceCents: 0,
+        }),
+      "FORBIDDEN",
+    );
+    const line = addLineItem(s.db, actor, {
+      opportunityId: opp.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    expect(line.unitPriceCents).toBe(19_999);
+    expect(line.totalCents).toBe(39_998);
+    expect(listLineItemProductChoices(s.db, actor).map((choice) => choice.id)).toContain(s.product.id);
+  });
+
+  it("uses this org's standard price when another book has a different price", () => {
+    const s = setup();
+    const now = Date.now();
+    const customId = newId(ID_PREFIX.priceBook);
+    s.db.insert(priceBooks).values({
+      id: customId,
+      orgId: LOCAL_ORG_ID,
+      name: "Promo Book",
+      ownerId: LOCAL_ACTOR.userId,
+      isStandard: false,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: LOCAL_ACTOR.userId,
+      updatedBy: LOCAL_ACTOR.userId,
+    }).run();
+    s.db.insert(priceBookEntries).values({
+      id: newId(ID_PREFIX.priceBookEntry),
+      orgId: LOCAL_ORG_ID,
+      priceBookId: customId,
+      productId: s.product.id,
+      unitPriceCents: 1,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+    const outsider = createUser(s.db, {
+      name: "Quinn Sample",
+      email: "quinn.price@example.com",
+      username: "quinnprice",
+      password: "helmet-42",
+    });
+    const other = createOrganization(s.db, "Other Price Org", outsider.id);
+    const foreignBookId = newId(ID_PREFIX.priceBook);
+    s.db.insert(priceBooks).values({
+      id: foreignBookId,
+      orgId: other.id,
+      name: "Foreign Standard",
+      ownerId: outsider.id,
+      isStandard: true,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: outsider.id,
+      updatedBy: outsider.id,
+    }).run();
+    s.db.insert(priceBookEntries).values({
+      id: newId(ID_PREFIX.priceBookEntry),
+      orgId: other.id,
+      priceBookId: foreignBookId,
+      productId: s.product.id,
+      unitPriceCents: 7,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+    const line = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    expect(line.unitPriceCents).toBe(19_999);
+    expect(line.totalCents).toBe(39_998);
   });
 });
 
