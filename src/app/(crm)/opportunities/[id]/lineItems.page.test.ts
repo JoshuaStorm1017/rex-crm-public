@@ -440,4 +440,28 @@ describe("opportunity product related list", () => {
     expect(editable).not.toContain("$42.42");
     await expect(html(hidden.id)).rejects.toThrow(/^NOT_FOUND$/);
   });
+
+  it("does not show one opportunity's line prices on another", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const first = ownDeal(db, LOCAL_ACTOR, "First Restock");
+    const second = ownDeal(db, LOCAL_ACTOR, "Second Restock");
+    const paint = createProduct(db, LOCAL_ACTOR, { name: "Painted Anvil", standardPriceCents: PRICE });
+    const helmet = createProduct(db, LOCAL_ACTOR, { name: "Secret Helmet", standardPriceCents: 4242 });
+    addLineItem(db, LOCAL_ACTOR, { opportunityId: first.id, productId: paint.id, quantity: 2 });
+    addLineItem(db, LOCAL_ACTOR, { opportunityId: second.id, productId: helmet.id, quantity: 1 });
+    const operator = getUser(db, LOCAL_USER_ID);
+    if (!operator) throw new Error("seeded users were missing");
+    act(operator);
+    const firstPage = await html(first.id);
+    expect(firstPage).toContain("Products (1)");
+    expect(firstPage).toContain("$1,234.56");
+    expect(firstPage).toContain("$2,469.12");
+    expect(firstPage).not.toContain("$42.42");
+    const secondPage = await html(second.id);
+    expect(secondPage).toContain("Products (1)");
+    expect(secondPage).toContain("$42.42");
+    expect(secondPage).not.toContain("$1,234.56");
+    expect(secondPage).not.toContain("$2,469.12");
+  });
 });

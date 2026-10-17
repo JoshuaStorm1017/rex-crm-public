@@ -2273,3 +2273,14 @@ fresh verification evidence for each slice.
   DevTools did not connect.
 - Not done: line items do not roll into Opportunity Amount. No edit of
   an existing line. No dashboard pages yet.
+
+## 2026-10-16 — re-checked the origin/main merge (lane B)
+
+- WORKS (verified 2026-10-16 21:45 EDT, `npm run verify` exit 0 on Node
+  v22.23.3, 1374/1374 tests across 112 files, Next.js 16.3.5 build):
+  `git merge origin/main` was already up to date. This branch already
+  contains `ec5cf55` (account field history and `0055_audit_events`)
+  plus the opportunity product lines. No product code changed in this
+  pass. No browser pass. Chrome DevTools did not connect.
+- Not done: line items do not roll into Opportunity Amount. No edit of
+  an existing line. No dashboard pages yet.

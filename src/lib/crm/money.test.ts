@@ -51,6 +51,8 @@ describe("parseUsdToCents", () => {
     expect(() => parseUsdToCents("$-1.00")).toThrow(/cannot be negative/);
     expect(() => parseUsdToCents("90071992547410.00")).toThrow(/too large/);
     expect(() => parseUsdToCents("90071992547409.99")).toThrow(/too large/);
+    expect(parseUsdToCents("90071992547409.91")).toBe(9_007_199_254_740_991);
+    expect(() => parseUsdToCents("90071992547409.92")).toThrow(/too large/);
   });
 });
 

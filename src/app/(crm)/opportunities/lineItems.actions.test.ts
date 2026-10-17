@@ -25,7 +25,7 @@ import { createProduct } from "@/lib/crm/products";
 import { createProfile, setFieldPermission, setObjectPermission } from "@/lib/crm/profiles";
 import { createUser } from "@/lib/crm/users";
 import { getDb, openMemoryDb, type Db } from "@/lib/db/client";
-import { opportunityLineItems } from "@/lib/db/schema";
+import { opportunities, opportunityLineItems, priceBookEntries } from "@/lib/db/schema";
 import {
   addOpportunityLineItemAction,
   deleteOpportunityLineItemAction,
@@ -481,6 +481,25 @@ describe("opportunity line item actions", () => {
       ),
     ).rejects.toThrow(/notice=Quantity/);
     expect(s.snapshot()).toBe(before);
+  });
+
+  it("stores a comma-formatted sales price and a trimmed quantity without rewriting the catalog", async () => {
+    const s = setup();
+    const beforeEntries = JSON.stringify(s.db.select().from(priceBookEntries).all());
+    const beforeOpps = JSON.stringify(s.db.select().from(opportunities).all());
+    await expect(
+      addOpportunityLineItemAction(
+        s.opp.id,
+        form({ productId: s.product.id, quantity: "  3  ", unitPrice: "$1,234.56" }),
+      ),
+    ).rejects.toThrow(`REDIRECT /opportunities/${s.opp.id}`);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)[0]).toMatchObject({
+      quantity: 3,
+      unitPriceCents: 123_456,
+      totalCents: 370_368,
+    });
+    expect(JSON.stringify(s.db.select().from(priceBookEntries).all())).toBe(beforeEntries);
+    expect(JSON.stringify(s.db.select().from(opportunities).all())).toBe(beforeOpps);
   });
 });
 

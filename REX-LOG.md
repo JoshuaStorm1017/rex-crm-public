@@ -771,3 +771,10 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 on Node 22.23.3. 112 files, 1369/1369 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser or curl pass. Chrome DevTools did not connect.
 - **Not done:** lines do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages yet.
 - **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.
+
+## 2026-10-16 21:46 EDT — re-check merge of origin/main
+
+- **What:** `git merge origin/main` was already up to date. HEAD `a99dcdc` already contains `origin/main` at `ec5cf55` (account audit, migration `0055_audit_events`). No conflict markers. No product code changed.
+- **Why:** The gates asked for a fresh merge because main moved while they ran. The previous merge commit already had it.
+- **Verify:** `npm run verify` exit 0 at 21:45 EDT on Node v22.23.3. typegen, tsc, eslint, 112 files, 1374/1374 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass.
+- **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.

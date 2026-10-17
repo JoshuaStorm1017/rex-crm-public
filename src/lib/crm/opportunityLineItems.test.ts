@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
-import { opportunityLineItems, organizations, priceBookEntries, priceBooks, products, users } from "../db/schema";
+import { opportunities, opportunityLineItems, organizations, priceBookEntries, priceBooks, products, users } from "../db/schema";
 import { actorFor, LOCAL_ACTOR, type Actor } from "./actor";
 import { DomainError } from "./errors";
 import { createAccount } from "./accounts";
@@ -606,6 +606,174 @@ describe("opportunity line items", () => {
     });
     expect(atMaxPrice.unitPriceCents).toBe(LINE_ITEM_MAX_UNIT_CENTS);
     expect(atMaxPrice.totalCents).toBe(LINE_ITEM_MAX_UNIT_CENTS);
+  });
+
+  it("keeps each opportunity's lines, total, and amount apart", () => {
+    const s = setup();
+    const other = createOpportunity(s.db, LOCAL_ACTOR, {
+      accountId: createAccount(s.db, LOCAL_ACTOR, { name: "Second Co" }).id,
+      name: "Second Restock",
+      stage: "Negotiation",
+      closeDate: "2026-12-01",
+      amountCents: 5_000_000,
+    });
+    s.db.update(opportunities).set({ amountCents: 880_000, updatedAt: 1_700_000_000_000 }).where(eq(opportunities.id, s.opp.id)).run();
+    const first = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 2,
+      unitPriceCents: 100,
+    });
+    const second = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: other.id,
+      productId: s.product.id,
+      quantity: 5,
+    });
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)).toMatchObject([
+      { id: first.id, quantity: 2, unitPriceCents: 100, totalCents: 200 },
+    ]);
+    expect(listLineItems(s.db, LOCAL_ACTOR, other.id)).toMatchObject([
+      { id: second.id, quantity: 5, unitPriceCents: 19_999, totalCents: 99_995 },
+    ]);
+    expect(opportunityLineTotalCents(s.db, LOCAL_ACTOR, s.opp.id)).toBe(200);
+    expect(opportunityLineTotalCents(s.db, LOCAL_ACTOR, other.id)).toBe(99_995);
+    deleteLineItem(s.db, LOCAL_ACTOR, first.id);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)).toEqual([]);
+    expect(listLineItems(s.db, LOCAL_ACTOR, other.id).map((line) => line.id)).toEqual([second.id]);
+    const amounts = [s.opp.id, other.id].map((id) => {
+      const row = s.db.select().from(opportunities).where(eq(opportunities.id, id)).get();
+      return { id, amountCents: row?.amountCents, updatedAt: row?.updatedAt };
+    });
+    expect(amounts).toEqual([
+      { id: s.opp.id, amountCents: 880_000, updatedAt: 1_700_000_000_000 },
+      { id: other.id, amountCents: 5_000_000, updatedAt: other.updatedAt },
+    ]);
+  });
+
+  it("a sale-price override does not rewrite the catalog", () => {
+    const s = setup();
+    const before = s.db.select().from(priceBookEntries).all();
+    const line = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 4,
+      unitPriceCents: 100,
+    });
+    expect(line).toMatchObject({ quantity: 4, unitPriceCents: 100, totalCents: 400 });
+    expect(s.db.select().from(priceBookEntries).all()).toEqual(before);
+    const next = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 1,
+    });
+    expect(next.unitPriceCents).toBe(19_999);
+    expect(opportunityLineTotalCents(s.db, LOCAL_ACTOR, s.opp.id)).toBe(20_399);
+  });
+
+  it("accepts a line total at the safe-integer boundary and refuses one unit over", () => {
+    const s = setup();
+    const quantity = LINE_ITEM_MAX_QUANTITY;
+    const unitPriceCents = 9_007_199_254;
+    const line = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity,
+      unitPriceCents,
+    });
+    expect(line.totalCents).toBe(9_007_199_254_000_000);
+    expect(Number.isSafeInteger(line.totalCents)).toBe(true);
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, LOCAL_ACTOR, {
+          opportunityId: s.opp.id,
+          productId: s.product.id,
+          quantity,
+          unitPriceCents: unitPriceCents + 1,
+        }),
+      "INVALID_MONEY",
+    );
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id).map((row) => row.id)).toEqual([line.id]);
+  });
+
+  it("refuses a catalog price above the line cap without writing or revealing it", () => {
+    const s = setup();
+    const expensive = createProduct(s.db, LOCAL_ACTOR, {
+      name: "Satellite Dish",
+      standardPriceCents: LINE_ITEM_MAX_UNIT_CENTS + 1,
+    });
+    expect(listAddableProducts(s.db, LOCAL_ACTOR).map((product) => product.id)).toContain(expensive.id);
+    const before = catalogSnapshot(s.db);
+    const err = refusal(() =>
+      addLineItem(s.db, LOCAL_ACTOR, {
+        opportunityId: s.opp.id,
+        productId: expensive.id,
+        quantity: 1,
+      }),
+    );
+    expect(err.code).toBe("INVALID_MONEY");
+    expect(err.message).not.toMatch(/10000000001|10,000,000,001|Satellite/);
+    expect(catalogSnapshot(s.db)).toBe(before);
+    const priced = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: expensive.id,
+      quantity: 1,
+      unitPriceCents: 500,
+    });
+    expect(priced).toMatchObject({ unitPriceCents: 500, totalCents: 500 });
+    expect(
+      s.db.select().from(priceBookEntries).all().find((row) => row.productId === expensive.id)?.unitPriceCents,
+    ).toBe(LINE_ITEM_MAX_UNIT_CENTS + 1);
+  });
+
+  it("hides a custom sale price that is not the catalog price", () => {
+    const s = setup();
+    const actor = seller(s.db, {
+      name: "Custom Hidden",
+      email: "custom.hidden@example.com",
+      username: "customhidden",
+      profileName: "Hide Custom Price",
+      price: { canRead: false, canEdit: true },
+    });
+    const deal = createOpportunity(s.db, actor, {
+      accountId: createAccount(s.db, actor, { name: "Custom Hidden Co" }).id,
+      name: "Custom Hidden Deal",
+      stage: "Prospecting",
+      closeDate: "2026-11-08",
+    });
+    const added = addLineItem(s.db, actor, {
+      opportunityId: deal.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    s.db.update(opportunityLineItems).set({ unitPriceCents: 4242 }).where(eq(opportunityLineItems.id, added.id)).run();
+    const hidden = listLineItems(s.db, actor, deal.id)[0];
+    expect(hidden).toMatchObject({
+      quantity: 2,
+      unitPriceCents: null,
+      totalCents: null,
+    });
+    expect(hidden?.productName).toBe("Anvil Mk II");
+    expect(listLineItems(s.db, LOCAL_ACTOR, deal.id)[0]).toMatchObject({
+      unitPriceCents: 4242,
+      totalCents: 8484,
+    });
+    const err = refusal(() => opportunityLineTotalCents(s.db, actor, deal.id));
+    expect(err.code).toBe("FORBIDDEN");
+    expect(err.message).not.toMatch(/4242|8484|19999|39998/);
+    const before = catalogSnapshot(s.db);
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, actor, {
+          opportunityId: deal.id,
+          productId: s.product.id,
+          quantity: 1,
+          unitPriceCents: 1,
+        }),
+      "FORBIDDEN",
+    );
+    expect(catalogSnapshot(s.db)).toBe(before);
   });
 
   it("keeps a line's price when the catalog price changes", () => {
