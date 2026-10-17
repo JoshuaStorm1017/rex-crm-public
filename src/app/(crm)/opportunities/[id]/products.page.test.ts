@@ -24,7 +24,7 @@ import { ID_PREFIX, newId } from "@/lib/crm/ids";
 import { createOpportunity, getOpportunity } from "@/lib/crm/opportunities";
 import { addLineItem } from "@/lib/crm/opportunityLineItems";
 import { addMember, createOrganization } from "@/lib/crm/orgs";
-import { canAccessRecord } from "@/lib/crm/permissions";
+import { canAccessRecord, canEditField, canPerform } from "@/lib/crm/permissions";
 import { createProduct, updateProduct } from "@/lib/crm/products";
 import { createProfile, setFieldPermission, setObjectPermission } from "@/lib/crm/profiles";
 import { assignUserRole, createRole, createSharingRule, setOrgWideDefault } from "@/lib/crm/sharing";
@@ -63,6 +63,8 @@ function member(
     profileName: string;
     opportunity: { canUpdate: boolean; canDelete: boolean };
     productRead: boolean;
+    productUpdate?: boolean;
+    price?: { canRead: boolean; canEdit: boolean };
   },
 ): { user: PublicUser; actor: Actor } {
   const user = createUser(db, {
@@ -78,13 +80,16 @@ function member(
     canUpdate: spec.opportunity.canUpdate,
     canDelete: spec.opportunity.canDelete,
   });
-  if (spec.productRead) {
+  if (spec.productRead || spec.productUpdate) {
     setObjectPermission(db, LOCAL_ACTOR, profileId, "product", {
       canCreate: false,
-      canRead: true,
-      canUpdate: false,
+      canRead: spec.productRead,
+      canUpdate: spec.productUpdate === true,
       canDelete: false,
     });
+  }
+  if (spec.price) {
+    setFieldPermission(db, LOCAL_ACTOR, profileId, "product", "standardPriceCents", spec.price);
   }
   addMember(db, LOCAL_ORG_ID, user.id, "member", profileId);
   return { user, actor: actorFor(user.id) };
@@ -607,5 +612,85 @@ describe("opportunity products related list", () => {
     expect(html).not.toContain("Remove");
     expect(html).not.toContain('name="unitPrice"');
     expect(html).not.toContain(`value="${product.id}"`);
+  });
+
+  it("shows the price box to a product updater and hides it when the price field is locked", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const product = createProduct(db, LOCAL_ACTOR, {
+      name: "Bolt Press",
+      standardPriceCents: 1999,
+    });
+
+    const updater = member(db, {
+      name: "Price Editor",
+      email: "price.editor.page@example.com",
+      username: "priceeditorpage",
+      profileName: "Price Editor Page",
+      opportunity: { canUpdate: true, canDelete: false },
+      productRead: true,
+      productUpdate: true,
+      price: { canRead: true, canEdit: true },
+    });
+    const editorDeal = createOpportunity(db, updater.actor, {
+      accountId: createAccount(db, updater.actor, { name: "Editor Press" }).id,
+      name: "Editor Press Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-21",
+    });
+    addLineItem(db, LOCAL_ACTOR, {
+      opportunityId: editorDeal.id,
+      productId: product.id,
+      quantity: 2,
+    });
+    expect(updater.actor.userId).not.toBe(LOCAL_ACTOR.userId);
+    expect(canPerform(db, updater.actor, "product", "edit")).toBe(true);
+    expect(canEditField(db, updater.actor, "product", "standardPriceCents")).toBe(true);
+
+    signIn(updater.user);
+    const asUpdater = await renderOpportunity(editorDeal.id);
+    expect(asUpdater).toContain("Bolt Press");
+    expect(asUpdater).toContain("$19.99");
+    expect(asUpdater).toContain("$39.98");
+    expect(asUpdater).toContain("Add product");
+    expect(asUpdater).toContain("Remove");
+    expect(asUpdater).toContain('name="unitPrice"');
+    expect(asUpdater).toContain(`value="${product.id}"`);
+
+    const locked = member(db, {
+      name: "Field Locked Editor",
+      email: "field.locked.page@example.com",
+      username: "fieldlockedpage",
+      profileName: "Field Locked Page",
+      opportunity: { canUpdate: true, canDelete: true },
+      productRead: true,
+      productUpdate: true,
+      price: { canRead: true, canEdit: false },
+    });
+    const lockedDeal = createOpportunity(db, locked.actor, {
+      accountId: createAccount(db, locked.actor, { name: "Locked Press" }).id,
+      name: "Locked Press Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-22",
+    });
+    addLineItem(db, LOCAL_ACTOR, {
+      opportunityId: lockedDeal.id,
+      productId: product.id,
+      quantity: 2,
+    });
+    expect(canPerform(db, locked.actor, "product", "edit")).toBe(true);
+    expect(canEditField(db, locked.actor, "product", "standardPriceCents")).toBe(false);
+    expect(canAccessRecord(db, locked.actor, "opportunity", "edit", lockedDeal)).toBe(true);
+
+    signIn(locked.user);
+    const asLocked = await renderOpportunity(lockedDeal.id);
+    expect(asLocked).toContain("Bolt Press");
+    expect(asLocked).toContain("Sales Price");
+    expect(asLocked).toContain("$19.99");
+    expect(asLocked).toContain("$39.98");
+    expect(asLocked).toContain("Add product");
+    expect(asLocked).toContain("Remove");
+    expect(asLocked).not.toContain('name="unitPrice"');
+    expect(asLocked).toContain(`value="${product.id}"`);
   });
 });

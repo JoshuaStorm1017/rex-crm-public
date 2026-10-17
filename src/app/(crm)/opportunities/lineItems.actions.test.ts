@@ -620,6 +620,68 @@ describe("opportunity line item actions", () => {
       expect(message).toMatch(/notice=/);
     }
   });
+
+  it("stores a posted price for a product updater who does not own the product", async () => {
+    const s = setup();
+    const { actor, opp } = productUpdater(s, {
+      name: "Price Editor",
+      username: "priceeditoraction",
+      price: { canRead: true, canEdit: true },
+    });
+    const catalog = s.db.select().from(priceBookEntries).all();
+    await expect(
+      addOpportunityLineItemAction(
+        opp.id,
+        form({ productId: s.product.id, quantity: "3", unitPrice: "$12.50" }),
+      ),
+    ).rejects.toThrow(`REDIRECT /opportunities/${opp.id}`);
+    await expect(
+      addOpportunityLineItemAction(
+        opp.id,
+        form({ productId: s.product.id, quantity: "1", unitPrice: "12.5" }),
+      ),
+    ).rejects.toThrow(`REDIRECT /opportunities/${opp.id}`);
+    expect(listLineItems(s.db, actor, opp.id).map((line) => line.unitPriceCents)).toEqual([1250, 1250]);
+    expect(listLineItems(s.db, actor, opp.id).map((line) => line.totalCents)).toEqual([3750, 1250]);
+    expect(s.db.select().from(priceBookEntries).all()).toEqual(catalog);
+    const amount = s.db.select().from(opportunities).where(eq(opportunities.id, opp.id)).get();
+    expect(amount?.amountCents ?? null).toBeNull();
+  });
+
+  it("refuses a posted price when the price field is locked even if the profile can update products", async () => {
+    const s = setup();
+    const { actor, opp } = productUpdater(s, {
+      name: "Field Locked Editor",
+      username: "fieldlockedaction",
+      price: { canRead: true, canEdit: false },
+    });
+    await expect(
+      addOpportunityLineItemAction(opp.id, form({ productId: s.product.id, quantity: "2" })),
+    ).rejects.toThrow(`REDIRECT /opportunities/${opp.id}`);
+    expect(listLineItems(s.db, actor, opp.id)[0]).toMatchObject({
+      quantity: 2,
+      unitPriceCents: 2500,
+      totalCents: 5000,
+    });
+    const before = s.snapshot();
+    for (const unitPrice of ["5.00", "0", "$0", "12.50"]) {
+      let message = "";
+      try {
+        await addOpportunityLineItemAction(
+          opp.id,
+          form({ productId: s.product.id, quantity: "2", unitPrice }),
+        );
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(s.snapshot(), `${unitPrice} ${message}`).toBe(before);
+      expect(message).toMatch(/standardPriceCents/);
+      expect(message).not.toMatch(/2500|19\.99/);
+    }
+    const amount = s.db.select().from(opportunities).where(eq(opportunities.id, opp.id)).get();
+    expect(amount?.amountCents ?? null).toBeNull();
+    expect(s.db.select().from(priceBookEntries).all().map((row) => row.unitPriceCents)).toEqual([2500]);
+  });
 });
 
 /** Opportunity editor who can read products and cannot update them. No field row. */
@@ -648,6 +710,44 @@ function catalogReader(s: ReturnType<typeof setup>) {
     name: "Reader Deal",
     stage: "Prospecting",
     closeDate: "2026-12-02",
+  });
+  vi.mocked(requireActor).mockResolvedValue({
+    userId: user.id,
+    orgId: LOCAL_ORG_ID,
+    user,
+  });
+  return { actor, opp };
+}
+
+/** Opportunity editor who can update products. The catalog product stays owned by the local admin. */
+function productUpdater(
+  s: ReturnType<typeof setup>,
+  spec: { name: string; username: string; price: { canRead: boolean; canEdit: boolean } },
+) {
+  const user = createUser(s.db, {
+    name: spec.name,
+    email: `${spec.username}@example.com`,
+    username: spec.username,
+    password: "long-enough",
+  });
+  const profileId = createProfile(s.db, LOCAL_ACTOR, spec.name);
+  const full = { canCreate: true, canRead: true, canUpdate: true, canDelete: true };
+  setObjectPermission(s.db, LOCAL_ACTOR, profileId, "account", full);
+  setObjectPermission(s.db, LOCAL_ACTOR, profileId, "opportunity", full);
+  setObjectPermission(s.db, LOCAL_ACTOR, profileId, "product", {
+    canCreate: false,
+    canRead: true,
+    canUpdate: true,
+    canDelete: false,
+  });
+  setFieldPermission(s.db, LOCAL_ACTOR, profileId, "product", "standardPriceCents", spec.price);
+  addMember(s.db, LOCAL_ORG_ID, user.id, "member", profileId);
+  const actor = actorFor(user.id);
+  const opp = createOpportunity(s.db, actor, {
+    accountId: createAccount(s.db, actor, { name: `${spec.name} Co` }).id,
+    name: `${spec.name} Deal`,
+    stage: "Prospecting",
+    closeDate: "2026-12-21",
   });
   vi.mocked(requireActor).mockResolvedValue({
     userId: user.id,
