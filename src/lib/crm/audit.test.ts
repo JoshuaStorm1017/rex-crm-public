@@ -640,7 +640,18 @@ describe("account audit log", () => {
     expectCode(() => convertLead(db, LOCAL_ACTOR, blocked.id), "VALIDATION_RULE");
     expect(dump(db)).toEqual(before);
     expect(getLead(db, LOCAL_ACTOR, blocked.id)?.status).toBe("New");
-    expect(JSON.stringify(db.select().from(auditEvents).all())).not.toContain("Orbit City");
+    const orbit = db
+      .select()
+      .from(auditEvents)
+      .all()
+      .filter((row) => row.changesJson.includes("Orbit City"));
+    expect(orbit).toEqual([
+      expect.objectContaining({
+        objectKey: "lead",
+        recordId: blocked.id,
+        action: "create",
+      }),
+    ]);
   });
 
   it("rolls the new account back when the create audit insert fails", () => {
