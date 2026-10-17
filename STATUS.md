@@ -2291,6 +2291,12 @@ fresh verification evidence for each slice.
 - Not done: line items do not roll into Opportunity Amount. No edit of
   an existing line. No dashboard pages yet.
 
+## 2026-10-16 — lane A, contact audit log
+
+- WORKS (verified 2026-10-16 22:13 EDT, Node v22.23.3, `npm run verify` exit 0, 116 files, 1297 tests, Next.js 16.3.5 build): contact create, update, and delete write `audit_events` from `recordAudit` in the same transaction as the row write, with old values, new values, actor, and time. A validation failure, a blank last name, a permission refusal, and a delete blocked by a direct report the owner cannot edit write nothing. Org B cannot read org A's events, including a forged row that reuses the record id. An account event on the same record id is not contact history. A private contact, a hidden phone, an unreadable account, and an unreadable manager are omitted. Forcing the delete audit insert to fail leaves the contact live, its task live, its opportunity role and custom value stored, and Reports To unchanged. Forcing the update insert to fail leaves the previous phone. The contact page shows a History list. No migration.
+- Mutation, each restored before that verify: dropping the object-key filter showed "Account Leak". Skipping the field-read check showed the hidden phone. Cleanup left outside the delete transaction left the contact live, the task deleted, the role and custom value gone, and Reports To cleared. Removing the update transaction set the phone to 555-0199.
+- Not audited yet: leads, opportunities, tasks, change owner, restore, and purge. Clearing Reports To during a contact delete is not its own history row. No browser pass. The page check is `renderToStaticMarkup`. Chrome DevTools did not connect.
+
 ## 2026-10-16 — merged origin/main read API into the line-item branch (lane B)
 
 - WORKS (verified 2026-10-16 22:19 EDT, `npm run verify` exit 0 on Node
@@ -2305,8 +2311,19 @@ fresh verification evidence for each slice.
 - Not done: line items do not roll into Opportunity Amount. No edit of
   an existing line. No dashboard pages yet.
 
+## 2026-10-16 — lane A, lead audit log
+
+- WORKS (verified 2026-10-16 22:46 EDT, Node v22.23.3, `npm run verify` exit 0, 118 files, 1323 tests, Next.js 16.3.5 build): lead create, update, and delete write `audit_events` from `recordAudit` in the same transaction as the row write, with old values, new values, actor, and time. A blank last name, a validation failure, a duplicate company, a permission refusal, a converted lead, and a delete blocked by a hidden task write nothing. Org B cannot read org A's events, including a forged row that reuses the record id. An account event on the same record id is not lead history. A private lead and a hidden phone are omitted. The stored event still has the phone. Forcing the delete audit insert to fail leaves the lead live, its task live, and its custom value stored. Forcing the update insert to fail leaves the previous phone. Forcing the create insert to fail writes no lead. The lead page shows a History list. No migration.
+- Mutation, each restored before that verify: skipping the field-read check showed 555-0144. Skipping the lead-read check showed the private lead. Cleanup left outside the delete transaction left the lead live, the task deleted, and the custom value gone. Removing the update transaction set the phone to 555-0199. Removing the create transaction left the new lead. Auditing the caller rating stored Cold instead of Hot. Dropping the object-key filter showed "Account Leak".
+- Not audited yet: opportunities, tasks, convert, change owner, restore, and purge. Convert still writes history for the account and contact it creates. No browser pass. The page check is `renderToStaticMarkup`. Chrome DevTools did not connect.
+
 ## 2026-10-16 — lane B, read API hides unreadable lookup ids
 
 - WORKS (verified 2026-10-16 22:51, Node v22.23.3, `npm run verify` exit 0, 115 files, 1417 tests, Next.js 16.3.5 build): a lookup on `GET /api/v1/objects/{apiName}/records` and the single-record GET is `null` when the actor cannot read the related record. The stored id is absent from that record and from the list. Account `parentAccountId`, Contact `accountId` and `reportsToId`, Opportunity `accountId`, Task `relatedRecordId`, and Lead `convertedAccountId`, `convertedContactId`, and `convertedOpportunityId` follow that rule. A parent, manager, related record, or converted row the actor can read still returns its id. Task `relatedName` stays off the payload. `Cache-Control: no-store` is unchanged. `docs/api/CONVENTIONS.md` states the rule.
 - The private-parent route case is green: the child is HTTP 200, the parent id is not in the body or the list, and GET of the parent is 404 `Record not found`.
 - Not done: line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages. A disabled user, inactive org, or removed membership is still 401 `Sign in required` on this route; the route test locks that. No browser pass. Chrome DevTools did not connect. No dev server.
+
+## 2026-10-16 — merged origin/main contact and lead audit into the line-item branch (lane B)
+
+- WORKS (verified 2026-10-16 23:16 EDT, `npm run verify` exit 0 on Node v22.23.3, 1472/1472 tests across 119 files, Next.js 16.3.5 build): this branch now contains `origin/main` at `66eb03f` (contact and lead field history) and the opportunity product lines, including the read API that nulls unreadable lookup ids. Conflicts were only in `STATUS.md` and `REX-LOG.md`. Both lanes' entries are kept. No product behavior was changed in this merge. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
+- Not done: line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages yet.

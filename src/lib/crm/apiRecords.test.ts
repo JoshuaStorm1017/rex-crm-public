@@ -1330,4 +1330,105 @@ describe("read-only API records", () => {
     expect(abroad).not.toContain(localAccount.id);
     expect(abroad).not.toContain("Local Child");
   });
+
+  it("nulls a lookup when the profile cannot read the related object", () => {
+    const db = memory();
+    const account = createAccount(db, LOCAL_ACTOR, {
+      name: "Object Denied Quarry",
+      phone: "555-0191",
+    });
+    const contact = createContact(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      lastName: "Visible Person",
+      email: "object.denied@example.com",
+      phone: "555-0192",
+    });
+    const deal = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Visible Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-20",
+    });
+    const task = createTask(db, LOCAL_ACTOR, {
+      name: "Visible Task",
+      relatedObjectType: "account",
+      relatedRecordId: account.id,
+    });
+    const lead = createLead(db, LOCAL_ACTOR, {
+      firstName: "Nia",
+      lastName: "Converted",
+      company: "Convert Co",
+      phone: "555-0193",
+    });
+    const converted = convertLead(db, LOCAL_ACTOR, lead.id, {
+      createOpportunity: true,
+      opportunityName: "Converted Quarry Deal",
+      closeDate: "2026-12-21",
+    });
+    if (!converted.opportunityId) throw new Error("convert did not create an opportunity");
+
+    const profileId = createProfile(db, LOCAL_ACTOR, "No Account Object");
+    const read = { canCreate: false, canRead: true, canUpdate: false, canDelete: false };
+    const none = { canCreate: false, canRead: false, canUpdate: false, canDelete: false };
+    setObjectPermission(db, LOCAL_ACTOR, profileId, "account", none);
+    for (const objectType of ["contact", "lead", "opportunity", "task"] as const) {
+      setObjectPermission(db, LOCAL_ACTOR, profileId, objectType, read);
+    }
+    const user = createUser(db, {
+      name: "No Account Object",
+      email: "no.account.object@example.com",
+      username: "noaccountobject",
+      password: "long-enough",
+    });
+    addMember(db, LOCAL_ORG_ID, user.id, "member", profileId);
+    const reader = actorFor(user.id);
+
+    const contactRecord = getApiRecord(db, reader, "Contact", contact.id);
+    const dealRecord = getApiRecord(db, reader, "Opportunity", deal.id);
+    const taskRecord = getApiRecord(db, reader, "Task", task.id);
+    const leadRecord = getApiRecord(db, reader, "Lead", lead.id);
+    expect(contactRecord.fields.accountId).toBeNull();
+    expect(contactRecord.fields.lastName).toBe("Visible Person");
+    expect(dealRecord.fields.accountId).toBeNull();
+    expect(dealRecord.fields.name).toBe("Visible Deal");
+    expect(taskRecord.fields.relatedRecordId).toBeNull();
+    expect(taskRecord.fields.name).toBe("Visible Task");
+    expect(leadRecord.fields.convertedAccountId).toBeNull();
+    expect(leadRecord.fields.convertedContactId).toBe(converted.contactId);
+    expect(leadRecord.fields.convertedOpportunityId).toBe(converted.opportunityId);
+
+    const text = JSON.stringify({
+      contact: contactRecord,
+      deal: dealRecord,
+      task: taskRecord,
+      lead: leadRecord,
+      contacts: page(db, reader, "Contact"),
+      deals: page(db, reader, "Opportunity"),
+      tasks: page(db, reader, "Task"),
+      leads: page(db, reader, "Lead"),
+    });
+    expect(text).not.toContain(account.id);
+    expect(text).not.toContain(converted.accountId);
+    expect(text).not.toContain("Object Denied Quarry");
+    expect(text).not.toContain("555-0191");
+    expect(page(db, reader, "Account")).toEqual({ records: [], nextCursor: null });
+    const hiddenAccount = recordError(() => getApiRecord(db, reader, "Account", account.id));
+    expect(hiddenAccount).toMatchObject({ code: "NOT_FOUND", message: "Record not found" });
+    expect(hiddenAccount.message).not.toContain(account.id);
+
+    setObjectPermission(db, LOCAL_ACTOR, profileId, "opportunity", none);
+    const after = getApiRecord(db, reader, "Lead", lead.id);
+    const afterText = JSON.stringify(after) + JSON.stringify(page(db, reader, "Lead"));
+    expect(after.fields.convertedOpportunityId).toBeNull();
+    expect(after.fields.convertedContactId).toBe(converted.contactId);
+    expect(after.fields.convertedAccountId).toBeNull();
+    expect(afterText).not.toContain(converted.opportunityId);
+    expect(afterText).not.toContain("Converted Quarry Deal");
+    expect(getApiRecord(db, LOCAL_ACTOR, "Lead", lead.id).fields.convertedAccountId).toBe(
+      converted.accountId,
+    );
+    expect(getApiRecord(db, LOCAL_ACTOR, "Lead", lead.id).fields.convertedOpportunityId).toBe(
+      converted.opportunityId,
+    );
+  });
 });

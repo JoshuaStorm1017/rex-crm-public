@@ -788,6 +788,15 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 at 21:45 EDT on Node v22.23.3. typegen, tsc, eslint, 112 files, 1374/1374 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass.
 - **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.
 
+## 2026-10-16 22:13 EDT — lane A, contact audit log
+
+- **What:** Contact create, update, and delete call `recordAudit` in the same transaction as the row write. Delete also soft-deletes related tasks, removes opportunity roles and custom values, and clears Reports To inside that transaction. `listContactHistory` is org-scoped, requires contact read, and drops hidden fields, unreadable accounts, and unreadable managers. The contact page shows the History list. No migration.
+- **Why:** Sprint 1 audit is account plus the other four objects. A rejected contact save must not invent an event, and org B must not read org A's events.
+- **Tests:** `contacts.audit.test.ts` (8) and `contacts/[id]/history.page.test.ts` (3). Create/update/delete payload, rejected saves (validation, blank name, forbidden edit, forbidden delete, a report the owner cannot edit), forged same-record-id isolation, private contact, hidden phone, unreadable account, unreadable manager. Audit-insert failures leave the contact, task, role, custom value, and Reports To unchanged.
+- **Mutation, restored before verify:** dropping the object-key filter showed "Account Leak"; skipping the field-read check showed the hidden phone; cleanup left outside the delete transaction left the contact live while the task was deleted, the role and custom value were gone, and Reports To was cleared; removing the update transaction set the phone to 555-0199.
+- **Verify:** `npm run verify` exit 0 at 22:13 EDT on Node v22.23.3. 116 files, 1297 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. The page check is `renderToStaticMarkup`.
+- **Next:** Audit log for lead, then opportunity, then task, on this same contract. Change owner, restore, and purge still do not write history. Clearing Reports To on delete is not its own history row.
+
 ## 2026-10-16 22:19 EDT — merge origin/main (read-only API v0) into the line-item branch
 
 - **What:** Merged `origin/main` (`23ccfde`, lane A's read-only record API and `docs/api/CONVENTIONS.md`) into this branch. Conflicts were only in `STATUS.md` and `REX-LOG.md`. Both lanes' entries are kept. No product code was rewritten.
@@ -796,6 +805,15 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Not done:** lines do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages yet.
 - **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.
 
+## 2026-10-16 22:46 EDT — lane A, lead audit log
+
+- **What:** Lead create, update, and delete call `recordAudit` in the same transaction as the row write. Delete also soft-deletes related tasks and removes custom values inside that transaction. `listLeadHistory` is org-scoped, requires lead read, and drops hidden fields. The lead page shows the History list. No migration.
+- **Why:** Sprint 1 audit covers all five objects. A rejected lead save must not invent an event, and org B must not read org A's events.
+- **Tests:** `leads.audit.test.ts` (9) and `leads/[id]/history.page.test.ts` (4). Create/update/delete payload, the rating automation stored, rejected saves (blank name, validation, duplicate, forbidden edit and delete, a converted lead, cross-org, missing id, non-member, a hidden related task), forged same-record-id isolation, private lead, hidden phone. Audit-insert failures leave the lead, task, and custom value unchanged. Account and contact rollback checks now expect the lead's own create event and no conversion rows.
+- **Mutation, restored before verify:** skipping the field-read check showed the hidden phone. Skipping the lead-read check showed a private lead. Cleanup left outside the delete transaction left the lead live, the task deleted, and the custom value gone. Removing the update transaction set the phone to 555-0199. Removing the create transaction left the new lead. Auditing the caller rating stored Cold instead of Hot. Dropping the object-key filter showed "Account Leak".
+- **Verify:** `npm run verify` exit 0 at 22:46 EDT on Node v22.23.3. 118 files, 1323 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. The page check is `renderToStaticMarkup`.
+- **Next:** Audit log for opportunity, then task, on this same contract. Convert, change owner, restore, and purge still do not write a lead history row. Convert does write history for the account and contact it creates.
+
 ## 2026-10-16 22:51 — lane B, read API hides unreadable lookup ids
 
 - **What:** The read API nulls a lookup when the actor cannot read the related record, on get and on the list. Account `parentAccountId`, Contact `accountId` and `reportsToId`, Opportunity `accountId`, Task `relatedRecordId`, and Lead converted account, contact, and opportunity ids. A related record the actor can read still returns its id. `relatedName` stays off the payload. `docs/api/CONVENTIONS.md` says so.
@@ -803,4 +821,12 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Tests:** The QE cases in `apiRecords.test.ts` and `route.test.ts` now pass, plus one test that a readable parent, a sharing-rule parent, a readable task account, and a readable converted contact id stay, while a private converted account id and a private contact on a task do not.
 - **Verify:** `npm run verify` exit 0 at 22:51 on Node v22.23.3. typegen, tsc, eslint, 115 files, 1417 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. No dev server.
 - **Not done:** line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages. This route still returns 401 `Sign in required` when the user, org, or membership is no longer active. The route test locks that body.
+- **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.
+
+## 2026-10-16 23:16 EDT — merge origin/main (contact and lead audit) into the line-item branch
+
+- **What:** Merged `origin/main` (`66eb03f`, lane A's contact and lead field history) into this branch. Conflicts were only in `STATUS.md` and `REX-LOG.md`. Both lanes' entries are kept. No product code was rewritten. Contact and lead pages still render History. The read API still nulls unreadable lookup ids.
+- **Why:** Main moved while the gates ran. This branch has to include the contact and lead audit so verify stays green.
+- **Verify:** `npm run verify` exit 0 at 23:16 EDT on Node v22.23.3. typegen, tsc, eslint, 119 files, 1472 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass.
+- **Not done:** line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages yet.
 - **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.
