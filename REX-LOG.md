@@ -830,3 +830,12 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 at 23:16 EDT on Node v22.23.3. typegen, tsc, eslint, 119 files, 1472 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass.
 - **Not done:** line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages yet.
 - **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.
+
+## 2026-10-16 23:47 EDT — dashboard list, view, and create
+
+- **What:** `/dashboards`, `/dashboards/new`, and `/dashboards/{id}`. The view runs `runDashboard` and renders each component as a totals table plus plain HTML bars for summary groups. The component title links to the report. Add-report shows for the owner or a modify-all admin. Nav includes Dashboards. `runDashboard` now returns measure labels and group bars. `canEditDashboard` is the edit gate the page and the domain share.
+- **Why:** Sprint 1 item 6. The domain and the create action already redirected to a page that did not exist.
+- **Merge:** `git merge origin/main` was already up to date at `66eb03f`. No conflicts.
+- **Verify:** `npm run verify` exit 0 at 23:47 EDT on Node v22.23.3. typegen, tsc, eslint, 120 files, 1479 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. The page check is `renderToStaticMarkup`. Chrome DevTools did not connect.
+- **Not done:** line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard delete or component remove. No running-user. No dashboard filters.
+- **Next:** roll line totals into Opportunity Amount in one transaction, integer cents, with tests for add, edit, and delete.

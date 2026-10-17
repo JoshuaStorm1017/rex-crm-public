@@ -4,10 +4,26 @@ import { dashboardComponents, dashboards } from "../db/schema";
 import { assertActor, hasModifyAllData, type Actor } from "./actor";
 import { DomainError, isDomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
-import { getReport, reportHref, runReport, type ReportValues } from "./reports";
+import {
+  getReport,
+  reportHref,
+  runReport,
+  type ReportMeasure,
+  type ReportValues,
+} from "./reports";
 
 export type Dashboard = typeof dashboards.$inferSelect;
 export const DASHBOARD_MAX_COMPONENTS = 20;
+
+export type DashboardMeasureView = {
+  key: string;
+  label: string;
+  kind: ReportMeasure["kind"];
+  field: string;
+  value: number | null;
+};
+
+export type DashboardBar = { label: string; value: number };
 
 export type DashboardComponentResult =
   | {
@@ -17,6 +33,13 @@ export type DashboardComponentResult =
       reportHref: string;
       count: number;
       values: ReportValues;
+      /** Grand totals the viewer is allowed to see. Hidden measures are absent. */
+      measures: DashboardMeasureView[];
+      /** Group buckets for a summary report. Empty for a tabular report. */
+      bars: DashboardBar[];
+      barLabel: string | null;
+      /** How to format `bars`. Null means each bar value is a record count. */
+      barMeasure: Pick<ReportMeasure, "kind" | "field"> | null;
     }
   | { id: string; title: string; status: "unavailable" };
 
@@ -68,11 +91,17 @@ export function createDashboard(db: Db, actor: Actor, name: string): Dashboard {
   return row;
 }
 
+/** Owner, or an org modify-all admin. A deleted or other-org row is not editable. */
+export function canEditDashboard(db: Db, actor: Actor, dashboard: Dashboard): boolean {
+  if (dashboard.orgId !== actor.orgId || dashboard.deletedAt != null) return false;
+  return dashboard.ownerId === actor.userId || hasModifyAllData(db, actor);
+}
+
 /** Visible dashboard the actor may change: its owner or an org modify-all admin. */
 function editableDashboard(db: Db, actor: Actor, id: string): Dashboard {
   const dash = getDashboard(db, actor, id);
   if (!dash) throw new DomainError("NOT_FOUND", "Dashboard not found");
-  if (dash.ownerId !== actor.userId && !hasModifyAllData(db, actor)) {
+  if (!canEditDashboard(db, actor, dash)) {
     throw new DomainError("FORBIDDEN", "Only the owner or an admin can change this dashboard");
   }
   return dash;
@@ -153,6 +182,11 @@ export function runDashboard(
       if (!report) return { id: row.id, title: row.title, status: "unavailable" };
       try {
         const result = runReport(db, actor, report, options);
+        const primary = result.measures[0];
+        const bars = (result.groups ?? []).map((group) => ({
+          label: group.label,
+          value: primary ? (group.values[primary.key] ?? 0) : group.count,
+        }));
         return {
           id: row.id,
           title: row.title,
@@ -160,6 +194,21 @@ export function runDashboard(
           reportHref: reportHref(report),
           count: result.total.count,
           values: result.total.values,
+          measures: result.measures.map((measure) => ({
+            key: measure.key,
+            label: measure.label,
+            kind: measure.kind,
+            field: measure.field,
+            value: result.total.values[measure.key] ?? null,
+          })),
+          bars,
+          barLabel:
+            bars.length === 0
+              ? null
+              : primary
+                ? `${primary.label} by ${result.groupByLabel ?? "group"}`
+                : `Records by ${result.groupByLabel ?? "group"}`,
+          barMeasure: primary ? { kind: primary.kind, field: primary.field } : null,
         };
       } catch (error) {
         if (isDomainError(error)) {

@@ -452,7 +452,7 @@ Source: Tableau product portfolio help (page dated 2026-08-26) and Winter '27 an
 | AN-RPT-002 | Report types with joins (opportunities with contact roles, custom relationships) | NOT STARTED |
 | AN-RPT-003 | Matrix, joined, bucket fields, cross filters, formulas | NOT STARTED |
 | AN-RPT-004 | Folders and report sharing follow IAM | NOT STARTED |
-| AN-DASH-001 | Dashboard of report components, drill-down opens the filtered report | PARTIAL (2026-10-12). `0027_dashboards`, `dashboards.ts`: org-scoped dashboards of up to 20 report components, owner or modify-all admin edits, each component runs as the viewer (sharing, profile and field security apply) and links to its report; an unreadable or deleted report shows as unavailable. No dashboard page or chart rendering yet, no running-user setting, no filters. |
+| AN-DASH-001 | Dashboard of report components, drill-down opens the filtered report | PARTIAL (2026-10-16). `0027_dashboards`, `dashboards.ts`, `/dashboards`: org-scoped list, create, and view. Up to 20 report components. Owner or modify-all admin edits. Each component runs as the viewer (sharing, profile, and field security) and links to its report. The view renders a totals table and plain HTML bars for summary groups. An unreadable or deleted report shows as unavailable. No running-user setting, no dashboard filters, no chart library. |
 | AN-SUB-001 | Subscription writes a snapshot on a schedule. Local file, no email | NOT STARTED |
 | AN-SEM-001 | A semantic model names measures and dimensions over org data | NOT STARTED |
 | AN-VIZ-001 | A visualization author binds a chart to a query whose totals reconcile to SQL | NOT STARTED |
