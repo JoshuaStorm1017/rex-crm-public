@@ -286,4 +286,129 @@ describe("opportunity line item actions", () => {
     expect(s.snapshot(), message).toBe(before);
     expect(message).toMatch(/notice=/);
   });
+
+  it("refuses a unit price that is only a dollar sign or comma", async () => {
+    const s = setup();
+    for (const unitPrice of ["$", ","]) {
+      const before = s.snapshot();
+      let message = "";
+      try {
+        await addOpportunityLineItemAction(
+          s.opp.id,
+          form({ productId: s.product.id, quantity: "1", unitPrice }),
+        );
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      // `$` and `,` are stripped before Number(), so Number("") is 0 and a
+      // free line is stored. A currency mark alone is not a zero price.
+      expect(s.snapshot(), `${unitPrice} wrote a line: ${message}`).toBe(before);
+      expect(message, unitPrice).toMatch(/notice=/);
+    }
+  });
+
+  it("refuses a posted zero price when the profile cannot update products", async () => {
+    const s = setup();
+    const { opp } = catalogReader(s);
+    const before = s.snapshot();
+    for (const unitPrice of ["0", "0.00", "$0"]) {
+      await expect(
+        addOpportunityLineItemAction(
+          opp.id,
+          form({ productId: s.product.id, quantity: "2", unitPrice }),
+        ),
+      ).rejects.toThrow(/standardPriceCents/);
+      expect(s.snapshot()).toBe(before);
+    }
+  });
+
+  it("returns a notice and writes nothing for an inactive product", async () => {
+    const s = setup();
+    const inactive = createProduct(s.db, LOCAL_ACTOR, {
+      name: "Retired Anvil",
+      standardPriceCents: 100,
+      isActive: false,
+    });
+    const before = s.snapshot();
+    await expect(
+      addOpportunityLineItemAction(s.opp.id, form({ productId: inactive.id, quantity: "1" })),
+    ).rejects.toThrow(
+      `REDIRECT /opportunities/${s.opp.id}?notice=${encodeURIComponent("Inactive products cannot be added")}`,
+    );
+    expect(s.snapshot()).toBe(before);
+  });
+
+  it("parses a grouped dollar price and refuses a quantity above the maximum", async () => {
+    const s = setup();
+    await expect(
+      addOpportunityLineItemAction(
+        s.opp.id,
+        form({ productId: s.product.id, quantity: "2", unitPrice: "$1,234.50" }),
+      ),
+    ).rejects.toThrow(`REDIRECT /opportunities/${s.opp.id}`);
+    const [line] = listLineItems(s.db, LOCAL_ACTOR, s.opp.id);
+    expect(line).toMatchObject({ quantity: 2, unitPriceCents: 123_450, totalCents: 246_900 });
+
+    const before = s.snapshot();
+    await expect(
+      addOpportunityLineItemAction(
+        s.opp.id,
+        form({ productId: s.product.id, quantity: "1000001" }),
+      ),
+    ).rejects.toThrow(/notice=Quantity/);
+    expect(s.snapshot()).toBe(before);
+  });
+
+  it("returns a notice and writes nothing for another org's actor", async () => {
+    const s = setup();
+    const line = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 1,
+    });
+    const outsider = createUser(s.db, {
+      name: "Quinn Sample",
+      email: "quinn.action@example.com",
+      username: "quinnaction",
+      password: "helmet-42",
+    });
+    const other = createOrganization(s.db, "Other Action Org", outsider.id);
+    vi.mocked(requireActor).mockResolvedValue({
+      userId: outsider.id,
+      orgId: other.id,
+      user: outsider,
+    });
+    const before = s.snapshot();
+    await expect(
+      addOpportunityLineItemAction(s.opp.id, form({ productId: s.product.id, quantity: "1" })),
+    ).rejects.toThrow(
+      `REDIRECT /opportunities/${s.opp.id}?notice=${encodeURIComponent("Opportunity not found")}`,
+    );
+    await expect(deleteOpportunityLineItemAction(s.opp.id, line.id)).rejects.toThrow(
+      `REDIRECT /opportunities/${s.opp.id}?notice=${encodeURIComponent("Line item not found")}`,
+    );
+    expect(s.snapshot()).toBe(before);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id).map((item) => item.id)).toEqual([line.id]);
+  });
+
+  it("does not delete a line on an opportunity the actor cannot edit", async () => {
+    const s = setup();
+    const line = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 3,
+    });
+    const { opp } = catalogReader(s);
+    const before = s.snapshot();
+    await expect(
+      addOpportunityLineItemAction(s.opp.id, form({ productId: s.product.id, quantity: "1" })),
+    ).rejects.toThrow(/notice=You%20do%20not%20have%20permission%20to%20edit%20this%20opportunity/);
+    await expect(deleteOpportunityLineItemAction(opp.id, line.id)).rejects.toThrow(
+      /notice=You%20do%20not%20have%20permission%20to%20edit%20this%20opportunity/,
+    );
+    expect(s.snapshot()).toBe(before);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)).toMatchObject([
+      { id: line.id, quantity: 3, unitPriceCents: 2500 },
+    ]);
+  });
 });

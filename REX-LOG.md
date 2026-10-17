@@ -777,3 +777,12 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Mutation, restored before verify:** dropping the price-edit check let the override through. Using the redacted product price refused the default with "Enter a unit price for this product". Showing the form for every viewer put Add product on Riley's page. Always rendering Remove put Remove on Riley's page. Passing delete instead of edit put Add and Remove on the delete-not-edit owner.
 - **Verify:** `npm run verify` exit 0 at 00:45 EDT on Node v22.23.3. 123 files, 1384 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. The page check is `renderToStaticMarkup`.
 - **Next:** Roll line totals into Opportunity Amount in integer cents, in one transaction. Change owner, restore, purge, and a parent cascade still do not write a history row.
+
+## 2026-10-17 01:09 EDT — lane A, line price needs product update
+
+- **What:** A posted opportunity line price now goes through `canEditField` for product `standardPriceCents`. A profile that can edit the deal and only read products is refused, including a price of 0, and no line is written. Omitting the price still stores the standard price. A field row that denies the price is still refused. No migration.
+- **Why:** The opportunity page hid the unit price input because product update was false. `addLineItem` only called `assertEditableFields`, and a missing field row allows the edit, so a posted `5.00` was stored as 500 cents.
+- **Tests:** The QE action test "refuses a posted unit price when the profile cannot update products" passes. A domain test refuses 500 and 0 cents, then stores 19999 when the price is omitted. The field-deny and omit-price tests still pass.
+- **Mutation, restored after the green verify:** removing the check stored `unitPriceCents` 500. That failed the QE action test, the field-deny action test, and both domain refusal tests (4 failed, 26 passed in those two files). The check was put back and those 30 tests passed.
+- **Verify:** `npm run verify` exit 0 at 01:08 EDT on Node v22.23.3. 123 files, 1395 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass.
+- **Next:** Roll line totals into Opportunity Amount in integer cents, in one transaction. `parseUsdToCents` still turns `$` or `,` into 0 cents for a profile that is allowed to edit the price.

@@ -441,4 +441,77 @@ describe("opportunity products related list", () => {
     expect(html).not.toContain("<script>alert(1)</script>");
     expect(html).toContain(`value="${marked.id}"`);
   });
+
+  it("shows a price override on the editor's deal and hides add and remove on another owner's deal", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const product = createProduct(db, LOCAL_ACTOR, {
+      name: "Priced Bolt",
+      standardPriceCents: 1999,
+    });
+    const sellerUser = createUser(db, {
+      name: "Price Seller",
+      email: "price.seller@example.com",
+      username: "priceseller",
+      password: "long-enough",
+    });
+    const profileId = createProfile(db, LOCAL_ACTOR, "Price Seller");
+    setObjectPermission(db, LOCAL_ACTOR, profileId, "account", FULL);
+    setObjectPermission(db, LOCAL_ACTOR, profileId, "opportunity", FULL);
+    setObjectPermission(db, LOCAL_ACTOR, profileId, "product", {
+      canCreate: false,
+      canRead: true,
+      canUpdate: true,
+      canDelete: false,
+    });
+    addMember(db, LOCAL_ORG_ID, sellerUser.id, "member", profileId);
+    const seller = actorFor(sellerUser.id);
+    const ownAccount = createAccount(db, seller, { name: "Seller Co" });
+    const ownDeal = createOpportunity(db, seller, {
+      accountId: ownAccount.id,
+      name: "Seller Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-01",
+      amountCents: 8_800,
+    });
+    addLineItem(db, seller, {
+      opportunityId: ownDeal.id,
+      productId: product.id,
+      quantity: 2,
+      unitPriceCents: 1500,
+    });
+
+    signIn(sellerUser);
+    const ownHtml = await renderOpportunity(ownDeal.id);
+    expect(ownHtml).toContain("Priced Bolt");
+    expect(ownHtml).toContain("Add product");
+    expect(ownHtml).toContain("Remove");
+    expect(ownHtml).toContain('name="unitPrice"');
+    expect(ownHtml).toContain("$15.00");
+    expect(ownHtml).toContain("$30.00");
+    expect(ownHtml).toContain("$88.00");
+    expect(ownHtml).not.toContain(CHANGE_DENIED);
+
+    const operatorAccount = createAccount(db, LOCAL_ACTOR, { name: "Operator Co" });
+    const operatorDeal = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: operatorAccount.id,
+      name: "Operator Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-02",
+      amountCents: 5_000_000,
+    });
+    addLineItem(db, LOCAL_ACTOR, {
+      opportunityId: operatorDeal.id,
+      productId: product.id,
+      quantity: 1,
+    });
+    const otherHtml = await renderOpportunity(operatorDeal.id);
+    expect(otherHtml).toContain("Priced Bolt");
+    expect(otherHtml).toContain("$19.99");
+    expect(otherHtml).toContain("$50,000.00");
+    expect(otherHtml).toContain(CHANGE_DENIED);
+    expect(otherHtml).not.toContain("Add product");
+    expect(otherHtml).not.toContain("Remove");
+    expect(otherHtml).not.toContain('name="unitPrice"');
+  });
 });

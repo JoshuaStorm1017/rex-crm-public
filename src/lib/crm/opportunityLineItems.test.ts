@@ -1,11 +1,12 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb } from "../db/client";
-import { opportunityLineItems, priceBookEntries, priceBooks } from "../db/schema";
+import { opportunities, opportunityLineItems, priceBookEntries, priceBooks } from "../db/schema";
 import { actorFor, LOCAL_ACTOR } from "./actor";
 import { createAccount } from "./accounts";
 import { LIST_VIEW_OBJECT_TYPES, LOCAL_ORG_ID, RILEY_USER_ID } from "./constants";
 import { ID_PREFIX, newId } from "./ids";
-import { createOpportunity } from "./opportunities";
+import { createOpportunity, getOpportunity } from "./opportunities";
 import {
   addLineItem,
   deleteLineItem,
@@ -14,7 +15,7 @@ import {
   opportunityLineTotalCents,
 } from "./opportunityLineItems";
 import { addMember, createOrganization } from "./orgs";
-import { createProduct } from "./products";
+import { createProduct, deleteProduct, updateProduct } from "./products";
 import { createProfile, setFieldPermission, setObjectPermission } from "./profiles";
 import { saveOrgWideDefaults } from "./sharing";
 import { createUser } from "./users";
@@ -325,6 +326,52 @@ describe("opportunity line items", () => {
     expect(s.snapshot()).toContain(line.id);
   });
 
+  it("refuses a posted price when the profile cannot update products", () => {
+    const s = setup();
+    const reader = catalogUser(s.db, {
+      name: "Catalog Reader",
+      username: "catalogreader",
+      opportunity: { canUpdate: true, canDelete: true },
+      product: { canRead: true, canUpdate: false },
+    });
+    const account = createAccount(s.db, reader, { name: "Reader Canyon" });
+    const opp = createOpportunity(s.db, reader, {
+      accountId: account.id,
+      name: "Reader Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-02",
+    });
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, reader, {
+          opportunityId: opp.id,
+          productId: s.product.id,
+          quantity: 2,
+          unitPriceCents: 500,
+        }),
+      "FORBIDDEN",
+    );
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, reader, {
+          opportunityId: opp.id,
+          productId: s.product.id,
+          quantity: 2,
+          unitPriceCents: 0,
+        }),
+      "FORBIDDEN",
+    );
+    const line = addLineItem(s.db, reader, {
+      opportunityId: opp.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    expect(line.unitPriceCents).toBe(19_999);
+    expect(line.totalCents).toBe(39_998);
+  });
+
   it("uses this org's standard price when another book has a different price", () => {
     const s = setup();
     const now = Date.now();
@@ -502,5 +549,149 @@ describe("opportunity line items", () => {
     );
     deleteLineItem(s.db, blind, hidden.id);
     expect(listLineItems(s.db, LOCAL_ACTOR, blindOpp.id)).toEqual([]);
+  });
+
+  it("refuses a non-owner under public read even when the profile can update opportunities", () => {
+    const s = setup();
+    const line = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 1,
+    });
+    const seller = catalogUser(s.db, {
+      name: "Other Seller",
+      username: "otherseller",
+      opportunity: { canUpdate: true, canDelete: true },
+      product: { canRead: true, canUpdate: true },
+    });
+    expect(listLineItems(s.db, seller, s.opp.id)).toHaveLength(1);
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, seller, {
+          opportunityId: s.opp.id,
+          productId: s.product.id,
+          quantity: 1,
+          unitPriceCents: 100,
+        }),
+      "FORBIDDEN",
+    );
+    refused(s, () => deleteLineItem(s.db, seller, line.id), "FORBIDDEN");
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id).map((item) => item.id)).toEqual([line.id]);
+  });
+
+  it("keeps the stored line price when the standard price changes", () => {
+    const s = setup();
+    const line = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    updateProduct(s.db, LOCAL_ACTOR, s.product.id, {
+      name: "Anvil Mk II",
+      standardPriceCents: 500,
+    });
+    const [listed] = listLineItems(s.db, LOCAL_ACTOR, s.opp.id);
+    expect(listed?.id).toBe(line.id);
+    expect(listed?.unitPriceCents).toBe(19_999);
+    expect(listed?.totalCents).toBe(39_998);
+    const next = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 1,
+    });
+    expect(next.unitPriceCents).toBe(500);
+    expect(next.totalCents).toBe(500);
+  });
+
+  it("stores a zero standard price when the unit price is omitted", () => {
+    const s = setup();
+    const free = createProduct(s.db, LOCAL_ACTOR, {
+      name: "Free Sample",
+      standardPriceCents: 0,
+    });
+    const line = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: free.id,
+      quantity: 4,
+    });
+    expect(line.unitPriceCents).toBe(0);
+    expect(line.totalCents).toBe(0);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id).map((item) => item.totalCents)).toEqual([0]);
+  });
+
+  it("leaves the opportunity amount and the other lines in place", () => {
+    const s = setup();
+    s.db
+      .update(opportunities)
+      .set({ amountCents: 5_000_000 })
+      .where(eq(opportunities.id, s.opp.id))
+      .run();
+    const first = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    const second = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 1,
+      unitPriceCents: 100,
+    });
+    deleteLineItem(s.db, LOCAL_ACTOR, first.id);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id).map((item) => item.id)).toEqual([
+      second.id,
+    ]);
+    expect(getOpportunity(s.db, LOCAL_ACTOR, s.opp.id)?.amountCents).toBe(5_000_000);
+  });
+
+  it("hides a line whose product was deleted and still lets the editor remove that row", () => {
+    const s = setup();
+    const line = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    deleteProduct(s.db, LOCAL_ACTOR, s.product.id);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)).toEqual([]);
+    expect(s.snapshot()).toContain(line.id);
+    deleteLineItem(s.db, LOCAL_ACTOR, line.id);
+    expect(s.snapshot()).not.toContain(line.id);
+  });
+
+  it("adds an active product when the profile cannot read isActive", () => {
+    const s = setup();
+    const user = createUser(s.db, {
+      name: "Active Hider",
+      email: "active.hider@example.com",
+      username: "activehider",
+      password: "long-enough",
+    });
+    const profileId = createProfile(s.db, LOCAL_ACTOR, "Hide Active");
+    const full = { canCreate: true, canRead: true, canUpdate: true, canDelete: true };
+    for (const objectType of ["account", "opportunity", "product"] as const) {
+      setObjectPermission(s.db, LOCAL_ACTOR, profileId, objectType, full);
+    }
+    setFieldPermission(s.db, LOCAL_ACTOR, profileId, "product", "isActive", {
+      canRead: false,
+      canEdit: false,
+    });
+    addMember(s.db, LOCAL_ORG_ID, user.id, "member", profileId);
+    const actor = actorFor(user.id);
+    const account = createAccount(s.db, actor, { name: "Active Canyon" });
+    const opp = createOpportunity(s.db, actor, {
+      accountId: account.id,
+      name: "Active Deal",
+      stage: "Prospecting",
+      closeDate: "2026-12-04",
+    });
+    // The product is active. Hiding isActive redacts it to null, and
+    // `!product.isActive` then treats every product as inactive.
+    const line = addLineItem(s.db, actor, {
+      opportunityId: opp.id,
+      productId: s.product.id,
+      quantity: 1,
+    });
+    expect(line.unitPriceCents).toBe(19_999);
   });
 });

@@ -5,7 +5,7 @@ import { assertActor, type Actor } from "./actor";
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
 import { readOpportunity } from "./opportunities";
-import { assertCanAccessRecord, assertEditableFields } from "./permissions";
+import { assertCanAccessRecord, canEditField } from "./permissions";
 import { getProduct } from "./products";
 
 export type OpportunityLineItem = typeof opportunityLineItems.$inferSelect;
@@ -124,7 +124,11 @@ export function addLineItem(db: Db, actor: Actor, input: AddLineItemInput): Line
     throw new DomainError("INVALID_PRODUCT", "Inactive products cannot be added");
   }
   if (input.unitPriceCents != null) {
-    assertEditableFields(db, actor, "product", ["standardPriceCents"]);
+    // A missing field row stays editable. Product update is still required,
+    // the same check that hides the unit price input on the opportunity page.
+    if (!canEditField(db, actor, "product", "standardPriceCents")) {
+      throw new DomainError("FORBIDDEN", "You cannot edit standardPriceCents");
+    }
   }
   const unitPriceCents =
     input.unitPriceCents ?? storedStandardPriceCents(db, actor, product.id);
