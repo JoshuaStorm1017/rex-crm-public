@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
-import { accounts, auditEvents } from "../db/schema";
+import { accounts, auditEvents, customFieldValues, tasks } from "../db/schema";
 import { LOCAL_ACTOR, actorFor, type Actor } from "./actor";
 import {
   createAccount,
@@ -11,7 +11,7 @@ import {
 } from "./accounts";
 import { LOCAL_ORG_ID, RILEY_USER_ID } from "./constants";
 import { createContact } from "./contacts";
-import { withCustomFieldWrite } from "./customFields";
+import { createCustomField, setCustomValues, withCustomFieldWrite } from "./customFields";
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
 import { importAccountsCsv } from "./importer";
@@ -20,6 +20,7 @@ import { createOpportunity } from "./opportunities";
 import { addMember, createOrganization } from "./orgs";
 import { createProfile, setFieldPermission, setObjectPermission } from "./profiles";
 import { setOrgWideDefault } from "./sharing";
+import { createTask } from "./tasks";
 import { createUser } from "./users";
 import { createValidationRule } from "./validationRules";
 
@@ -46,6 +47,15 @@ function expectCode(run: () => unknown, code: string): void {
     return;
   }
   throw new Error(`expected ${code}`);
+}
+
+function failAuditInsert(
+  sqlite: { exec(sql: string): void },
+  action: "create" | "update" | "delete",
+): void {
+  sqlite.exec(
+    `CREATE TRIGGER audit_insert_fail BEFORE INSERT ON audit_events WHEN NEW.action = '${action}' BEGIN SELECT RAISE(ABORT, 'audit insert failed'); END`,
+  );
 }
 
 function otherOrg(db: Db): { actor: Actor; orgId: string; userId: string } {
@@ -627,5 +637,93 @@ describe("account audit log", () => {
     expect(dump(db)).toEqual(before);
     expect(getLead(db, LOCAL_ACTOR, blocked.id)?.status).toBe("New");
     expect(JSON.stringify(db.select().from(auditEvents).all())).not.toContain("Orbit City");
+  });
+
+  it("rolls the new account back when the create audit insert fails", () => {
+    const opened = openMemoryDb();
+    failAuditInsert(opened.sqlite, "create");
+    const before = dump(opened.db);
+    let message = "";
+    try {
+      createAccount(opened.db, LOCAL_ACTOR, { name: "Ghost Co", phone: "555-0111" });
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(message).toMatch(/audit insert failed/);
+    expect(message).not.toContain("Ghost Co");
+    expect(dump(opened.db)).toEqual(before);
+    expect(JSON.stringify(opened.db.select().from(accounts).all())).not.toContain("Ghost Co");
+  });
+
+  it("rolls the field change back when the update audit insert fails", () => {
+    const opened = openMemoryDb();
+    const created = createAccount(opened.db, LOCAL_ACTOR, {
+      name: "Stable Co",
+      phone: "555-0110",
+    });
+    failAuditInsert(opened.sqlite, "update");
+    const before = dump(opened.db);
+    let message = "";
+    try {
+      updateAccount(opened.db, LOCAL_ACTOR, created.id, { phone: "555-0199" });
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(message).toMatch(/audit insert failed/);
+    expect(message).not.toContain(created.id);
+    expect(dump(opened.db)).toEqual(before);
+    const stored = opened.db.select().from(accounts).all().find((row) => row.id === created.id);
+    expect(stored?.phone).toBe("555-0110");
+  });
+
+  it("rolls the account, its task, and its custom value back when the delete audit insert fails", () => {
+    const opened = openMemoryDb();
+    const db = opened.db;
+    const account = createAccount(db, LOCAL_ACTOR, {
+      name: "Rollback Co",
+      phone: "555-0108",
+    });
+    const task = createTask(db, LOCAL_ACTOR, {
+      name: "Keep this call",
+      relatedObjectType: "account",
+      relatedRecordId: account.id,
+    });
+    createCustomField(db, LOCAL_ACTOR, {
+      objectType: "account",
+      apiName: "Keep_Note__c",
+      label: "Keep Note",
+      type: "text",
+    });
+    setCustomValues(db, LOCAL_ACTOR, "account", account.id, {
+      Keep_Note__c: "still-here",
+    });
+    failAuditInsert(opened.sqlite, "delete");
+    const before = {
+      accounts: JSON.stringify(db.select().from(accounts).all()),
+      tasks: JSON.stringify(db.select().from(tasks).all()),
+      values: JSON.stringify(db.select().from(customFieldValues).all()),
+      audit: JSON.stringify(db.select().from(auditEvents).all()),
+    };
+    expect(before.values).toContain("still-here");
+    expect(before.tasks).toContain("Keep this call");
+    let message = "";
+    try {
+      deleteAccount(db, LOCAL_ACTOR, account.id);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(message).toMatch(/audit insert failed/);
+    expect(message).not.toContain(account.id);
+    expect(message).not.toContain(task.id);
+    expect({
+      accounts: JSON.stringify(db.select().from(accounts).all()),
+      tasks: JSON.stringify(db.select().from(tasks).all()),
+      values: JSON.stringify(db.select().from(customFieldValues).all()),
+      audit: JSON.stringify(db.select().from(auditEvents).all()),
+    }).toEqual(before);
+    const stored = db.select().from(accounts).all().find((row) => row.id === account.id);
+    expect(stored?.deletedAt).toBeNull();
+    const storedTask = db.select().from(tasks).all().find((row) => row.id === task.id);
+    expect(storedTask?.deletedAt).toBeNull();
   });
 });

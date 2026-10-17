@@ -708,3 +708,11 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Mutation, restored before verify:** dropping the org filter showed "Leaked From B"; dropping the account-read check showed a private account and the other org's name; dropping field redaction showed the hidden phone. All three failed `audit.test.ts` or the page test.
 - **Verify:** `npm run verify` exit 0 at 20:00 EDT. 111 files, 1242 tests, Next.js 16.3.5 build. The shell `node` was v24.2.0; `.nvmrc` says 22 and no Node 22 binary was on this machine. No browser pass.
 - **Next:** Read-only API v0: `GET /api/v1/objects/{apiName}/records[/{id}]` through the existing actor, profile, field security, and sharing checks, plus `docs/api/CONVENTIONS.md`. A forged other-org id returns the same body as a missing id.
+
+## 2026-10-16 20:31 EDT — lane A, delete audit rolls related rows back
+
+- **What:** `deleteAccount` now soft-deletes related tasks and removes custom values on `tx`, inside the same transaction as the account soft-delete and `recordAudit`.
+- **Why:** Gate 2 forced the delete audit insert to fail. The account stayed live, its task was deleted, and its custom value was gone, because those cleanups ran before the transaction. Removing the update transaction also survived the suite.
+- **Tests:** create, update, and delete audit-insert failures leave the account, task, custom-value, and audit tables unchanged. Cleanup left outside the transaction failed the delete test (account live, task deleted, value gone). Removing the update transaction failed the update test (phone changed). Both probes were reverted.
+- **Verify:** `npm run verify` exit 0 at 20:31 EDT. 111 files, 1252 tests, Next.js 16.3.5 build. The shell `node` was v24.2.0; `.nvmrc` says 22. No UI change. No browser pass.
+- **Next:** Read-only API v0, after this fix ships.

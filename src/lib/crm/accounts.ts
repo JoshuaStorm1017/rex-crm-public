@@ -497,10 +497,12 @@ export function deleteAccount(db: Db, actor: Actor, id: string): void {
     );
   }
 
-  deleteTasksForRecord(db, actor, id);
-  deleteCustomValuesForRecord(db, id);
-  const ts = now();
+  // Task and custom-value cleanup share this transaction. A failed audit
+  // insert must leave the account, its tasks, and its values unchanged.
   db.transaction((tx) => {
+    deleteTasksForRecord(tx, actor, id);
+    deleteCustomValuesForRecord(tx, id);
+    const ts = now();
     tx.update(accounts)
       .set({ deletedAt: ts, updatedAt: ts })
       .where(and(eq(accounts.id, id), eq(accounts.orgId, actor.orgId)))

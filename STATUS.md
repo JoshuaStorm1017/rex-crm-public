@@ -2176,3 +2176,9 @@ fresh verification evidence for each slice.
 
 - WORKS (verified 2026-10-16 20:00 EDT, `npm run verify` exit 0, 111 files, 1242 tests, Next.js 16.3.5 build): `audit_events` is written only from `recordAudit`. Account create, update, and delete record old values, new values, actor, and time in the same transaction as the row write. A validation failure, a permission refusal, a delete blocked by a contact, and a blank name write nothing. Org B cannot read org A's events, including a forged row that reuses the record id. A private account and a hidden phone are omitted from the history the actor receives. The account page shows a History list. The shell node was v24.2.0; `.nvmrc` is 22 and no Node 22 binary was on this machine.
 - Not audited yet: contacts, leads, opportunities, tasks, change owner, restore, purge, and setup. No browser pass. The page check is `renderToStaticMarkup`. Chrome DevTools did not connect.
+
+## 2026-10-16 — lane A, delete audit rolls related rows back
+
+- WORKS (verified 2026-10-16 20:31 EDT, `npm run verify` exit 0, 111 files, 1252 tests, Next.js 16.3.5 build): account delete now soft-deletes related tasks and removes custom values inside the same transaction as the account row and the audit insert. Forcing the delete audit insert to fail leaves the account live, the task live, and the custom value stored. Forcing the create insert to fail writes no account. Forcing the update insert to fail leaves the previous phone. The shell node was v24.2.0; `.nvmrc` is 22.
+- Probes, both reverted: cleanup left outside the transaction failed the delete test (account still live, task deleted, custom value gone). The update transaction removed failed the update test (phone changed, no update audit row).
+- No UI change. No browser pass.
