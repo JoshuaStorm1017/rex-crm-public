@@ -17,5 +17,6 @@ export function apiJson(body: unknown, status: number): Response {
 export function apiErrorStatus(code: string): number {
   if (code === "NOT_FOUND") return 404;
   if (code === "FORBIDDEN") return 403;
+  if (code === "CONFLICT") return 409;
   return 400;
 }
