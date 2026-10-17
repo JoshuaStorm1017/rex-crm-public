@@ -14,6 +14,7 @@ vi.mock("@/lib/db/client", async () => {
   return { ...actual, getDb: vi.fn() };
 });
 
+import { eq } from "drizzle-orm";
 import { actorFor, LOCAL_ACTOR } from "@/lib/crm/actor";
 import { createAccount } from "@/lib/crm/accounts";
 import { LOCAL_ORG_ID, LOCAL_USER_ID, RILEY_USER_ID } from "@/lib/crm/constants";
@@ -23,9 +24,10 @@ import { addLineItem, listLineItems } from "@/lib/crm/opportunityLineItems";
 import { addMember, createOrganization } from "@/lib/crm/orgs";
 import { createProduct } from "@/lib/crm/products";
 import { createProfile, setFieldPermission, setObjectPermission } from "@/lib/crm/profiles";
+import { setOrgWideDefault } from "@/lib/crm/sharing";
 import { createUser } from "@/lib/crm/users";
 import { getDb, openMemoryDb, type Db } from "@/lib/db/client";
-import { opportunities, opportunityLineItems, priceBookEntries } from "@/lib/db/schema";
+import { opportunities, opportunityLineItems, priceBookEntries, users } from "@/lib/db/schema";
 import {
   addOpportunityLineItemAction,
   deleteOpportunityLineItemAction,
@@ -501,7 +503,113 @@ describe("opportunity line item actions", () => {
     expect(JSON.stringify(s.db.select().from(priceBookEntries).all())).toBe(beforeEntries);
     expect(JSON.stringify(s.db.select().from(opportunities).all())).toBe(beforeOpps);
   });
+
+  it("lets modify-all post a line on a private deal and refuses a half-admin", async () => {
+    const s = setup();
+    s.db.update(opportunities).set({ amountCents: 5_000_000 }).where(eq(opportunities.id, s.opp.id)).run();
+    setOrgWideDefault(s.db, LOCAL_ACTOR, "opportunity", "private", false);
+    const admin = actionAdmin(s.db, {
+      name: "Action Admin",
+      username: "actionadminlines",
+      membership: "admin",
+      globalAdmin: true,
+    });
+    vi.mocked(requireActor).mockResolvedValue(admin.actor as never);
+    await expect(
+      addOpportunityLineItemAction(
+        s.opp.id,
+        form({ productId: s.product.id, quantity: "2", unitPrice: "$19.99" }),
+      ),
+    ).rejects.toThrow(`REDIRECT /opportunities/${s.opp.id}`);
+    const [line] = listLineItems(s.db, LOCAL_ACTOR, s.opp.id);
+    expect(line).toMatchObject({ quantity: 2, unitPriceCents: 1999, totalCents: 3998, createdBy: admin.actor.userId });
+    expect(
+      s.db.select({ amountCents: opportunities.amountCents }).from(opportunities).where(eq(opportunities.id, s.opp.id)).get()
+        ?.amountCents,
+    ).toBe(5_000_000);
+
+    const half = actionAdmin(s.db, {
+      name: "Action Half",
+      username: "actionhalflines",
+      membership: "member",
+      globalAdmin: true,
+    });
+    vi.mocked(requireActor).mockResolvedValue(half.actor as never);
+    const before = s.snapshot();
+    await expect(
+      addOpportunityLineItemAction(s.opp.id, form({ productId: s.product.id, quantity: "1", unitPrice: "$1.00" })),
+    ).rejects.toThrow(/notice=Opportunity%20not%20found/);
+    await expect(deleteOpportunityLineItemAction(s.opp.id, line.id)).rejects.toThrow(
+      /notice=Line%20item%20not%20found/,
+    );
+    expect(s.snapshot()).toBe(before);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)).toHaveLength(1);
+
+    const hidden = actionAdmin(s.db, {
+      name: "Action Hidden Price",
+      username: "actionhiddenprice",
+      membership: "admin",
+      globalAdmin: true,
+      price: { canRead: false, canEdit: false },
+    });
+    vi.mocked(requireActor).mockResolvedValue(hidden.actor as never);
+    await expect(
+      addOpportunityLineItemAction(s.opp.id, form({ productId: s.product.id, quantity: "1" })),
+    ).rejects.toThrow(`REDIRECT /opportunities/${s.opp.id}`);
+    const posted = s.snapshot();
+    let thrown = "";
+    try {
+      await addOpportunityLineItemAction(
+        s.opp.id,
+        form({ productId: s.product.id, quantity: "1", unitPrice: "$9.99" }),
+      );
+    } catch (error) {
+      thrown = error instanceof Error ? error.message : String(error);
+    }
+    expect(thrown).toMatch(/notice=/);
+    expect(thrown).not.toMatch(/1999|2500|999|Anvil/);
+    expect(s.snapshot()).toBe(posted);
+    const stored = listLineItems(s.db, LOCAL_ACTOR, s.opp.id);
+    expect(stored.map((row) => row.unitPriceCents)).toEqual([1999, 2500]);
+    expect(listLineItems(s.db, hidden.actor, s.opp.id).map((row) => row.unitPriceCents)).toEqual([null, null]);
+  });
 });
+
+function actionAdmin(
+  db: Db,
+  spec: {
+    name: string;
+    username: string;
+    membership: "admin" | "member";
+    globalAdmin: boolean;
+    price?: { canRead: boolean; canEdit: boolean };
+  },
+) {
+  const user = createUser(db, {
+    name: spec.name,
+    email: `${spec.username}@example.com`,
+    username: spec.username,
+    password: "long-enough",
+  });
+  if (spec.globalAdmin) {
+    db.update(users).set({ role: "admin" }).where(eq(users.id, user.id)).run();
+  }
+  const profileId = createProfile(db, LOCAL_ACTOR, spec.name);
+  const flags = { canCreate: true, canRead: true, canUpdate: true, canDelete: true };
+  for (const objectType of ["account", "opportunity", "product"] as const) {
+    setObjectPermission(db, LOCAL_ACTOR, profileId, objectType, flags);
+  }
+  setFieldPermission(
+    db,
+    LOCAL_ACTOR,
+    profileId,
+    "product",
+    "standardPriceCents",
+    spec.price ?? { canRead: true, canEdit: true },
+  );
+  addMember(db, LOCAL_ORG_ID, user.id, spec.membership, profileId);
+  return { user, actor: actorFor(user.id) };
+}
 
 function priceActor(
   db: Db,

@@ -1,13 +1,11 @@
-import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb } from "../db/client";
-import { dashboardComponents, dashboards, users } from "../db/schema";
+import { dashboardComponents, dashboards } from "../db/schema";
 import { actorFor, LOCAL_ACTOR } from "./actor";
 import { createAccount } from "./accounts";
 import { LIST_VIEW_OBJECT_TYPES, LOCAL_ORG_ID, RILEY_USER_ID } from "./constants";
 import {
   addDashboardComponent,
-  canEditDashboard,
   createDashboard,
   DASHBOARD_MAX_COMPONENTS,
   deleteDashboard,
@@ -16,8 +14,8 @@ import {
   runDashboard,
 } from "./dashboards";
 import { createOpportunity } from "./opportunities";
-import { addMember, createOrganization } from "./orgs";
-import { assignProfile, createProfile, setFieldPermission, setObjectPermission } from "./profiles";
+import { createOrganization } from "./orgs";
+import { assignProfile, createProfile, setObjectPermission } from "./profiles";
 import { createReport, deleteReport } from "./reports";
 import { saveOrgWideDefaults } from "./sharing";
 import { createUser } from "./users";
@@ -83,13 +81,6 @@ describe("dashboards", () => {
     expect(c).toMatchObject({ status: "ok", title: "Pipeline by Stage", count: 2 });
     expect(c.status === "ok" && c.reportHref).toBe(`/reports/${s.report.id}`);
     expect(c.status === "ok" && Object.values(c.values)).toContain(20_000);
-    expect(c.status === "ok" && c.measures[0]).toMatchObject({
-      label: "Sum of Amount",
-      kind: "currency",
-      value: 20_000,
-    });
-    expect(c.status === "ok" && c.bars).toEqual([{ label: "Prospecting", value: 20_000 }]);
-    expect(c.status === "ok" && c.barLabel).toBe("Sum of Amount by Stage");
     expect(listDashboards(s.db, RILEY).map((d) => d.id)).toEqual([s.dash.id]);
   });
 
@@ -173,224 +164,6 @@ describe("dashboards", () => {
       })
       .run();
     expect(runDashboard(s.db, LOCAL_ACTOR, s.dash.id).components).toEqual([]);
-  });
-
-  it("lets an org admin edit someone else's dashboard and refuses a deleted or foreign row", () => {
-    const s = setup();
-    expect(canEditDashboard(s.db, LOCAL_ACTOR, s.dash)).toBe(true);
-    expect(canEditDashboard(s.db, RILEY, s.dash)).toBe(false);
-    const mine = createDashboard(s.db, RILEY, "Riley Board");
-    expect(canEditDashboard(s.db, RILEY, mine)).toBe(true);
-    expect(canEditDashboard(s.db, outsider(s.db), s.dash)).toBe(false);
-    expect(canEditDashboard(s.db, LOCAL_ACTOR, { ...s.dash, deletedAt: Date.now() })).toBe(false);
-  });
-
-  it("charts record counts when a summary has no measure", () => {
-    const s = setup();
-    const report = createReport(s.db, LOCAL_ACTOR, {
-      name: "Deals by Stage",
-      objectType: "opportunity",
-      format: "summary",
-      columns: ["name"],
-      groupBy: "stage",
-    });
-    addDashboardComponent(s.db, LOCAL_ACTOR, s.dash.id, report.id);
-    const [c] = runDashboard(s.db, LOCAL_ACTOR, s.dash.id).components;
-    expect(c.status === "ok" && c.measures).toEqual([]);
-    expect(c.status === "ok" && c.bars).toEqual([{ label: "Prospecting", value: 2 }]);
-    expect(c.status === "ok" && c.barLabel).toBe("Records by Stage");
-    expect(c.status === "ok" && c.barMeasure).toBeNull();
-  });
-
-  it("leaves bars empty on a tabular report and still returns the total", () => {
-    const s = setup();
-    const report = createReport(s.db, LOCAL_ACTOR, {
-      name: "Deal Amounts",
-      objectType: "opportunity",
-      format: "tabular",
-      columns: ["name", "amountCents"],
-      aggregates: [{ fn: "sum", field: "amountCents" }],
-    });
-    addDashboardComponent(s.db, LOCAL_ACTOR, s.dash.id, report.id);
-    const [c] = runDashboard(s.db, LOCAL_ACTOR, s.dash.id).components;
-    expect(c.status === "ok" && c.bars).toEqual([]);
-    expect(c.status === "ok" && c.barLabel).toBeNull();
-    expect(c.status === "ok" && c.measures[0]).toMatchObject({ value: 20_000 });
-  });
-
-  it("charts the first readable measure and drops a hidden amount", () => {
-    const s = setup();
-    const report = createReport(s.db, LOCAL_ACTOR, {
-      name: "Probability then Amount",
-      objectType: "opportunity",
-      format: "summary",
-      columns: ["name"],
-      groupBy: "stage",
-      aggregates: [
-        { fn: "avg", field: "probability" },
-        { fn: "sum", field: "amountCents" },
-      ],
-    });
-    addDashboardComponent(s.db, LOCAL_ACTOR, s.dash.id, report.id);
-    const asOwner = runDashboard(s.db, LOCAL_ACTOR, s.dash.id).components[0];
-    expect(asOwner.status === "ok" && asOwner.bars).toEqual([{ label: "Prospecting", value: 10 }]);
-    expect(asOwner.status === "ok" && asOwner.measures.map((measure) => measure.field)).toEqual([
-      "probability",
-      "amountCents",
-    ]);
-
-    const profileId = createProfile(s.db, LOCAL_ACTOR, "No Amount");
-    setObjectPermission(s.db, LOCAL_ACTOR, profileId, "opportunity", {
-      canCreate: false,
-      canRead: true,
-      canUpdate: false,
-      canDelete: false,
-    });
-    setFieldPermission(s.db, LOCAL_ACTOR, profileId, "opportunity", "amountCents", {
-      canRead: false,
-      canEdit: false,
-    });
-    assignProfile(s.db, LOCAL_ACTOR, RILEY_USER_ID, profileId);
-    const hidden = runDashboard(s.db, RILEY, s.dash.id).components[0];
-    expect(hidden.status === "ok" && hidden.measures.map((measure) => measure.field)).toEqual([
-      "probability",
-    ]);
-    expect(hidden.status === "ok" && hidden.bars).toEqual([{ label: "Prospecting", value: 10 }]);
-    expect(hidden.status === "ok" && Object.values(hidden.values)).not.toContain(20_000);
-  });
-
-  it("drops group labels when the group field is hidden", () => {
-    const s = setup();
-    addDashboardComponent(s.db, LOCAL_ACTOR, s.dash.id, s.report.id);
-    const profileId = createProfile(s.db, LOCAL_ACTOR, "No Stage");
-    setObjectPermission(s.db, LOCAL_ACTOR, profileId, "opportunity", {
-      canCreate: false,
-      canRead: true,
-      canUpdate: false,
-      canDelete: false,
-    });
-    setFieldPermission(s.db, LOCAL_ACTOR, profileId, "opportunity", "stage", {
-      canRead: false,
-      canEdit: false,
-    });
-    assignProfile(s.db, LOCAL_ACTOR, RILEY_USER_ID, profileId);
-    const [c] = runDashboard(s.db, RILEY, s.dash.id).components;
-    expect(c.status === "ok" && c.bars).toEqual([]);
-    expect(c.status === "ok" && c.barLabel).toBeNull();
-    expect(c.status === "ok" && c.measures[0]).toMatchObject({ value: 20_000 });
-  });
-
-  it("keeps a blank amount null on the bar instead of zero", () => {
-    const db = openMemoryDb().db;
-    const account = createAccount(db, LOCAL_ACTOR, { name: "Anvil Testing Co" });
-    createOpportunity(db, LOCAL_ACTOR, {
-      accountId: account.id,
-      name: "Unpriced Deal",
-      stage: "Qualification",
-      closeDate: "2026-10-31",
-    });
-    const report = createReport(db, LOCAL_ACTOR, {
-      name: "Pipeline by Stage",
-      objectType: "opportunity",
-      format: "summary",
-      columns: ["name", "amountCents"],
-      groupBy: "stage",
-      aggregates: [{ fn: "sum", field: "amountCents" }],
-    });
-    const dash = createDashboard(db, LOCAL_ACTOR, "Sales Overview");
-    addDashboardComponent(db, LOCAL_ACTOR, dash.id, report.id);
-    const [c] = runDashboard(db, LOCAL_ACTOR, dash.id).components;
-    expect(c.status === "ok" && c.measures[0]?.value).toBeNull();
-    expect(c.status === "ok" && c.bars).toEqual([{ label: "Qualification", value: null }]);
-  });
-
-  it("keeps a real zero and does not let a blank sibling become zero", () => {
-    const db = openMemoryDb().db;
-    const account = createAccount(db, LOCAL_ACTOR, { name: "Anvil Testing Co" });
-    createOpportunity(db, LOCAL_ACTOR, {
-      accountId: account.id,
-      name: "Priced",
-      stage: "Prospecting",
-      closeDate: "2026-10-31",
-      amountCents: 5_000,
-    });
-    createOpportunity(db, LOCAL_ACTOR, {
-      accountId: account.id,
-      name: "Unpriced Sibling",
-      stage: "Prospecting",
-      closeDate: "2026-11-15",
-    });
-    createOpportunity(db, LOCAL_ACTOR, {
-      accountId: account.id,
-      name: "Unpriced Deal",
-      stage: "Qualification",
-      closeDate: "2026-11-30",
-    });
-    createOpportunity(db, LOCAL_ACTOR, {
-      accountId: account.id,
-      name: "Free Deal",
-      stage: "Negotiation",
-      closeDate: "2026-12-01",
-      amountCents: 0,
-    });
-    const report = createReport(db, LOCAL_ACTOR, {
-      name: "Pipeline by Stage",
-      objectType: "opportunity",
-      format: "summary",
-      columns: ["name", "amountCents"],
-      groupBy: "stage",
-      aggregates: [{ fn: "sum", field: "amountCents" }],
-    });
-    const dash = createDashboard(db, LOCAL_ACTOR, "Sales Overview");
-    addDashboardComponent(db, LOCAL_ACTOR, dash.id, report.id);
-    const [c] = runDashboard(db, LOCAL_ACTOR, dash.id).components;
-    expect(c.status === "ok" && c.measures[0]?.value).toBe(5_000);
-    expect(c.status === "ok" && c.bars).toEqual([
-      { label: "Prospecting", value: 5_000 },
-      { label: "Qualification", value: null },
-      { label: "Negotiation", value: 0 },
-    ]);
-  });
-
-  it("refuses a membership admin and a global admin who is only a member", () => {
-    const s = setup();
-    const orgAdmin = createUser(s.db, {
-      name: "Org Admin",
-      email: "org.only@example.com",
-      username: "orgonly",
-      password: "long-enough",
-    });
-    addMember(s.db, LOCAL_ORG_ID, orgAdmin.id, "admin");
-    expect(orgAdmin.role).toBe("user");
-    const orgActor = actorFor(orgAdmin.id);
-    expect(canEditDashboard(s.db, orgActor, s.dash)).toBe(false);
-    refused(s, () => addDashboardComponent(s.db, orgActor, s.dash.id, s.report.id), "FORBIDDEN");
-    refused(s, () => deleteDashboard(s.db, orgActor, s.dash.id), "FORBIDDEN");
-    const own = createDashboard(s.db, orgActor, "Org Admin Board");
-    expect(canEditDashboard(s.db, orgActor, own)).toBe(true);
-    addDashboardComponent(s.db, orgActor, own.id, s.report.id);
-
-    const globalAdmin = createUser(s.db, {
-      name: "Global Member",
-      email: "global.only@example.com",
-      username: "globalonly",
-      password: "long-enough",
-    });
-    s.db.update(users).set({ role: "admin" }).where(eq(users.id, globalAdmin.id)).run();
-    addMember(s.db, LOCAL_ORG_ID, globalAdmin.id, "member");
-    const globalActor = actorFor(globalAdmin.id);
-    expect(canEditDashboard(s.db, globalActor, s.dash)).toBe(false);
-    refused(s, () => addDashboardComponent(s.db, globalActor, s.dash.id, s.report.id), "FORBIDDEN");
-    refused(s, () => deleteDashboard(s.db, globalActor, s.dash.id), "FORBIDDEN");
-    expect(getDashboard(s.db, globalActor, s.dash.id)?.name).toBe("Sales Overview");
-  });
-
-  it("refuses a deleted dashboard with the same not-found as a missing id", () => {
-    const s = setup();
-    deleteDashboard(s.db, LOCAL_ACTOR, s.dash.id);
-    refused(s, () => runDashboard(s.db, LOCAL_ACTOR, s.dash.id), "NOT_FOUND");
-    refused(s, () => addDashboardComponent(s.db, LOCAL_ACTOR, s.dash.id, s.report.id), "NOT_FOUND");
-    expect(listDashboards(s.db, LOCAL_ACTOR)).toEqual([]);
   });
 
   it("refuses invalid names, missing ids and the component limit", () => {

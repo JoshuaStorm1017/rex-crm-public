@@ -814,37 +814,18 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 at 22:46 EDT on Node v22.23.3. 118 files, 1323 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. The page check is `renderToStaticMarkup`.
 - **Next:** Audit log for opportunity, then task, on this same contract. Convert, change owner, restore, and purge still do not write a lead history row. Convert does write history for the account and contact it creates.
 
-## 2026-10-16 22:51 — lane B, read API hides unreadable lookup ids
-
-- **What:** The read API nulls a lookup when the actor cannot read the related record, on get and on the list. Account `parentAccountId`, Contact `accountId` and `reportsToId`, Opportunity `accountId`, Task `relatedRecordId`, and Lead converted account, contact, and opportunity ids. A related record the actor can read still returns its id. `relatedName` stays off the payload. `docs/api/CONVENTIONS.md` says so.
-- **Why:** A member could read a private parent, account, or manager id from `GET /api/v1/objects/...` after the page, the edit form, and account history already withheld it. GET of that id stayed 404.
-- **Tests:** The QE cases in `apiRecords.test.ts` and `route.test.ts` now pass, plus one test that a readable parent, a sharing-rule parent, a readable task account, and a readable converted contact id stay, while a private converted account id and a private contact on a task do not.
-- **Verify:** `npm run verify` exit 0 at 22:51 on Node v22.23.3. typegen, tsc, eslint, 115 files, 1417 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. No dev server.
-- **Not done:** line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages. This route still returns 401 `Sign in required` when the user, org, or membership is no longer active. The route test locks that body.
-- **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.
-
 ## 2026-10-16 23:16 EDT — merge origin/main (contact and lead audit) into the line-item branch
 
-- **What:** Merged `origin/main` (`66eb03f`, lane A's contact and lead field history) into this branch. Conflicts were only in `STATUS.md` and `REX-LOG.md`. Both lanes' entries are kept. No product code was rewritten. Contact and lead pages still render History. The read API still nulls unreadable lookup ids.
+- **What:** Merged `origin/main` (`66eb03f`, lane A's contact and lead field history) into this branch. Conflicts were only in `STATUS.md` and `REX-LOG.md`. Both lanes' entries are kept. No product code was rewritten. Contact and lead pages still render History.
 - **Why:** Main moved while the gates ran. This branch has to include the contact and lead audit so verify stays green.
 - **Verify:** `npm run verify` exit 0 at 23:16 EDT on Node v22.23.3. typegen, tsc, eslint, 119 files, 1472 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass.
 - **Not done:** line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages yet.
 - **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.
 
-## 2026-10-16 23:47 EDT — dashboard list, view, and create
+## 2026-10-17 00:29 EDT — split the branch down to the opportunity product list
 
-- **What:** `/dashboards`, `/dashboards/new`, and `/dashboards/{id}`. The view runs `runDashboard` and renders each component as a totals table plus plain HTML bars for summary groups. The component title links to the report. Add-report shows for the owner or a modify-all admin. Nav includes Dashboards. `runDashboard` now returns measure labels and group bars. `canEditDashboard` is the edit gate the page and the domain share.
-- **Why:** Sprint 1 item 6. The domain and the create action already redirected to a page that did not exist.
-- **Merge:** `git merge origin/main` was already up to date at `66eb03f`. No conflicts.
-- **Verify:** `npm run verify` exit 0 at 23:47 EDT on Node v22.23.3. typegen, tsc, eslint, 120 files, 1479 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. The page check is `renderToStaticMarkup`. Chrome DevTools did not connect.
-- **Not done:** line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard delete or component remove. No running-user. No dashboard filters.
-- **Next:** roll line totals into Opportunity Amount in one transaction, integer cents, with tests for add, edit, and delete.
-
-## 2026-10-17 00:08 EDT — blank dashboard bar amounts stay null
-
-- **What:** `runDashboard` keeps a null group measure as null. `DashboardBar.value` is `number | null`. The bar label goes through `formatReportValue`, so a blank amount is an em dash. Width treats null as no length.
-- **Why:** QE saw a Negotiation deal with a blank Amount charted as $0.00. The record and the Sum of Amount total already left that blank out.
-- **Tests:** Kept the QE tests in `dashboards.test.ts` and `dashboards/page.test.ts`. Both pass.
-- **Verify:** `npm run verify` exit 0 at 00:08 EDT on Node v22.23.3. typegen, tsc, eslint, 120 files, 1492 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
-- **Not done:** line items do not roll into Opportunity Amount. No dashboard delete, component remove, running-user, or filters.
-- **Next:** roll line totals into Opportunity Amount in one transaction, integer cents, with tests for add, edit, and delete.
+- **What:** Removed the read-API lookup concealment and the dashboard list/view/create pages from this branch. Those files match `origin/main` again. This change is the opportunity product related list: add and delete through the existing actions, sale price hidden without field access, inactive products and invalid quantities refused.
+- **Why:** The combined diff was about 828 non-test lines. The limit is about 400. The product list is the smallest complete piece (Sprint 1 item 4), 369 non-test product lines.
+- **Verify:** `npm run verify` exit 0 at 00:31 EDT on Node v22.23.3. typegen, tsc, eslint, 119 files, 1458 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
+- **Not done:** line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages. The read API still returns a lookup id when the related record is unreadable.
+- **Next:** dashboard list, view, and create pages, then roll line totals into Opportunity Amount in one transaction.

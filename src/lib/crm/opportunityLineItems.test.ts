@@ -1374,6 +1374,171 @@ describe("opportunity line items", () => {
     expect(catalog.message).not.toMatch(/Anvil/);
     expect(listLineItems(s.db, LOCAL_ACTOR, deal.id).map((row) => row.id)).toEqual([line.id]);
   });
+
+  it("lets modify-all change a private deal and refuses either admin flag alone", () => {
+    const s = setup();
+    s.db.update(opportunities).set({ amountCents: 5000 }).where(eq(opportunities.id, s.opp.id)).run();
+    const line = addLineItem(s.db, LOCAL_ACTOR, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    setOrgWideDefault(s.db, LOCAL_ACTOR, "opportunity", "private", false);
+    const amount = () =>
+      s.db.select({ amountCents: opportunities.amountCents }).from(opportunities).where(eq(opportunities.id, s.opp.id)).get()
+        ?.amountCents;
+
+    const admin = enrollAdmin(s.db, {
+      name: "Both Admin",
+      email: "both.admin.lines@example.com",
+      username: "bothadminlines",
+      profileName: "Both Admin Lines",
+      globalAdmin: true,
+      membership: "admin",
+    });
+    expect(listLineItems(s.db, admin, s.opp.id)).toMatchObject([
+      { id: line.id, productName: "Anvil Mk II", quantity: 2, unitPriceCents: 19_999, totalCents: 39_998 },
+    ]);
+    const added = addLineItem(s.db, admin, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 1,
+      unitPriceCents: 500,
+    });
+    expect(added).toMatchObject({
+      createdBy: admin.userId,
+      orgId: LOCAL_ORG_ID,
+      quantity: 1,
+      unitPriceCents: 500,
+      totalCents: 500,
+    });
+    expect(amount()).toBe(5000);
+    deleteLineItem(s.db, admin, line.id);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id).map((row) => row.id)).toEqual([added.id]);
+    expect(amount()).toBe(5000);
+
+    const globalOnly = enrollAdmin(s.db, {
+      name: "Global Only",
+      email: "global.only.lines@example.com",
+      username: "globalonlylines",
+      profileName: "Global Only Lines",
+      globalAdmin: true,
+      membership: "member",
+    });
+    const orgOnly = enrollAdmin(s.db, {
+      name: "Org Only",
+      email: "org.only.lines@example.com",
+      username: "orgonlylines",
+      profileName: "Org Only Lines",
+      globalAdmin: false,
+      membership: "admin",
+    });
+    for (const actor of [globalOnly, orgOnly]) {
+      refused(s, () => listLineItems(s.db, actor, s.opp.id), "NOT_FOUND");
+      refused(
+        s,
+        () => addLineItem(s.db, actor, { opportunityId: s.opp.id, productId: s.product.id, quantity: 1 }),
+        "NOT_FOUND",
+      );
+      refused(s, () => deleteLineItem(s.db, actor, added.id), "NOT_FOUND");
+      refused(s, () => opportunityLineTotalCents(s.db, actor, s.opp.id), "NOT_FOUND");
+    }
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id).map((row) => row.id)).toEqual([added.id]);
+    expect(amount()).toBe(5000);
+
+    const noUpdate = enrollAdmin(s.db, {
+      name: "Admin No Update",
+      email: "admin.noupdate.lines@example.com",
+      username: "adminnoupdatelines",
+      profileName: "Admin No Update Lines",
+      globalAdmin: true,
+      membership: "admin",
+      opportunityUpdate: false,
+    });
+    expect(listLineItems(s.db, noUpdate, s.opp.id).map((row) => row.id)).toEqual([added.id]);
+    const addErr = refusal(() =>
+      addLineItem(s.db, noUpdate, {
+        opportunityId: s.opp.id,
+        productId: s.product.id,
+        quantity: 1,
+        unitPriceCents: 1,
+      }),
+    );
+    expect(addErr.code).toBe("FORBIDDEN");
+    expect(addErr.message).not.toMatch(/Anvil|500|19999|00k|006|01t/);
+    refused(s, () => deleteLineItem(s.db, noUpdate, added.id), "FORBIDDEN");
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)).toMatchObject([
+      { id: added.id, unitPriceCents: 500, totalCents: 500 },
+    ]);
+
+    const blind = enrollAdmin(s.db, {
+      name: "Admin No Product",
+      email: "admin.noproduct.lines@example.com",
+      username: "adminnoproductlines",
+      profileName: "Admin No Product Lines",
+      globalAdmin: true,
+      membership: "admin",
+      productRead: false,
+    });
+    expect(listLineItems(s.db, blind, s.opp.id)).toEqual([]);
+    expect(JSON.stringify(listLineItems(s.db, blind, s.opp.id))).not.toMatch(/Anvil|500|19999/);
+    refused(
+      s,
+      () => addLineItem(s.db, blind, { opportunityId: s.opp.id, productId: s.product.id, quantity: 1 }),
+      "NOT_FOUND",
+    );
+    expect(s.db.select().from(opportunityLineItems).all().map((row) => row.id)).toEqual([added.id]);
+  });
+
+  it("hides the sale price from a modify-all admin who cannot read it", () => {
+    const s = setup();
+    setOrgWideDefault(s.db, LOCAL_ACTOR, "opportunity", "private", false);
+    const admin = enrollAdmin(s.db, {
+      name: "Admin Price Hidden",
+      email: "admin.price.hidden@example.com",
+      username: "adminpricehidden",
+      profileName: "Admin Price Hidden",
+      globalAdmin: true,
+      membership: "admin",
+      price: { canRead: false, canEdit: false },
+    });
+    const added = addLineItem(s.db, admin, {
+      opportunityId: s.opp.id,
+      productId: s.product.id,
+      quantity: 2,
+    });
+    expect(added.unitPriceCents).toBeNull();
+    expect(added.totalCents).toBeNull();
+    expect(JSON.stringify(added)).not.toMatch(/19999|39998/);
+    expect(listLineItems(s.db, admin, s.opp.id)[0]).toMatchObject({
+      quantity: 2,
+      unitPriceCents: null,
+      totalCents: null,
+      productName: "Anvil Mk II",
+    });
+    expect(
+      s.db.select().from(opportunityLineItems).all().find((row) => row.id === added.id)?.unitPriceCents,
+    ).toBe(19_999);
+    const err = refusal(() => opportunityLineTotalCents(s.db, admin, s.opp.id));
+    expect(err.code).toBe("FORBIDDEN");
+    expect(err.message).not.toMatch(/19999|39998|Anvil/);
+    const before = s.snapshot();
+    refused(
+      s,
+      () =>
+        addLineItem(s.db, admin, {
+          opportunityId: s.opp.id,
+          productId: s.product.id,
+          quantity: 1,
+          unitPriceCents: 100,
+        }),
+      "FORBIDDEN",
+    );
+    expect(s.snapshot()).toBe(before);
+    expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)).toMatchObject([
+      { id: added.id, unitPriceCents: 19_999, totalCents: 39_998 },
+    ]);
+  });
 });
 
 describe("parseLineQuantity", () => {
@@ -1465,5 +1630,50 @@ function seller(
     });
   }
   addMember(db, LOCAL_ORG_ID, user.id, "member", profileId);
+  return actorFor(user.id);
+}
+
+function enrollAdmin(
+  db: Db,
+  spec: {
+    name: string;
+    email: string;
+    username: string;
+    profileName: string;
+    globalAdmin: boolean;
+    membership: "admin" | "member";
+    opportunityUpdate?: boolean;
+    productRead?: boolean;
+    price?: { canRead: boolean; canEdit: boolean };
+  },
+): Actor {
+  const user = createUser(db, {
+    name: spec.name,
+    email: spec.email,
+    username: spec.username,
+    password: "long-enough",
+  });
+  if (spec.globalAdmin) {
+    db.update(users).set({ role: "admin" }).where(eq(users.id, user.id)).run();
+  }
+  const profileId = createProfile(db, LOCAL_ACTOR, spec.profileName);
+  setObjectPermission(db, LOCAL_ACTOR, profileId, "account", FULL);
+  setObjectPermission(db, LOCAL_ACTOR, profileId, "opportunity", {
+    ...FULL,
+    canUpdate: spec.opportunityUpdate !== false,
+  });
+  setObjectPermission(db, LOCAL_ACTOR, profileId, "product", {
+    ...FULL,
+    canRead: spec.productRead !== false,
+  });
+  setFieldPermission(
+    db,
+    LOCAL_ACTOR,
+    profileId,
+    "product",
+    "standardPriceCents",
+    spec.price ?? { canRead: true, canEdit: true },
+  );
+  addMember(db, LOCAL_ORG_ID, user.id, spec.membership, profileId);
   return actorFor(user.id);
 }

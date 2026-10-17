@@ -60,16 +60,6 @@ means the actor can read the field and it is empty. System fields
 (`ownerId`, `createdAt`, `updatedAt`, `createdBy`, `updatedBy`) stay
 readable.
 
-A lookup is the exception. When the actor can read the lookup field but
-cannot read the related record, the field is `null` and the stored id is
-not in the body. An empty lookup is also `null`, and the body does not
-say which of the two it is. The lookups are Account `parentAccountId`,
-Contact `accountId` and `reportsToId`, Lead `convertedAccountId`,
-`convertedContactId`, and `convertedOpportunityId`, Opportunity
-`accountId`, and Task `relatedRecordId`. Task `relatedName` is not a
-field. A lookup the actor can read, pointing at a record they can read,
-stays the id.
-
 Money is integer minor units, never a float:
 
 ```json

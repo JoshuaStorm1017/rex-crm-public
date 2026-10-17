@@ -24,6 +24,8 @@ import { createProduct, updateProduct } from "@/lib/crm/products";
 import { assignUserRole, createRole, createSharingRule, setOrgWideDefault } from "@/lib/crm/sharing";
 import { createUser, getUser, type PublicUser } from "@/lib/crm/users";
 import { getDb, openMemoryDb, type Db } from "@/lib/db/client";
+import { opportunityLineItems, users } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import OpportunityDetailPage from "./page";
 
 const FULL = { canCreate: true, canRead: true, canUpdate: true, canDelete: true } as const;
@@ -157,6 +159,10 @@ describe("opportunity product related list", () => {
     expect(hiddenHtml).not.toContain("Line Total");
     expect(hiddenHtml).not.toContain("$1,234.56");
     expect(hiddenHtml).not.toContain("$2,469.12");
+    expect(hiddenHtml).not.toContain("1,234.56");
+    expect(hiddenHtml).not.toContain("2,469.12");
+    expect(hiddenHtml).not.toContain("1234.56");
+    expect(hiddenHtml).not.toContain("2469.12");
     expect(hiddenHtml).not.toContain(String(PRICE));
     expect(hiddenHtml).not.toContain('name="unitPrice"');
 
@@ -200,14 +206,114 @@ describe("opportunity product related list", () => {
       productRead: false,
     });
     const blindDeal = ownDeal(db, blind.actor, "Blind Deal");
-    addLineItem(db, LOCAL_ACTOR, { opportunityId: blindDeal.id, productId: product.id, quantity: 2 });
+    const blindLine = addLineItem(db, LOCAL_ACTOR, {
+      opportunityId: blindDeal.id,
+      productId: product.id,
+      quantity: 2,
+    });
     act(blind.user);
     const asBlind = await html(blindDeal.id);
     expect(asBlind).toContain("Products (0)");
     expect(asBlind).toContain("You do not have permission to read products.");
     expect(asBlind).not.toContain("Painted Anvil");
     expect(asBlind).not.toContain("$1,234.56");
+    expect(asBlind).not.toContain("1,234.56");
+    expect(asBlind).not.toContain(String(PRICE));
+    expect(asBlind).not.toContain(blindLine.id);
+    expect(asBlind).not.toContain(product.id);
     expect(asBlind).not.toContain("Add product");
+  });
+
+  it("shows add and remove to a modify-all admin on a private deal, and hides the price when that field is closed", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const owner = member(db, {
+      name: "Deal Owner",
+      username: "dealowner",
+      canUpdate: true,
+      canDelete: true,
+      productRead: true,
+    });
+    const product = createProduct(db, LOCAL_ACTOR, { name: "Painted Anvil", standardPriceCents: PRICE });
+    const deal = ownDeal(db, owner.actor, "Private Restock");
+    const line = addLineItem(db, owner.actor, { opportunityId: deal.id, productId: product.id, quantity: 2 });
+    setOrgWideDefault(db, LOCAL_ACTOR, "opportunity", "private", false);
+
+    const adminUser = createUser(db, {
+      name: "Modify All",
+      email: "modify.all.page@example.com",
+      username: "modifyallpage",
+      password: "long-enough",
+    });
+    db.update(users).set({ role: "admin" }).where(eq(users.id, adminUser.id)).run();
+    const adminProfile = createProfile(db, LOCAL_ACTOR, "Modify All Page");
+    setObjectPermission(db, LOCAL_ACTOR, adminProfile, "account", FULL);
+    setObjectPermission(db, LOCAL_ACTOR, adminProfile, "opportunity", FULL);
+    setObjectPermission(db, LOCAL_ACTOR, adminProfile, "product", FULL);
+    addMember(db, LOCAL_ORG_ID, adminUser.id, "admin", adminProfile);
+
+    act(adminUser);
+    const asAdmin = await html(deal.id);
+    expect(asAdmin).toContain("Products (1)");
+    expect(asAdmin).toContain("Painted Anvil");
+    expect(asAdmin).toContain("$1,234.56");
+    expect(asAdmin).toContain("$2,469.12");
+    expect(asAdmin).toContain("Add product");
+    expect(asAdmin).toContain("Remove");
+    expect(asAdmin).toContain('name="unitPrice"');
+    expect(asAdmin).not.toContain(DENIED);
+
+    const halfUser = createUser(db, {
+      name: "Global Only",
+      email: "global.only.page@example.com",
+      username: "globalonlypage",
+      password: "long-enough",
+    });
+    db.update(users).set({ role: "admin" }).where(eq(users.id, halfUser.id)).run();
+    const halfProfile = createProfile(db, LOCAL_ACTOR, "Global Only Page");
+    setObjectPermission(db, LOCAL_ACTOR, halfProfile, "account", FULL);
+    setObjectPermission(db, LOCAL_ACTOR, halfProfile, "opportunity", FULL);
+    setObjectPermission(db, LOCAL_ACTOR, halfProfile, "product", FULL);
+    addMember(db, LOCAL_ORG_ID, halfUser.id, "member", halfProfile);
+    act(halfUser);
+    await expect(html(deal.id)).rejects.toThrow(/^NOT_FOUND$/);
+    expect(db.select().from(opportunityLineItems).all().map((row) => row.id)).toEqual([line.id]);
+
+    const hiddenUser = createUser(db, {
+      name: "Admin Hidden Price",
+      email: "admin.hidden.page@example.com",
+      username: "adminhiddenpage",
+      password: "long-enough",
+    });
+    db.update(users).set({ role: "admin" }).where(eq(users.id, hiddenUser.id)).run();
+    const hiddenProfile = createProfile(db, LOCAL_ACTOR, "Admin Hidden Price Page");
+    setObjectPermission(db, LOCAL_ACTOR, hiddenProfile, "account", FULL);
+    setObjectPermission(db, LOCAL_ACTOR, hiddenProfile, "opportunity", FULL);
+    setObjectPermission(db, LOCAL_ACTOR, hiddenProfile, "product", {
+      canCreate: false,
+      canRead: true,
+      canUpdate: false,
+      canDelete: false,
+    });
+    setFieldPermission(db, LOCAL_ACTOR, hiddenProfile, "product", "standardPriceCents", {
+      canRead: false,
+      canEdit: false,
+    });
+    addMember(db, LOCAL_ORG_ID, hiddenUser.id, "admin", hiddenProfile);
+    act(hiddenUser);
+    const asHidden = await html(deal.id);
+    expect(asHidden).toContain("Products (1)");
+    expect(asHidden).toContain("Painted Anvil");
+    expect(asHidden).toContain("Add product");
+    expect(asHidden).toContain("Remove");
+    expect(asHidden).not.toContain("Sales Price");
+    expect(asHidden).not.toContain("Line Total");
+    expect(asHidden).not.toContain("$1,234.56");
+    expect(asHidden).not.toContain("$2,469.12");
+    expect(asHidden).not.toContain("1,234.56");
+    expect(asHidden).not.toContain("2,469.12");
+    expect(asHidden).not.toContain(String(PRICE));
+    expect(asHidden).not.toContain('name="unitPrice"');
   });
 
   it("keeps a deactivated product on the deal and drops it from the picker", async () => {
