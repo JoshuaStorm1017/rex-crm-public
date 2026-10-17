@@ -723,3 +723,12 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Why:** Gate 2's "remove update transaction" and "remove delete transaction" mutants had survived the suite. Replacing both `db.transaction` wrappers with direct `db` calls failed the update test (phone became 555-0199) and the delete test (account and task soft-deleted, custom value gone). Create rollback still passed. The wrappers were put back; `git diff` on `accounts.ts` was empty.
 - **Verify:** `npm run verify` exit 0 at 20:54 EDT on Node v22.23.3. typegen, tsc, eslint, 111 files, 1252 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No UI change. No browser pass.
 - **Next:** Read-only API v0, after this fix ships.
+
+## 2026-10-16 21:34 EDT — lane A, read-only API v0
+
+- **What:** `GET /api/v1/objects/{apiName}/records` and `GET /api/v1/objects/{apiName}/records/{id}` for Account, Contact, Lead, Opportunity, and Task. The session cookie is the actor. Reads call the existing get and list functions, then omit fields the profile cannot read. Money is `{ amount, currency: "USD" }` in integer cents. `docs/api/CONVENTIONS.md` records the contract. An `/api/` path with no cookie is 401 JSON, not a login redirect.
+- **Why:** The read API is the public surface later writes, custom objects, and clients will share. A forged other-org id must not be distinguishable from a missing id.
+- **Tests:** `apiRecords.test.ts`, `route.test.ts`, `proxy.test.ts` (14). Same 404 body for a foreign id, a deleted id, a private id, a profile without read, and a missing id. Hidden phone and revenue are absent; a readable empty industry stays null; a hidden account phone does not hide the contact phone. Private list omits the other owner's account. Cursor pages in id order.
+- **Mutation, restored before verify:** skipping the field-read check left `phone: null`; leaving task `relatedName` in the payload showed "Parent Quarry"; returning raw cents failed the 1999 and 250050 checks; appending the id in the error body failed the forged-id comparison; dropping the id sort returned 2 of 3 accounts.
+- **Verify:** `npm run verify` exit 0 at 21:34 EDT on Node v22.23.3. 114 files, 1273 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. No dev server.
+- **Next:** Audit log for contact, then lead, opportunity, and task, on the same contract as account. API writes, custom values, and products stay out until that contract says they are in.
