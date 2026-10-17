@@ -855,3 +855,12 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 at 01:13 EDT. `node` on PATH is v24.2.0. typegen, tsc, eslint, 123 files, 1508 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
 - **Not done:** line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages. `SALESFORCE-PARITY.md` on main still says tasks have no history; that sentence was left as main wrote it.
 - **Next:** dashboard list, view, and create pages, then roll line totals into Opportunity Amount in one transaction.
+
+## 2026-10-17 01:48 EDT — lane B, dashboard pages
+
+- **What:** List, create, and view pages for dashboards. A grouped component renders HTML bars and a totals table from `runDashboard`. The view runs as the viewer: private rows and a hidden amount stay off the page. Add and delete are the owner or modify-all. A missing report is unavailable. Nav links Dashboards.
+- **Why:** Sprint 1 item 6. The domain already ran components. Sellers had no page.
+- **Tests:** `dashboards/pages.test.ts` (6), plus a hidden-amount domain test and a delete action test. `renderToStaticMarkup`.
+- **Verify:** `npm run verify` exit 0 at 01:48 EDT. `node` on PATH is v24.2.0 (Homebrew; Node 22 is not installed here). typegen, tsc, eslint, 124 files, 1518 tests, Next.js 16.3.5 build. Routes `/dashboards`, `/dashboards/new`, `/dashboards/[id]`. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
+- **Not done:** line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard filters or running-user setting.
+- **Next:** roll line totals into Opportunity Amount in one transaction, integer cents, with add/edit/delete tests.
