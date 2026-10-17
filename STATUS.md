@@ -2274,6 +2274,12 @@ fresh verification evidence for each slice.
 - Not done: line items do not roll into Opportunity Amount. No edit of
   an existing line. No dashboard pages yet.
 
+## 2026-10-16 — lane A, read-only API v0
+
+- WORKS (verified 2026-10-16 21:34 EDT, Node v22.23.3, `npm run verify` exit 0, 114 files, 1273 tests, Next.js 16.3.5 build): `GET /api/v1/objects/{apiName}/records` and `GET /api/v1/objects/{apiName}/records/{id}` for Account, Contact, Lead, Opportunity, and Task. The session cookie selects the actor. List and get call the existing domain functions, so profile read, field security, and sharing apply. A field the profile cannot read is omitted. A readable empty field stays null. `annualRevenueCents` and `amountCents` are `{ amount, currency: "USD" }` in integer cents. Timestamps are ISO-8601 UTC. A missing, blank, or unknown session is one 401 body, `Sign in required`. An `/api/` path with no cookie gets that body and is not redirected to login. A forged other-org id, a soft-deleted id, a private id, an id the profile cannot read, and a missing id return the same 404 body, `Record not found`, with no id and no name in it. Org A's list does not include org B's account. Pages are id order, `limit` 1 to 200, opaque `cursor`. The contract is `docs/api/CONVENTIONS.md`.
+- Mutation, each restored before that verify: skipping the field-read check left `phone: null` on the hidden account. Leaving task `relatedName` in the payload included "Parent Quarry". Returning raw cents failed the 1999 and 250050 assertions. Appending the requested id to the error message put the foreign id in the 404 body. Dropping the id sort returned 2 of the 3 accounts.
+- Not in this slice: writes, custom field values, products, bearer tokens. No browser pass. No dev server. The route checks call the GET handlers on a memory database.
+
 ## 2026-10-16 — re-checked the origin/main merge (lane B)
 
 - WORKS (verified 2026-10-16 21:45 EDT, `npm run verify` exit 0 on Node
@@ -2282,5 +2288,19 @@ fresh verification evidence for each slice.
   contains `ec5cf55` (account field history and `0055_audit_events`)
   plus the opportunity product lines. No product code changed in this
   pass. No browser pass. Chrome DevTools did not connect.
+- Not done: line items do not roll into Opportunity Amount. No edit of
+  an existing line. No dashboard pages yet.
+
+## 2026-10-16 — merged origin/main read API into the line-item branch (lane B)
+
+- WORKS (verified 2026-10-16 22:19 EDT, `npm run verify` exit 0 on Node
+  v22.23.3, 1408/1408 tests across 115 files, Next.js 16.3.5 build):
+  this branch now contains `origin/main` at `23ccfde` (read-only
+  `GET /api/v1/objects/{apiName}/records` and
+  `docs/api/CONVENTIONS.md`) and the opportunity product lines.
+  Conflicts were only in `STATUS.md` and `REX-LOG.md`. Both lanes'
+  entries are kept. No product behavior was changed in this merge.
+  `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome
+  DevTools did not connect.
 - Not done: line items do not roll into Opportunity Amount. No edit of
   an existing line. No dashboard pages yet.

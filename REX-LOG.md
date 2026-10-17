@@ -772,9 +772,26 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Not done:** lines do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages yet.
 - **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.
 
+## 2026-10-16 21:34 EDT — lane A, read-only API v0
+
+- **What:** `GET /api/v1/objects/{apiName}/records` and `GET /api/v1/objects/{apiName}/records/{id}` for Account, Contact, Lead, Opportunity, and Task. The session cookie is the actor. Reads call the existing get and list functions, then omit fields the profile cannot read. Money is `{ amount, currency: "USD" }` in integer cents. `docs/api/CONVENTIONS.md` records the contract. An `/api/` path with no cookie is 401 JSON, not a login redirect.
+- **Why:** The read API is the public surface later writes, custom objects, and clients will share. A forged other-org id must not be distinguishable from a missing id.
+- **Tests:** `apiRecords.test.ts`, `route.test.ts`, `proxy.test.ts` (14). Same 404 body for a foreign id, a deleted id, a private id, a profile without read, and a missing id. Hidden phone and revenue are absent; a readable empty industry stays null; a hidden account phone does not hide the contact phone. Private list omits the other owner's account. Cursor pages in id order.
+- **Mutation, restored before verify:** skipping the field-read check left `phone: null`; leaving task `relatedName` in the payload showed "Parent Quarry"; returning raw cents failed the 1999 and 250050 checks; appending the id in the error body failed the forged-id comparison; dropping the id sort returned 2 of 3 accounts.
+- **Verify:** `npm run verify` exit 0 at 21:34 EDT on Node v22.23.3. 114 files, 1273 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. No dev server.
+- **Next:** Audit log for contact, then lead, opportunity, and task, on the same contract as account. API writes, custom values, and products stay out until that contract says they are in.
+
 ## 2026-10-16 21:46 EDT — re-check merge of origin/main
 
 - **What:** `git merge origin/main` was already up to date. HEAD `a99dcdc` already contains `origin/main` at `ec5cf55` (account audit, migration `0055_audit_events`). No conflict markers. No product code changed.
 - **Why:** The gates asked for a fresh merge because main moved while they ran. The previous merge commit already had it.
 - **Verify:** `npm run verify` exit 0 at 21:45 EDT on Node v22.23.3. typegen, tsc, eslint, 112 files, 1374/1374 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass.
+- **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.
+
+## 2026-10-16 22:19 EDT — merge origin/main (read-only API v0) into the line-item branch
+
+- **What:** Merged `origin/main` (`23ccfde`, lane A's read-only record API and `docs/api/CONVENTIONS.md`) into this branch. Conflicts were only in `STATUS.md` and `REX-LOG.md`. Both lanes' entries are kept. No product code was rewritten.
+- **Why:** Main moved while the gates ran. The line-item branch has to include the read API so verify stays green.
+- **Verify:** `npm run verify` exit 0 at 22:19 EDT on Node v22.23.3. typegen, tsc, eslint, 115 files, 1408/1408 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
+- **Not done:** lines do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages yet.
 - **Next:** dashboard list/view/create pages, then roll line totals into Opportunity Amount in one transaction.
