@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { convertLeadAction, deleteLeadAction } from "../actions";
+import { AuditHistory } from "@/components/AuditHistory";
 import { ConvertLeadForm } from "@/components/ConvertLeadForm";
 import { CustomFieldsSection } from "@/components/CustomFieldsSection";
 import { ChangeOwnerLink } from "@/components/ChangeOwnerLink";
@@ -12,7 +13,7 @@ import { getAccount } from "@/lib/crm/accounts";
 import { getContact } from "@/lib/crm/contacts";
 import { leadConvertedView } from "@/lib/crm/convertedLabels";
 import { getCustomValues } from "@/lib/crm/customFields";
-import { getLead } from "@/lib/crm/leads";
+import { getLead, listLeadHistory } from "@/lib/crm/leads";
 import { getOpportunity } from "@/lib/crm/opportunities";
 import { recordView } from "@/lib/crm/recentlyViewed";
 import { canChangeOwner, getOwnerTarget } from "@/lib/crm/ownership";
@@ -215,6 +216,8 @@ export default async function LeadDetailPage({
         activities={listActivities(db, actor, "lead", lead.id)}
 
       />
+
+      <AuditHistory entries={listLeadHistory(db, actor, lead.id)} />
 
       {converted ? (
         <section className="rounded-lg border border-[#d9d0c0] bg-white p-6">

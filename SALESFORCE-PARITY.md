@@ -202,10 +202,10 @@ tracks the gap. It does not block other rows.
 - **Source:** Files and Salesforce CRM Content; global search; field history; setup audit trail.
 - **Expected:** Files attach to a record in the same org. Search returns only records the actor may read. Field history stores old and new values. Setup changes are audited.
 - **Dependencies:** IAM-ENFORCE-001.
-- **Status:** PARTIAL. Search is `LIKE` on name, email, company, and task subject. No files, no field history, no setup audit.
-- **Implementation:** `src/lib/crm/search.ts`.
+- **Status:** PARTIAL. Search is `LIKE` on name, email, company, and task subject. Account, contact, lead, and opportunity create, update, and delete write field history (old, new, actor, time) from one function, and each record page lists it. A rejected save writes nothing. Another org cannot read the events. No files, no setup audit, and no history on tasks yet.
+- **Implementation:** `src/lib/crm/search.ts`. History: `src/lib/crm/audit.ts`, `listAccountHistory` in `src/lib/crm/accounts.ts`, `listContactHistory` in `src/lib/crm/contacts.ts`, `listLeadHistory` in `src/lib/crm/leads.ts`, `listOpportunityHistory` in `src/lib/crm/opportunities.ts`.
 - **Acceptance:** A file uploaded on an account is invisible to another org and to a user without record access. Search for a unique account name in org B returns nothing for org A.
-- **Latest:** 2026-10-10. Search for another org's account name returns nothing (`orgs.test.ts`). Browser search `Acme` returned the four local matches. Not re-checked for files or history, which still do not exist.
+- **Latest:** 2026-10-16. Account, contact, lead, and opportunity history tests cover old/new/actor/time, a rejected save, and org isolation (`audit.test.ts`, `contacts.audit.test.ts`, `leads.audit.test.ts`, `opportunities.audit.test.ts`). Those record pages render the history list. Files and setup audit still do not exist. Search was not re-run.
 - **Gaps:** Not SOSL. `%` and `_` are stripped.
 
 ### PLAT-META-012 Accessibility and mobile
@@ -293,10 +293,10 @@ tracks the gap. It does not block other rows.
 - **Source:** Shield Platform Encryption, Event Monitoring, Field Audit Trail, consent objects, backup. Architect doc: per-tenant keys, TLS, zero trust. Those are Salesforce's controls, not Rex's.
 - **Expected:** Security-relevant writes append an audit row. A backup file restores a known dataset. Encryption-at-rest has an interface even when the local key is a dev key. Consent is stored and honored by export and messaging.
 - **Dependencies:** PLAT-ORG-001.
-- **Status:** NOT STARTED. No audit table. No backup command. SQLite file is plaintext.
-- **Implementation:** —
+- **Status:** PARTIAL. `audit_events` records account, contact, lead, and opportunity create, update, and delete (old, new, actor, time) in the same transaction as the row write. A rejected save writes nothing. Org B cannot read org A's events. No backup command. SQLite file is plaintext.
+- **Implementation:** `src/lib/crm/audit.ts`, `listAccountHistory` in `src/lib/crm/accounts.ts`, `listContactHistory` in `src/lib/crm/contacts.ts`, `listLeadHistory` in `src/lib/crm/leads.ts`, `listOpportunityHistory` in `src/lib/crm/opportunities.ts`, `drizzle/0055_audit_events.sql`.
 - **Acceptance:** Change a field, see old/new/actor/time. Copy the db, delete a row, restore, row is back and a checksum of the fixture matches.
-- **Latest:** not run.
+- **Latest:** 2026-10-16. Account, contact, lead, and opportunity create, update, and delete write the audit row; a rejected save does not; org B cannot read org A's events (`audit.test.ts`, `contacts.audit.test.ts`, `leads.audit.test.ts`, `opportunities.audit.test.ts`). Backup and encryption were not run.
 - **Gaps:** Not Shield. Not customer-managed keys. Not a certified boundary. Local proof will say so.
 
 ### IAM-ENFORCE-001 One policy for every surface
@@ -326,7 +326,7 @@ Rows that already have code are partial. The rest are the Sales Cloud / Agentfor
 | SALES-ACT-001 | Events, calendar, log a call, email | NOT STARTED | Activity timeline on lead, contact, account IN PR #20. No events, calendar, call log, or email. |
 | SALES-TEAM-001 | Account, opportunity, and case teams | NOT STARTED | — |
 | SALES-PERSON-001 | Person accounts: one record that is both account and contact | NOT STARTED | — |
-| SALES-PROD-001 | Products, price books, standard price, opportunity line items | PARTIAL | Standard price book and entries, integer cents, org isolation, profile and owner checks, and field permissions (2026-10-11). The price permission is `standardPriceCents`. No custom price books. Opportunity line items (2026-10-12, `0020_opportunity_line_items`, `opportunityLineItems.ts`): quantity and integer-cent unit price defaulting to the standard price, edit on the opportunity required, hidden or cross-org opportunities and products are not found; server actions exist but the opportunity page does not render lines yet, and lines do not roll into Amount. Not in search, reports, or the recycle bin. |
+| SALES-PROD-001 | Products, price books, standard price, opportunity line items | PARTIAL | Standard price book and entries, integer cents, org isolation, profile and owner checks, and field permissions (2026-10-11). The price permission is `standardPriceCents`. No custom price books. Opportunity line items (2026-10-12, `0020_opportunity_line_items`, `opportunityLineItems.ts`): quantity and integer-cent unit price defaulting to the standard price, edit on the opportunity required, hidden or cross-org opportunities and products are not found. The opportunity page lists lines and adds or removes them when the actor can edit the opportunity. Sales price stays hidden, and a posted price is refused, when the actor cannot read the product price or cannot update products. Inactive products and invalid quantities are refused. A hidden product name is omitted. Lines do not roll into Amount. Not in search, reports, or the recycle bin. |
 | SALES-FCST-001 | Forecast categories, quotas, manager roll-up | IN PR #19 (partial) | Forecast by owner and close month with running totals. No quotas or manager roll-up. |
 | SALES-TERR-001 | Territory model, assignment, forecast by territory | IN PR #22 (partial) | Org-scoped territories and account assignment. No forecast by territory. |
 | SALES-ENG-001 | Cadences, work queues, email engagement tracked locally (no send) | NOT STARTED | Winter '27 notes push notifications; Rex will record a sink, not deliver. |
@@ -511,7 +511,7 @@ Source: product map (MuleSoft, Heroku); Winter '27 API version 68.0; API Catalog
 
 | ID | Expected | Status |
 |---|---|---|
-| INT-REST-001 | Versioned REST CRUD for an sObject, with the actor's session or a bearer token | NOT STARTED |
+| INT-REST-001 | Versioned REST CRUD for an sObject, with the actor's session or a bearer token | PARTIAL. Session-cookie create, update, and delete for Account, Contact, Lead, Opportunity, and Task, with Idempotency-Key and If-Match. No bearer token. |
 | INT-SOAP-001 | A minimal SOAP retrieve/update against the same domain functions | NOT STARTED |
 | INT-BULK-001 | Bulk insert job, batches, result file, partial success | NOT STARTED |
 | INT-COMP-001 | Composite request, all-or-none, stops on first error when asked | NOT STARTED |

@@ -298,6 +298,32 @@ describe("opportunity form data", () => {
     expect(after.amountCents).toBe(5_000_000);
     expect(after.probability).toBe(60);
   });
+
+  it("refuses a coerced amount and leaves the stored cents", () => {
+    const db = openMemoryDb().db;
+    const account = createAccount(db, LOCAL_ACTOR, { name: "Acme Corporation" });
+    const opportunity = createOpportunity(db, LOCAL_ACTOR, {
+      accountId: account.id,
+      name: "Anvil Restock",
+      stage: "Proposal",
+      closeDate: "2026-10-31",
+      amountCents: 5_000_000,
+    });
+    const base = [
+      ["name", "Anvil Restock"],
+      ["accountId", account.id],
+      ["stage", "Proposal"],
+      ["closeDate", "2026-10-31"],
+    ] as [string, string][];
+    for (const amount of ["0x10", "$", "1.999", "1e2", "0b10", "0o10"]) {
+      expect(() =>
+        parseOpportunityUpdateFormData(form([...base, ["amount", amount]])),
+      ).toThrow(/Amount/);
+    }
+    expect(getOpportunity(db, LOCAL_ACTOR, opportunity.id)?.amountCents).toBe(5_000_000);
+    const parsed = parseOpportunityUpdateFormData(form([...base, ["amount", "$50,000.00"]]));
+    expect(parsed.amountCents).toBe(5_000_000);
+  });
 });
 
 describe("task form data", () => {

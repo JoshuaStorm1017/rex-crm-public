@@ -10,16 +10,25 @@ import {
   assertEditableFields,
   canAccessRecord,
   canPerform,
+  canReadField,
   presentRecord,
   touchedFields,
 } from "./permissions";
 import { getAccount } from "./accounts";
+import {
+  listAuditEvents,
+  parseAuditChanges,
+  recordAudit,
+  type AuditFieldMap,
+  type AuditValue,
+} from "./audit";
 import {
   CONTACT_HIERARCHY,
   descendantIds,
   wouldCreateCycle,
 } from "./hierarchy";
 import { ID_PREFIX, newId } from "./ids";
+import { ownerLabel } from "./users";
 import {
   assertOpportunityContactRolesAllowContactDelete,
   countOpportunityContactRolesForContact,
@@ -39,8 +48,90 @@ import { mergeDefined } from "./validationRules";
 
 export type Contact = typeof contacts.$inferSelect;
 
+const CONTACT_AUDIT_FIELDS = [
+  "name",
+  "ownerId",
+  "accountId",
+  "reportsToId",
+  "firstName",
+  "lastName",
+  "title",
+  "email",
+  "phone",
+  "mailingStreet",
+  "mailingCity",
+  "mailingState",
+  "mailingPostalCode",
+  "mailingCountry",
+  "description",
+] as const satisfies readonly (keyof Contact)[];
+
+const CONTACT_HISTORY_LABELS: Record<(typeof CONTACT_AUDIT_FIELDS)[number], string> = {
+  name: "Name",
+  ownerId: "Owner",
+  accountId: "Account",
+  reportsToId: "Reports To",
+  firstName: "First Name",
+  lastName: "Last Name",
+  title: "Title",
+  email: "Email",
+  phone: "Phone",
+  mailingStreet: "Mailing Street",
+  mailingCity: "Mailing City",
+  mailingState: "Mailing State",
+  mailingPostalCode: "Mailing Postal Code",
+  mailingCountry: "Mailing Country",
+  description: "Description",
+};
+
+export type ContactHistoryChange = {
+  field: string;
+  label: string;
+  before: string | null;
+  after: string | null;
+};
+
+export type ContactHistoryEntry = {
+  id: string;
+  action: "create" | "update" | "delete";
+  actorId: string;
+  actorName: string;
+  at: number;
+  changes: ContactHistoryChange[];
+};
+
 function now(): number {
   return Date.now();
+}
+
+function contactAuditValues(row: Contact): AuditFieldMap {
+  const values: AuditFieldMap = {};
+  for (const field of CONTACT_AUDIT_FIELDS) {
+    const value = row[field];
+    values[field] = value == null ? null : value;
+  }
+  return values;
+}
+
+function historyText(
+  db: Db,
+  actor: Actor,
+  field: string,
+  value: AuditValue | undefined,
+): string | null | undefined {
+  if (value == null || value === "") return null;
+  if (field === "accountId") {
+    if (typeof value !== "string") return undefined;
+    const account = getAccount(db, actor, value);
+    return account ? account.name : undefined;
+  }
+  if (field === "reportsToId") {
+    if (typeof value !== "string") return undefined;
+    const manager = getContact(db, actor, value);
+    return manager ? manager.name : undefined;
+  }
+  if (field === "ownerId" && typeof value === "string") return ownerLabel(db, value);
+  return String(value);
 }
 
 function displayName(firstName: string | undefined, lastName: string): string {
@@ -82,6 +173,51 @@ export function getContact(
   if (!canPerform(db, actor, "contact", "read")) return undefined;
   const row = loadContact(db, actor, id);
   return row ? presentRecord(db, actor, "contact", row) : undefined;
+}
+
+/**
+ * History for a contact this actor can read. Hidden fields, unreadable
+ * accounts, and unreadable managers are omitted. Another org's events
+ * are not returned. A deleted contact is not readable, so its history
+ * is empty even though the delete event stays stored.
+ */
+export function listContactHistory(
+  db: Db,
+  actor: Actor,
+  contactId: string,
+): ContactHistoryEntry[] {
+  if (!getContact(db, actor, contactId)) return [];
+  return listAuditEvents(db, actor, "contact", contactId).map((event) => {
+    const changes = parseAuditChanges(event.changesJson);
+    const visible: ContactHistoryChange[] = [];
+    for (const field of CONTACT_AUDIT_FIELDS) {
+      const inOld = changes.old ? Object.prototype.hasOwnProperty.call(changes.old, field) : false;
+      const inNew = changes.new ? Object.prototype.hasOwnProperty.call(changes.new, field) : false;
+      if (event.action === "create" && !inNew) continue;
+      if (event.action === "delete" && !inOld) continue;
+      if (event.action === "update" && !inOld && !inNew) continue;
+      if (!canReadField(db, actor, "contact", field)) continue;
+      const before = historyText(db, actor, field, changes.old?.[field]);
+      const after = historyText(db, actor, field, changes.new?.[field]);
+      if (before === undefined || after === undefined) continue;
+      if (event.action === "create" && after == null) continue;
+      if (event.action === "delete" && before == null) continue;
+      visible.push({
+        field,
+        label: CONTACT_HISTORY_LABELS[field],
+        before,
+        after,
+      });
+    }
+    return {
+      id: event.id,
+      action: event.action === "create" || event.action === "delete" ? event.action : "update",
+      actorId: event.actorId,
+      actorName: ownerLabel(db, event.actorId),
+      at: event.at,
+      changes: visible,
+    };
+  });
 }
 
 function readableContactIds(db: Db, actor: Actor): Set<string> {
@@ -211,11 +347,22 @@ export function createContact(
     updatedBy: actor.userId,
   };
   const prepared = prepareWrite(db, actor, "contact", row, "create");
-  db.insert(contacts).values(prepared).run();
-  const created = storedContact(db, actor, id);
-  if (!created) {
-    throw new DomainError("WRITE_FAILED", "Contact was not persisted");
-  }
+  const created = db.transaction((tx) => {
+    tx.insert(contacts).values(prepared).run();
+    const stored = storedContact(tx, actor, id);
+    if (!stored) {
+      throw new DomainError("WRITE_FAILED", "Contact was not persisted");
+    }
+    recordAudit(tx, actor, {
+      objectKey: "contact",
+      recordId: stored.id,
+      action: "create",
+      before: null,
+      after: contactAuditValues(stored),
+      at: stored.createdAt,
+    });
+    return stored;
+  });
   return presentRecord(db, actor, "contact", created);
 }
 
@@ -289,14 +436,25 @@ export function updateContact(
     updatedBy: actor.userId,
   });
   const prepared = prepareWrite(db, actor, "contact", next, "update") as Contact;
-  db.update(contacts)
-    .set(withoutId(prepared))
-    .where(and(eq(contacts.id, id), eq(contacts.orgId, actor.orgId)))
-    .run();
-  const updated = storedContact(db, actor, id);
-  if (!updated) {
-    throw new DomainError("WRITE_FAILED", "Contact update did not persist");
-  }
+  const updated = db.transaction((tx) => {
+    tx.update(contacts)
+      .set(withoutId(prepared))
+      .where(and(eq(contacts.id, id), eq(contacts.orgId, actor.orgId)))
+      .run();
+    const stored = storedContact(tx, actor, id);
+    if (!stored) {
+      throw new DomainError("WRITE_FAILED", "Contact update did not persist");
+    }
+    recordAudit(tx, actor, {
+      objectKey: "contact",
+      recordId: stored.id,
+      action: "update",
+      before: contactAuditValues(existing),
+      after: contactAuditValues(stored),
+      at: stored.updatedAt,
+    });
+    return stored;
+  });
   return presentRecord(db, actor, "contact", updated);
 }
 
@@ -333,22 +491,35 @@ export function deleteContact(db: Db, actor: Actor, id: string): void {
     );
   }
   assertOpportunityContactRolesAllowContactDelete(db, actor, id);
-  deleteTasksForRecord(db, actor, id);
-  deleteOpportunityContactRolesForContact(db, actor, id);
-  deleteCustomValuesForRecord(db, id);
-  const ts = now();
-  for (const row of reports) {
-    if (!canReadRecord(db, actor, "contact", row)) continue;
-    if (!canAccessRecord(db, actor, "contact", "edit", row)) continue;
-    db.update(contacts)
-      .set({ reportsToId: null, updatedAt: ts })
-      .where(and(eq(contacts.id, row.id), eq(contacts.orgId, actor.orgId)))
+  // Task, role, custom-value, and Reports To cleanup share this transaction
+  // with the soft-delete and the audit insert. A failed audit insert must
+  // leave every one of those rows unchanged.
+  db.transaction((tx) => {
+    deleteTasksForRecord(tx, actor, id);
+    deleteOpportunityContactRolesForContact(tx, actor, id);
+    deleteCustomValuesForRecord(tx, id);
+    const ts = now();
+    for (const row of reports) {
+      if (!canReadRecord(tx, actor, "contact", row)) continue;
+      if (!canAccessRecord(tx, actor, "contact", "edit", row)) continue;
+      tx.update(contacts)
+        .set({ reportsToId: null, updatedAt: ts })
+        .where(and(eq(contacts.id, row.id), eq(contacts.orgId, actor.orgId)))
+        .run();
+    }
+    tx.update(contacts)
+      .set({ deletedAt: ts, updatedAt: ts })
+      .where(and(eq(contacts.id, id), eq(contacts.orgId, actor.orgId)))
       .run();
-  }
-  db.update(contacts)
-    .set({ deletedAt: now(), updatedAt: now() })
-    .where(and(eq(contacts.id, id), eq(contacts.orgId, actor.orgId)))
-    .run();
+    recordAudit(tx, actor, {
+      objectKey: "contact",
+      recordId: existing.id,
+      action: "delete",
+      before: contactAuditValues(existing),
+      after: null,
+      at: ts,
+    });
+  });
 }
 
 export function listDirectReports(
