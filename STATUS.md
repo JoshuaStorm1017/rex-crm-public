@@ -2411,6 +2411,7 @@ fresh verification evidence for each slice.
 ## 2026-10-23 — #40 with the P0-4 fix merged in
 
 - WORKS (verified 2026-10-23 10:47 EDT, `npm run verify` exit 0 on `7509cee`, 1590/1590 tests across 129 files, Next.js build): this branch contains the P0-4 fix from #60. A custom field the actor cannot edit is refused when supplied and kept when missing from the lead form. Reviewer 2's M16 and M17 are still killed. No browser pass.
+
 ## 2026-10-23 — #58 slice 2, dashboard list and new pages
 
 - WORKS (verified 2026-10-23 10:50 EDT, `npm run verify` exit 0 on `80da3d3`, 1590/1590 tests across 127 files, Next.js build): `/dashboards` lists only the actor's org dashboards, leaves out deleted ones, and escapes names and notices. `/dashboards/new` creates a dashboard. `deleteDashboardAction` deletes for the owner or a modify-all admin and redirects with a notice otherwise. `canChangeDashboard` is false for a soft-deleted dashboard. No browser pass.
@@ -2439,3 +2440,8 @@ fresh verification evidence for each slice.
 
 - WORKS (verified 2026-10-23 14:14 EDT, `npm run verify` exit 0 on `fe95a5f`, Node v22.23.3, 1657/1657 tests across 138 files, Next.js build): #33's case comments on top of main `3c5fa1d` (#62). Merge conflicts were only in REX-LOG.md and STATUS.md (both sides kept). Mutants C5, C11, C12 and R3-A1 still killed. No browser pass.
 - Not done: full re-gate of #33 at the new head (the `055a712` approval no longer counts).
+
+## 2026-10-23 — #40 merged with main 223bcb4
+
+- WORKS (verified 2026-10-23 15:39 EDT, `npm run verify` exit 0 on `d7b49c9`, Node v22.23.3, 1693/1693 tests across 144 files, Next.js build): #40's atomic lead create (`persistLeadCreate` inside `createLead`'s transaction and inside the form action's `withCustomFieldWrite` transaction) on top of main `223bcb4`. All 24 security and atomicity mutants are killed, including M16, M17, the P0-4 FLS mutants F1–F4, and M7c (custom values through the outer handle), which a new structural test now kills. No browser pass.
+- Not done: F2b (parse only posted custom inputs) still survives. It is a logic mutant and behaves the same as the real code, because `setCustomValues` treats an omitted editable field like a blank one. The behaviour itself is pinned by two tests in `customFields.form.test.ts`. The `4e37431` APPROVE no longer counts; #40 needs a re-gate at the new head.
