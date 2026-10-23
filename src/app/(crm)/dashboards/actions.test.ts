@@ -230,4 +230,62 @@ describe("dashboard actions", () => {
       code: "INVALID_NAME",
     });
   });
+
+  // Mutation review of #61: M7 (the action ignores the session user) and M7b
+  // (the org pinned to the local org) must be caught here, through the action.
+  it("creates as the signed-in user: Riley owns and created the dashboard", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    vi.mocked(requireActor).mockResolvedValue(actorFor(RILEY_USER_ID, LOCAL_ORG_ID) as never);
+    await expect(createDashboardAction(null, form({ name: "Riley Pipeline" }))).rejects.toThrow(
+      /REDIRECT \/dashboards\//,
+    );
+    const rows = db.select().from(dashboards).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      name: "Riley Pipeline",
+      orgId: LOCAL_ORG_ID,
+      ownerId: RILEY_USER_ID,
+      createdBy: RILEY_USER_ID,
+      updatedBy: RILEY_USER_ID,
+    });
+  });
+
+  it("creates in the signed-in user's org: listed there and not in the local org", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const outsider = createUser(db, {
+      name: "Quinn Sample",
+      email: "quinn@example.com",
+      username: "quinn",
+      password: "helmet-42",
+    });
+    const otherOrg = createOrganization(db, "Other Org", outsider.id);
+    const other = actorFor(outsider.id, otherOrg.id);
+    vi.mocked(requireActor).mockResolvedValue(other as never);
+    const redirected = await createDashboardAction(null, form({ name: "Quinn Board" })).then(
+      () => null,
+      (error: Error) => error.message,
+    );
+    const rows = db.select().from(dashboards).all();
+    expect(rows).toHaveLength(1);
+    expect(redirected).toBe(`REDIRECT /dashboards/${rows[0].id}`);
+    expect(rows[0]).toMatchObject({ orgId: otherOrg.id, ownerId: outsider.id, createdBy: outsider.id });
+    expect(listDashboards(db, other).map((d) => d.name)).toEqual(["Quinn Board"]);
+    expect(listDashboards(db, LOCAL_ACTOR)).toEqual([]);
+  });
+
+  it("creates nothing for a signed-out user", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    vi.mocked(requireActor).mockImplementation(async () => {
+      throw new Error("REDIRECT /login");
+    });
+    const outcome = await createDashboardAction(null, form({ name: "Ghost Board" })).then(
+      (state) => state?.error ?? "no error",
+      (error: Error) => error.message,
+    );
+    expect(outcome).toContain("REDIRECT /login");
+    expect(db.select().from(dashboards).all()).toEqual([]);
+  });
 });
