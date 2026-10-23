@@ -232,12 +232,14 @@ export function countLeads(db: Db, actor: Actor): number {
 /**
  * Create body without its own transaction. Callers must already be inside one
  * (assignment advances the round-robin cursor before validation runs).
+ * It checks the actor itself, so no caller can skip that gate.
  */
 export function persistLeadCreate(
   db: Db,
   actor: Actor,
   input: LeadCreateInput,
 ): Lead {
+  assertActor(db, actor);
   assertCanPerform(db, actor, "lead", "create");
   const parsed = leadCreateSchema.parse(input);
   assertEditableFields(db, actor, "lead", touchedFields(parsed));
@@ -293,7 +295,6 @@ export function createLead(
   actor: Actor,
   input: LeadCreateInput,
 ): Lead {
-  assertActor(db, actor);
   return db.transaction((tx) =>
     persistLeadCreate(tx as unknown as Db, actor, input),
   );
