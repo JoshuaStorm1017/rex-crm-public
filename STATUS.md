@@ -2384,3 +2384,8 @@ fresh verification evidence for each slice.
 - Not done: custom-field writes through the API were not re-checked in this change. (Superseded by the 11:04 follow-up below.)
 - WORKS (verified 2026-10-23 11:04 EDT, `npm run verify` exit 0 on `02bf669`, 1580/1580 tests across 129 files, Next.js build): the write API (`POST`/`PATCH /api/v1/objects/{apiName}/records`) has no custom-field path. A forged custom field key (`Locked__c`, `cf__Locked__c`, `customFields`) is refused with 400 `INVALID_INPUT` and writes nothing. A `PATCH` that omits custom fields leaves every stored custom value unchanged. No hole was found and no product code changed.
 - Not done: the API still cannot set custom fields at all, for any user (by design today). Purging a record from the recycle bin removes its custom values along with the record; that is a record-level action, not a field-level one.
+
+## 2026-10-23 — #33 case comments (SVC-CASE-002), review fixes
+
+- WORKS (Node 22, `npm run verify`, see below): a case comment's `orgId` and `authorId` always come from the actor. Forged `orgId`/`authorId` keys in the input are ignored, and no row is created in the other org. The DELETE in `deleteCaseComment` is scoped by `org_id` as well as `id`: a row that belongs to another org by the time the DELETE runs is left alone. `addCaseComment` refuses a non-member or a suspended-org actor with `FORBIDDEN` before it validates the body, so a bad body does not reveal `INVALID_INPUT` to an outsider. Mutants: 19/19 killed (Reviewer 2's 18, including C5, C11 and C12, plus Reviewer 3's R3-A1). Merged `origin/main` `aed5639`. No product code changed. No browser pass.
+- Not done: comments cannot be edited. There is no audit row for a comment delete.
