@@ -1,6 +1,6 @@
 import { and, count, eq, isNull } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { opportunities } from "../db/schema";
+import { opportunities, opportunityLineItems } from "../db/schema";
 import { getAccount } from "./accounts";
 import type { Actor } from "./actor";
 import { assertActor } from "./actor";
@@ -157,6 +157,21 @@ function storedOpportunity(
     .from(opportunities)
     .where(and(eq(opportunities.id, id), live(actor)))
     .get();
+}
+
+function hasLineItems(db: Db, actor: Actor, opportunityId: string): boolean {
+  const row = db
+    .select({ id: opportunityLineItems.id })
+    .from(opportunityLineItems)
+    .where(
+      and(
+        eq(opportunityLineItems.orgId, actor.orgId),
+        eq(opportunityLineItems.opportunityId, opportunityId),
+      ),
+    )
+    .limit(1)
+    .get();
+  return row !== undefined;
 }
 
 function loadOpportunity(
@@ -339,6 +354,18 @@ export function updateOpportunity(
   assertCanAccessRecord(db, actor, "opportunity", "edit", existing);
   const parsed = opportunityUpdateSchema.parse(input);
   assertEditableFields(db, actor, "opportunity", touchedFields(parsed));
+  // With line items, Amount is their server-side sum. A posted Amount that
+  // differs from the stored one is refused; an unchanged one passes.
+  if (
+    parsed.amountCents !== undefined &&
+    parsed.amountCents !== existing.amountCents &&
+    hasLineItems(db, actor, id)
+  ) {
+    throw new DomainError(
+      "AMOUNT_ROLLED_UP",
+      "Amount is the sum of the products and cannot be edited while the opportunity has products",
+    );
+  }
   if (parsed.accountId) {
     assertAccount(db, actor, parsed.accountId);
   }

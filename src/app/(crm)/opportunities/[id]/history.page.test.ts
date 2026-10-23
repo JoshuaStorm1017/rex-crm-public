@@ -382,7 +382,8 @@ describe("opportunity history related list", () => {
       productId: product.id,
       quantity: 2,
     });
-    expect(db.select().from(auditEvents).all()).toHaveLength(beforeLine);
+    // The add rolls Amount up, which is one opportunity update by the actor.
+    expect(db.select().from(auditEvents).all()).toHaveLength(beforeLine + 1);
 
     const html = await renderOpportunity(created.id);
     const productsAt = html.indexOf("Products (");
@@ -395,13 +396,11 @@ describe("opportunity history related list", () => {
     expect(products).toContain("Painted Anvil");
     expect(products).toContain("$1,234.56");
     expect(products).toContain("$2,469.12");
-    expect(history.startsWith("History (1)")).toBe(true);
+    expect(history.startsWith("History (2)")).toBe(true);
     expect(history).toContain("Created");
-    expect(history).toContain("Amount: $10.00");
-    expect(history).not.toContain("Updated");
+    expect(history).toContain("Amount: $10.00 → $2,469.12");
     expect(history).not.toContain("Painted Anvil");
     expect(history).not.toContain("$1,234.56");
-    expect(history).not.toContain("$2,469.12");
     expect(history).not.toContain(String(123456));
     expect(history).not.toContain(product.id);
     expect(history).not.toContain(line.id);
@@ -432,13 +431,14 @@ describe("opportunity history related list", () => {
     }
     expect(badQuantity).toBeInstanceOf(DomainError);
     expect((badQuantity as DomainError).code).toBe("INVALID_QUANTITY");
-    expect(db.select().from(auditEvents).all()).toHaveLength(beforeLine);
+    expect(db.select().from(auditEvents).all()).toHaveLength(beforeLine + 1);
 
     deleteLineItem(db, LOCAL_ACTOR, line.id);
-    expect(db.select().from(auditEvents).all()).toHaveLength(beforeLine);
+    expect(db.select().from(auditEvents).all()).toHaveLength(beforeLine + 2);
     const afterDelete = await renderOpportunity(created.id);
     const afterHistory = afterDelete.slice(afterDelete.indexOf("History ("));
-    expect(afterHistory.startsWith("History (1)")).toBe(true);
+    expect(afterHistory.startsWith("History (3)")).toBe(true);
+    expect(afterHistory).toContain("Amount: $2,469.12 → $0.00");
     expect(afterDelete).toContain("Products (0)");
     expect(afterHistory).not.toContain("Painted Anvil");
 
@@ -449,7 +449,7 @@ describe("opportunity history related list", () => {
     });
     const readerHtml = await renderOpportunity(created.id);
     const readerHistory = readerHtml.slice(readerHtml.indexOf("History ("));
-    expect(readerHistory.startsWith("History (1)")).toBe(true);
+    expect(readerHistory.startsWith("History (3)")).toBe(true);
     expect(readerHistory).toContain("Catalog Deal");
     expect(readerHistory).toContain("Amount: $10.00");
     expect(readerHistory).toContain("Local Operator");
@@ -498,8 +498,10 @@ describe("opportunity history related list", () => {
     const blindHistory = blindHtml.slice(blindHtml.indexOf("History ("));
     expect(blindHtml).toContain("Products (1)");
     expect(blindHtml).toContain("Painted Anvil");
-    expect(blindHistory.startsWith("History (1)")).toBe(true);
-    expect(blindHistory).toContain("Amount: $10.00");
+    // Sales Price is closed, so the rolled-up Amount is closed too.
+    expect(blindHistory).toContain("Catalog Deal");
+    expect(blindHistory).not.toContain("Amount:");
+    expect(blindHtml).not.toContain("$10.00");
     expect(blindHtml).not.toContain("$1,234.56");
     expect(blindHtml).not.toContain("$2,469.12");
     expect(blindHtml).not.toContain("123456");

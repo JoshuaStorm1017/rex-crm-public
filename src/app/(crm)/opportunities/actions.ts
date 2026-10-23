@@ -245,6 +245,7 @@ export async function addOpportunityLineItemAction(
     });
     revalidatePath(`/opportunities/${opportunityId}`);
   } catch (error) {
+    unstable_rethrow(error);
     redirect(
       `/opportunities/${opportunityId}?notice=${encodeURIComponent(formatError(error))}`,
     );
@@ -261,6 +262,7 @@ export async function deleteOpportunityLineItemAction(
     deleteLineItem(getDb(), actor, lineItemId);
     revalidatePath(`/opportunities/${opportunityId}`);
   } catch (error) {
+    unstable_rethrow(error);
     redirect(
       `/opportunities/${opportunityId}?notice=${encodeURIComponent(formatError(error))}`,
     );
