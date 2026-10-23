@@ -2381,4 +2381,6 @@ fresh verification evidence for each slice.
 ## 2026-10-23 — P0-4, custom field edit permission
 
 - WORKS (verified 2026-10-23 10:45 EDT, `npm run verify` exit 0 on `13cebb1`, 1577/1577 tests across 128 files, Next.js build): a custom field the actor's profile marks not editable is refused if its value is supplied (`FORBIDDEN`) and is kept when it is missing from the form. Editable fields that are missing are still cleared, as before. No browser pass.
-- Not done: custom-field writes through the API were not re-checked in this change.
+- Not done: custom-field writes through the API were not re-checked in this change. (Superseded by the 11:04 follow-up below.)
+- WORKS (verified 2026-10-23 11:04 EDT, `npm run verify` exit 0 on `02bf669`, 1580/1580 tests across 129 files, Next.js build): the write API (`POST`/`PATCH /api/v1/objects/{apiName}/records`) has no custom-field path. A forged custom field key (`Locked__c`, `cf__Locked__c`, `customFields`) is refused with 400 `INVALID_INPUT` and writes nothing. A `PATCH` that omits custom fields leaves every stored custom value unchanged. No hole was found and no product code changed.
+- Not done: the API still cannot set custom fields at all, for any user (by design today). Purging a record from the recycle bin removes its custom values along with the record; that is a record-level action, not a field-level one.
