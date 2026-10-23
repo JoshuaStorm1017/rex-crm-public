@@ -2397,6 +2397,13 @@ fresh verification evidence for each slice.
   - Adding a component updates the dashboard's Last Modified.
 - Not done: dashboard detail page and components UI (slice 3, held). Signed-out handling in the dashboard actions.
 
+## 2026-10-23 — P0-5, custom field read permission
+
+- WORKS (verified 2026-10-23 11:18 EDT, `npm run verify` exit 0 on `4ef4925`, 1580/1580 tests across 128 files, Next.js build): `getCustomValues` drops any custom field the viewer's profile marks not readable, so the lead, account, contact, opportunity and task detail pages (and the edit form, and the value `setCustomValues` returns) no longer show it. Admins still see every field. `deleteCustomValuesForRecord` deletes only rows in the actor's org. No browser pass.
+- WORKS (other readers, older code, now tested): list views do render custom values; `redactCustomCells` blanks a column the viewer cannot read on all five objects while the admin sees it (`customFields.readFls.listViews.test.ts`). Reports can group, aggregate and filter on custom fields and are guarded by `canReadField`. The read API and setup/data export do not emit custom values. `deleteCustomValuesForRecords` (task cascade on lead/account delete) leaves another org's rows alone.
+- WORKS (with #60 merged in from main `aed5639`): a member's write of a different value (or a blank) to a custom field they cannot read is refused with `FORBIDDEN` and the stored value is unchanged; saving only the editable fields keeps it. Hidden-field clearing on member save is P0-4, fixed by #60, now on main.
+- Not done: no browser pass. Since #60, a required custom field the user cannot edit is skipped, so "required" is not enforced for that user.
+
 ## 2026-10-23 — #33 case comments (SVC-CASE-002), review fixes
 
 - WORKS (verified 2026-10-23 13:00 EDT, `npm run verify` exit 0 on Node v22.23.3, 1614/1614 tests across 132 files, Next.js build; `.next` removed afterwards): a case comment's `orgId` and `authorId` always come from the actor. Forged `orgId`/`authorId` keys in the input are ignored, and no row is created in the other org. The DELETE in `deleteCaseComment` is scoped by `org_id` as well as `id`: a row that belongs to another org by the time the DELETE runs is left alone. `addCaseComment` refuses a non-member or a suspended-org actor with `FORBIDDEN` before it validates the body, so a bad body does not reveal `INVALID_INPUT` to an outsider. Mutants: 19/19 killed (Reviewer 2's 18, including C5, C11 and C12, plus Reviewer 3's R3-A1). Merged `origin/main` `aed5639`. No product code changed. No browser pass.
