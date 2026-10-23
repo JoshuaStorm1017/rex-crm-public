@@ -937,3 +937,10 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Tests:** QE's `leads/actions.customFieldFls.test.ts` (2, applied unchanged) and `customFields.fls.test.ts` (5). With the fix reverted, 6 of 7 fail (the admin no-rows test passes either way by design). Mutants killed: no refusal (3 fail), no keep (3 fail), parse every field (2 fail), ignore posted non-editable inputs (2 fail).
 - **Verify:** `npm run verify` exit 0 at 10:45 EDT on `13cebb1`, Node 22, 128 files, 1577 tests, Next.js build. `.next` removed afterwards. No browser pass.
 - **Not done:** the read API and write API custom-field paths were not reviewed in this change. Object-level edit is still checked by the record write, not here.
+
+## 2026-10-23 10:48 EDT — #40: merged the P0-4 fix (#60)
+
+- **What:** Merged `rex/p0-4-custom-field-fls` (`e0ae371`, #60) into this branch. The only conflict was this log, where both sides appended; both entries are kept. #40 does not change `customFields.ts`, so the fix came in unchanged.
+- **Mutants re-checked after the merge (`leads.atomic.test.ts`):** M16 (drop the org filter in `assertLiveRecord`) still killed, 1 failed. M17 (drop the org filter in duplicate-rule `liveRows`) still killed, 1 failed. Both were restored and the tree was clean.
+- **Verify:** `npm run verify` exit 0 at 10:47 EDT on `7509cee`, Node 22, 129 files, 1590 tests, Next.js build. `.next` removed afterwards. Only this docs commit follows.
+- **Not done:** backlog `passes` flags were not changed. P0-4 is fixed in code; QE or the reviewers decide whether to flip it.

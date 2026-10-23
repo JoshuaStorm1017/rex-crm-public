@@ -2382,3 +2382,7 @@ fresh verification evidence for each slice.
 
 - WORKS (verified 2026-10-23 10:45 EDT, `npm run verify` exit 0 on `13cebb1`, 1577/1577 tests across 128 files, Next.js build): a custom field the actor's profile marks not editable is refused if its value is supplied (`FORBIDDEN`) and is kept when it is missing from the form. Editable fields that are missing are still cleared, as before. No browser pass.
 - Not done: custom-field writes through the API were not re-checked in this change.
+
+## 2026-10-23 — #40 with the P0-4 fix merged in
+
+- WORKS (verified 2026-10-23 10:47 EDT, `npm run verify` exit 0 on `7509cee`, 1590/1590 tests across 129 files, Next.js build): this branch contains the P0-4 fix from #60. A custom field the actor cannot edit is refused when supplied and kept when missing from the lead form. Reviewer 2's M16 and M17 are still killed. No browser pass.
