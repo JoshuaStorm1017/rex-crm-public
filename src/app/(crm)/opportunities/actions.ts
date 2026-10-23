@@ -32,6 +32,7 @@ import {
 } from "@/lib/crm/form";
 import { requireActor } from "@/lib/crm/currentUser";
 import { parseUsdToCents } from "@/lib/crm/money";
+import { addLineItem, deleteLineItem, parseLineQuantity } from "@/lib/crm/opportunityLineItems";
 import { parseOpportunityUpdateFormData } from "@/lib/crm/recordFormData";
 import { getDb } from "@/lib/db/client";
 
@@ -222,5 +223,42 @@ export async function deleteOpportunityContactRoleAction(
   }
   revalidatePath(`/opportunities/${opportunityId}`);
   revalidatePath("/");
+  redirect(`/opportunities/${opportunityId}`);
+}
+
+export async function addOpportunityLineItemAction(
+  opportunityId: string,
+  formData: FormData,
+): Promise<void> {
+  try {
+    const actor = await requireActor();
+    addLineItem(getDb(), actor, {
+      opportunityId,
+      productId: String(formData.get("productId") ?? ""),
+      quantity: parseLineQuantity(blank(formData.get("quantity")) ?? "1"),
+      unitPriceCents: parseUsdToCents(blank(formData.get("unitPrice"))),
+    });
+    revalidatePath(`/opportunities/${opportunityId}`);
+  } catch (error) {
+    redirect(
+      `/opportunities/${opportunityId}?notice=${encodeURIComponent(formatError(error))}`,
+    );
+  }
+  redirect(`/opportunities/${opportunityId}`);
+}
+
+export async function deleteOpportunityLineItemAction(
+  opportunityId: string,
+  lineItemId: string,
+): Promise<void> {
+  try {
+    const actor = await requireActor();
+    deleteLineItem(getDb(), actor, lineItemId);
+    revalidatePath(`/opportunities/${opportunityId}`);
+  } catch (error) {
+    redirect(
+      `/opportunities/${opportunityId}?notice=${encodeURIComponent(formatError(error))}`,
+    );
+  }
   redirect(`/opportunities/${opportunityId}`);
 }

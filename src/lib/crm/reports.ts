@@ -11,8 +11,9 @@ import {
   users,
 } from "../db/schema";
 import type { Actor } from "./actor";
-import { assertActor } from "./actor";
+import { assertActor, isCurrentOrgAdmin } from "./actor";
 import { assertCanPerform, canReadField } from "./permissions";
+import { objectColumn } from "./objectTable";
 import { readRestrictionSql } from "./sharing";
 import {
   ACCOUNT_TYPES,
@@ -780,11 +781,7 @@ export function updateReport(
   id: string,
   input: ReportUpdateInput,
 ): Report {
-  assertActor(db, actor);
-  const existing = getReport(db, actor, id);
-  if (!existing) {
-    throw new DomainError("NOT_FOUND", "Report not found");
-  }
+  const existing = getManageableReport(db, actor, id, "edit");
   const parsed = reportUpdateSchema.parse(input);
   if (parsed.objectType && parsed.objectType !== existing.objectType) {
     throw new DomainError(
@@ -842,11 +839,34 @@ export function updateReport(
   return updated;
 }
 
-export function deleteReport(db: Db, actor: Actor, id: string): void {
+/**
+ * Any org member can see a report, but only its owner or a current-org
+ * admin may edit or delete it. Visible but not allowed is FORBIDDEN; another
+ * org or a missing report is NOT_FOUND. Inactive orgs and removed members
+ * are refused by assertActor.
+ */
+function getManageableReport(
+  db: Db,
+  actor: Actor,
+  id: string,
+  verb: "edit" | "delete",
+): Report {
   assertActor(db, actor);
-  if (!getReport(db, actor, id)) {
+  const report = getReport(db, actor, id);
+  if (!report) {
     throw new DomainError("NOT_FOUND", "Report not found");
   }
+  if (report.ownerId !== actor.userId && !isCurrentOrgAdmin(db, actor)) {
+    throw new DomainError(
+      "FORBIDDEN",
+      `Only the report owner or an organization admin can ${verb} this report`,
+    );
+  }
+  return report;
+}
+
+export function deleteReport(db: Db, actor: Actor, id: string): void {
+  getManageableReport(db, actor, id, "delete");
   const ts = now();
   db.update(reports)
     .set({ deletedAt: ts, updatedAt: ts })
@@ -892,22 +912,11 @@ function recordColumns(objectType: ListViewObjectType): {
   ownerId: AnySQLiteColumn;
   createdAt: AnySQLiteColumn;
 } {
-  switch (objectType) {
-    case "account":
-      return { id: accounts.id, ownerId: accounts.ownerId, createdAt: accounts.createdAt };
-    case "contact":
-      return { id: contacts.id, ownerId: contacts.ownerId, createdAt: contacts.createdAt };
-    case "lead":
-      return { id: leads.id, ownerId: leads.ownerId, createdAt: leads.createdAt };
-    case "opportunity":
-      return {
-        id: opportunities.id,
-        ownerId: opportunities.ownerId,
-        createdAt: opportunities.createdAt,
-      };
-    case "task":
-      return { id: tasks.id, ownerId: tasks.ownerId, createdAt: tasks.createdAt };
-  }
+  return {
+    id: objectColumn(objectType, "id"),
+    ownerId: objectColumn(objectType, "ownerId"),
+    createdAt: objectColumn(objectType, "createdAt"),
+  };
 }
 
 function groupExpr(
@@ -1024,18 +1033,7 @@ function asListView(report: Report): ListView {
     updatedBy: report.updatedBy,
     deletedAt: report.deletedAt,
   };
-  switch (report.objectType) {
-    case "account":
-      return { ...base, objectType: "account" };
-    case "contact":
-      return { ...base, objectType: "contact" };
-    case "lead":
-      return { ...base, objectType: "lead" };
-    case "opportunity":
-      return { ...base, objectType: "opportunity" };
-    case "task":
-      return { ...base, objectType: "task" };
-  }
+  return { ...base, objectType: report.objectType } as ListView;
 }
 
 /** Detail rows reuse the list-view query and cell formatting verbatim. */

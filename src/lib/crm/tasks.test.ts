@@ -243,7 +243,7 @@ describe("tasks", () => {
     expect(getTask(db, LOCAL_ACTOR, onOpp.id)).toBeUndefined();
   });
 
-  it("skips a private related task and refuses when a readable task cannot be deleted", () => {
+  it("refuses when a related task is private or cannot be deleted", () => {
     const db = openMemoryDb().db;
     const riley = actorFor(RILEY_USER_ID);
     const account = createAccount(db, riley, { name: "Riley Books" });
@@ -258,11 +258,12 @@ describe("tasks", () => {
       relatedRecordId: account.id,
     });
     setOrgWideDefault(db, LOCAL_ACTOR, "task", "private", true);
-    deleteAccount(db, riley, account.id);
-    expect(getAccount(db, LOCAL_ACTOR, account.id)).toBeUndefined();
+    // A task Riley cannot read blocks the delete; nothing is written.
+    expect(() => deleteAccount(db, riley, account.id)).toThrow(/other records still depend/i);
+    expect(getAccount(db, riley, account.id)?.name).toBe("Riley Books");
     expect(getTask(db, LOCAL_ACTOR, hidden.id)?.name).toBe("Private follow up");
     expect(getTask(db, riley, hidden.id)).toBeUndefined();
-    expect(getTask(db, riley, own.id)).toBeUndefined();
+    expect(getTask(db, riley, own.id)?.name).toBe("Riley follow up");
     expect(JSON.stringify(listTasks(db, riley))).not.toContain("Private follow up");
 
     setOrgWideDefault(db, LOCAL_ACTOR, "task", "public_read", true);

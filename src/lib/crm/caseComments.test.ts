@@ -152,14 +152,14 @@ describe("case comments (SVC-CASE-002)", () => {
     expectRefused(db, () => deleteCaseComment(db, LOCAL_ACTOR, kase.id, `${c.id}X`), "NOT_FOUND");
   });
 
-  it("0040 upgrades a database that stopped at 0034", () => {
+  it("0057 upgrades a database that stopped at 0056", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "rex-case-comments-"));
     const sqlite = new Database(path.join(dir, "rex.sqlite"));
     try {
       const journal = JSON.parse(readFileSync("drizzle/meta/_journal.json", "utf8")) as { entries: { tag: string }[] };
       const tags = journal.entries.map((e) => e.tag);
-      const stop = tags.indexOf("0034_cases");
-      expect(tags.slice(stop + 1)).toContain("0040_case_comments");
+      const stop = tags.indexOf("0056_api_idempotency");
+      expect(tags.slice(stop + 1)).toEqual(["0057_case_comments"]);
       const run = (tag: string) => {
         for (const s of readFileSync(`drizzle/${tag}.sql`, "utf8").split("--> statement-breakpoint")) {
           if (s.trim()) sqlite.exec(s.trim());
@@ -167,7 +167,7 @@ describe("case comments (SVC-CASE-002)", () => {
       };
       tags.slice(0, stop + 1).forEach(run);
       expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE name = 'case_comments'").get()).toBeUndefined();
-      run("0040_case_comments");
+      run("0057_case_comments");
       const cols = (sqlite.prepare("PRAGMA table_info(case_comments)").all() as { name: string }[]).map((x) => x.name);
       expect(cols).toEqual(expect.arrayContaining(["org_id", "case_id", "author_id", "body", "is_internal"]));
     } finally {

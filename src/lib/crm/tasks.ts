@@ -16,6 +16,13 @@ import {
 } from "./constants";
 import { DomainError } from "./errors";
 import {
+  listAuditEvents,
+  parseAuditChanges,
+  recordAudit,
+  type AuditFieldMap,
+  type AuditValue,
+} from "./audit";
+import {
   assertCanAccessRecord,
   assertCanPerform,
   assertEditableFields,
@@ -28,6 +35,7 @@ import {
 import { ID_PREFIX, newId } from "./ids";
 import { deleteCustomValuesForRecord, deleteCustomValuesForRecords } from "./customFields";
 import { recordHref, recordLabel } from "./objects";
+import { ownerLabel } from "./users";
 import { canReadRecord, readRestrictionSql } from "./sharing";
 import {
   taskCreateSchema,
@@ -39,6 +47,67 @@ import { prepareWrite, withoutId } from "./prepareWrite";
 import { mergeDefined } from "./validationRules";
 
 export type Task = typeof tasks.$inferSelect;
+
+const TASK_AUDIT_FIELDS = [
+  "name",
+  "ownerId",
+  "status",
+  "priority",
+  "dueDate",
+  "relatedObjectType",
+  "relatedRecordId",
+  "description",
+  "completedAt",
+] as const satisfies readonly (keyof Task)[];
+
+const TASK_HISTORY_LABELS: Record<(typeof TASK_AUDIT_FIELDS)[number], string> = {
+  name: "Subject",
+  ownerId: "Owner",
+  status: "Status",
+  priority: "Priority",
+  dueDate: "Due Date",
+  relatedObjectType: "Related Type",
+  relatedRecordId: "Related To",
+  description: "Description",
+  completedAt: "Completed",
+};
+
+export type TaskHistoryChange = {
+  field: string;
+  label: string;
+  before: string | null;
+  after: string | null;
+};
+
+export type TaskHistoryEntry = {
+  id: string;
+  action: "create" | "update" | "delete";
+  actorId: string;
+  actorName: string;
+  at: number;
+  changes: TaskHistoryChange[];
+};
+
+function taskAuditValues(row: Task): AuditFieldMap {
+  const values: AuditFieldMap = {};
+  for (const field of TASK_AUDIT_FIELDS) {
+    const value = row[field];
+    values[field] = value == null ? null : value;
+  }
+  return values;
+}
+
+function relatedKind(id: string): TaskRelatedObjectType | undefined {
+  if (id.startsWith(ID_PREFIX.account)) return "account";
+  if (id.startsWith(ID_PREFIX.contact)) return "contact";
+  if (id.startsWith(ID_PREFIX.lead)) return "lead";
+  if (id.startsWith(ID_PREFIX.opportunity)) return "opportunity";
+  return undefined;
+}
+
+function formatCompleted(ms: number): string {
+  return new Date(ms).toISOString().replace("T", " ").slice(0, 19) + " UTC";
+}
 
 export type RelatedRecordLive = {
   name: string;
@@ -178,6 +247,37 @@ export function liveRelatedRecord(
   return { name: row.name, href: recordHref(objectType, row.id) };
 }
 
+function historyText(
+  db: Db,
+  actor: Actor,
+  field: string,
+  value: AuditValue | undefined,
+): string | null | undefined {
+  if (value == null || value === "") return null;
+  if (field === "ownerId" && typeof value === "string") return ownerLabel(db, value);
+  if (field === "relatedObjectType" && typeof value === "string") {
+    if (
+      value === "account" ||
+      value === "contact" ||
+      value === "lead" ||
+      value === "opportunity"
+    ) {
+      return recordLabel(value);
+    }
+    return undefined;
+  }
+  if (field === "relatedRecordId" && typeof value === "string") {
+    const kind = relatedKind(value);
+    if (!kind) return undefined;
+    const row = storedRelated(db, actor, kind, value);
+    if (!row) return undefined;
+    if (!canReadRelatedName(db, actor, kind)) return null;
+    return row.name;
+  }
+  if (field === "completedAt" && typeof value === "number") return formatCompleted(value);
+  return String(value);
+}
+
 function assertRelated(
   db: Db,
   actor: Actor,
@@ -216,7 +316,13 @@ function storedTask(db: Db, actor: Actor, id: string): Task | undefined {
     .get();
 }
 
+/**
+ * A task the actor may not read is not found, for every caller. Profile
+ * read is checked here, not only in getTask, so a profile with edit or
+ * delete but no read cannot write a task it cannot see.
+ */
 function loadTask(db: Db, actor: Actor, id: string): Task | undefined {
+  if (!canPerform(db, actor, "task", "read")) return undefined;
   const row = storedTask(db, actor, id);
   if (!row || !canReadRecord(db, actor, "task", row)) return undefined;
   return row;
@@ -224,9 +330,57 @@ function loadTask(db: Db, actor: Actor, id: string): Task | undefined {
 
 export function getTask(db: Db, actor: Actor, id: string): Task | undefined {
   assertActor(db, actor);
-  if (!canPerform(db, actor, "task", "read")) return undefined;
   const row = loadTask(db, actor, id);
   return row ? presentRecord(db, actor, "task", row) : undefined;
+}
+
+/**
+ * History for a task this actor can read. Hidden fields and unreadable
+ * related records are omitted. Another org's events are not returned.
+ * A deleted task is not readable, so its history is empty even though
+ * the delete event stays stored.
+ */
+export function listTaskHistory(
+  db: Db,
+  actor: Actor,
+  taskId: string,
+): TaskHistoryEntry[] {
+  if (!getTask(db, actor, taskId)) return [];
+  return listAuditEvents(db, actor, "task", taskId).map((event) => {
+    const changes = parseAuditChanges(event.changesJson);
+    const visible: TaskHistoryChange[] = [];
+    for (const field of TASK_AUDIT_FIELDS) {
+      const inOld = changes.old
+        ? Object.prototype.hasOwnProperty.call(changes.old, field)
+        : false;
+      const inNew = changes.new
+        ? Object.prototype.hasOwnProperty.call(changes.new, field)
+        : false;
+      if (event.action === "create" && !inNew) continue;
+      if (event.action === "delete" && !inOld) continue;
+      if (event.action === "update" && !inOld && !inNew) continue;
+      if (!canReadField(db, actor, "task", field)) continue;
+      const before = historyText(db, actor, field, changes.old?.[field]);
+      const after = historyText(db, actor, field, changes.new?.[field]);
+      if (before === undefined || after === undefined) continue;
+      if (event.action === "create" && after == null) continue;
+      if (event.action === "delete" && before == null) continue;
+      visible.push({
+        field,
+        label: TASK_HISTORY_LABELS[field],
+        before,
+        after,
+      });
+    }
+    return {
+      id: event.id,
+      action: event.action === "create" || event.action === "delete" ? event.action : "update",
+      actorId: event.actorId,
+      actorName: ownerLabel(db, event.actorId),
+      at: event.at,
+      changes: visible,
+    };
+  });
 }
 
 export function listTasks(db: Db, actor: Actor): TaskListItem[] {
@@ -320,11 +474,22 @@ export function createTask(
     updatedBy: actor.userId,
   };
   const prepared = prepareWrite(db, actor, "task", row, "create");
-  db.insert(tasks).values(prepared).run();
-  const created = storedTask(db, actor, id);
-  if (!created) {
-    throw new DomainError("WRITE_FAILED", "Task was not persisted");
-  }
+  const created = db.transaction((tx) => {
+    tx.insert(tasks).values(prepared).run();
+    const stored = storedTask(tx, actor, id);
+    if (!stored) {
+      throw new DomainError("WRITE_FAILED", "Task was not persisted");
+    }
+    recordAudit(tx, actor, {
+      objectKey: "task",
+      recordId: stored.id,
+      action: "create",
+      before: null,
+      after: taskAuditValues(stored),
+      at: stored.createdAt,
+    });
+    return stored;
+  });
   return presentRecord(db, actor, "task", created);
 }
 
@@ -366,14 +531,25 @@ export function updateTask(
     updatedBy: actor.userId,
   });
   const prepared = prepareWrite(db, actor, "task", next, "update") as Task;
-  db.update(tasks)
-    .set(withoutId(prepared))
-    .where(and(eq(tasks.id, id), eq(tasks.orgId, actor.orgId)))
-    .run();
-  const updated = storedTask(db, actor, id);
-  if (!updated) {
-    throw new DomainError("WRITE_FAILED", "Task update did not persist");
-  }
+  const updated = db.transaction((tx) => {
+    tx.update(tasks)
+      .set(withoutId(prepared))
+      .where(and(eq(tasks.id, id), eq(tasks.orgId, actor.orgId)))
+      .run();
+    const stored = storedTask(tx, actor, id);
+    if (!stored) {
+      throw new DomainError("WRITE_FAILED", "Task update did not persist");
+    }
+    recordAudit(tx, actor, {
+      objectKey: "task",
+      recordId: stored.id,
+      action: "update",
+      before: taskAuditValues(existing),
+      after: taskAuditValues(stored),
+      at: stored.updatedAt,
+    });
+    return stored;
+  });
   return presentRecord(db, actor, "task", updated);
 }
 
@@ -410,11 +586,24 @@ export function deleteTask(db: Db, actor: Actor, id: string): void {
     throw new DomainError("NOT_FOUND", "Task not found");
   }
   assertCanAccessRecord(db, actor, "task", "delete", existing);
-  deleteCustomValuesForRecord(db, id);
-  db.update(tasks)
-    .set({ deletedAt: now(), updatedAt: now() })
-    .where(and(eq(tasks.id, id), eq(tasks.orgId, actor.orgId)))
-    .run();
+  // Custom-value cleanup shares this transaction with the soft-delete
+  // and the audit insert. A failed audit insert must leave both unchanged.
+  db.transaction((tx) => {
+    deleteCustomValuesForRecord(tx, id);
+    const ts = now();
+    tx.update(tasks)
+      .set({ deletedAt: ts, updatedAt: ts })
+      .where(and(eq(tasks.id, id), eq(tasks.orgId, actor.orgId)))
+      .run();
+    recordAudit(tx, actor, {
+      objectKey: "task",
+      recordId: existing.id,
+      action: "delete",
+      before: taskAuditValues(existing),
+      after: null,
+      at: ts,
+    });
+  });
 }
 
 export function deleteTasksForRecord(
@@ -428,13 +617,20 @@ export function deleteTasksForRecord(
     .from(tasks)
     .where(and(eq(tasks.relatedRecordId, relatedRecordId), liveTask(actor)))
     .all();
-  // A task this actor can read but cannot delete blocks the parent delete.
-  // A task they cannot read does not block and is not deleted. The message
-  // does not name the task.
+  // Any related task this actor cannot read, or can read but cannot
+  // delete, blocks the parent delete with HAS_CHILDREN. A hidden task is
+  // never deleted, changed, or left pointing at a deleted parent. Every
+  // task is checked before anything is written. The message does not
+  // name the task.
   const deletable: string[] = [];
   for (const task of related) {
-    if (!canReadRecord(db, actor, "task", task)) continue;
-    if (!canAccessRecord(db, actor, "task", "delete", task)) {
+    // Record delete access implies record read under sharing (owner,
+    // hierarchy, or public read/write all grant read), but profile delete
+    // does not imply profile read, so that is checked on its own.
+    if (
+      !canPerform(db, actor, "task", "read") ||
+      !canAccessRecord(db, actor, "task", "delete", task)
+    ) {
       throw new DomainError(
         "HAS_CHILDREN",
         "Cannot delete this record while other records still depend on it",

@@ -19,6 +19,8 @@ export const users = sqliteTable(
     passwordHash: text("password_hash"),
     role: text("role").notNull().default("user"),
     deletedAt: integer("deleted_at"),
+    failedLoginCount: integer("failed_login_count").notNull().default(0),
+    lockedUntil: integer("locked_until"),
   },
   (table) => [
     uniqueIndex("users_username_uidx").on(table.username),
@@ -406,6 +408,9 @@ export const assignmentRules = sqliteTable(
       .references(() => users.id),
     sortOrder: integer("sort_order").notNull().default(1),
     criteria: text("criteria").notNull(),
+    assignMode: text("assign_mode").notNull().default("user"),
+    poolUserIds: text("pool_user_ids").notNull().default("[]"),
+    rrCursor: integer("rr_cursor").notNull().default(0),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
     createdBy: text("created_by").notNull(),
@@ -691,6 +696,195 @@ export const priceBookEntries = sqliteTable(
   ],
 );
 
+export const opportunityLineItems = sqliteTable(
+  "opportunity_line_items",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    opportunityId: text("opportunity_id")
+      .notNull()
+      .references(() => opportunities.id),
+    productId: text("product_id")
+      .notNull()
+      .references(() => products.id),
+    quantity: integer("quantity").notNull(),
+    unitPriceCents: integer("unit_price_cents").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+  },
+  (table) => [
+    index("opportunity_line_items_org_opp_idx").on(table.orgId, table.opportunityId),
+  ],
+);
+
+export const quotes = sqliteTable(
+  "quotes",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    opportunityId: text("opportunity_id")
+      .notNull()
+      .references(() => opportunities.id),
+    name: text("name").notNull(),
+    status: text("status").notNull(),
+    expirationDate: text("expiration_date"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+  },
+  (table) => [
+    index("quotes_org_idx").on(table.orgId),
+    index("quotes_opportunity_idx").on(table.opportunityId),
+  ],
+);
+
+export const quoteLineItems = sqliteTable(
+  "quote_line_items",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    quoteId: text("quote_id")
+      .notNull()
+      .references(() => quotes.id),
+    productId: text("product_id").references(() => products.id),
+    description: text("description").notNull(),
+    quantity: integer("quantity").notNull(),
+    unitPriceCents: integer("unit_price_cents").notNull(),
+    discountBasisPoints: integer("discount_basis_points").notNull().default(0),
+    sortOrder: integer("sort_order").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("quote_line_items_org_idx").on(table.orgId),
+    index("quote_line_items_quote_idx").on(table.quoteId),
+  ],
+);
+
+export const approvalRequests = sqliteTable(
+  "approval_requests",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    opportunityId: text("opportunity_id").notNull(),
+    submittedBy: text("submitted_by").notNull(),
+    status: text("status").notNull(),
+    comment: text("comment").notNull().default(""),
+    decidedBy: text("decided_by"),
+    createdAt: integer("created_at").notNull(),
+    decidedAt: integer("decided_at"),
+  },
+  (t) => [index("approval_requests_org_opp_idx").on(t.orgId, t.opportunityId)],
+);
+
+export const dashboards = sqliteTable(
+  "dashboards",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    name: text("name").notNull(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    deletedAt: integer("deleted_at"),
+  },
+  (table) => [index("dashboards_org_idx").on(table.orgId)],
+);
+
+export const dashboardComponents = sqliteTable(
+  "dashboard_components",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    dashboardId: text("dashboard_id")
+      .notNull()
+      .references(() => dashboards.id),
+    reportId: text("report_id")
+      .notNull()
+      .references(() => reports.id),
+    title: text("title").notNull(),
+    position: integer("position").notNull(),
+  },
+  (table) => [
+    index("dashboard_components_org_dash_idx").on(table.orgId, table.dashboardId),
+  ],
+);
+
+export const activities = sqliteTable(
+  "activities",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    parentType: text("parent_type").notNull(),
+    parentId: text("parent_id").notNull(),
+    kind: text("kind").notNull(),
+    subject: text("subject").notNull(),
+    notes: text("notes"),
+    occurredAt: integer("occurred_at").notNull(),
+    loggedBy: text("logged_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("activities_org_parent_idx").on(
+      table.orgId,
+      table.parentType,
+      table.parentId,
+      table.occurredAt,
+    ),
+  ],
+);
+
+/** Contracts on an account. Access is controlled by the parent account (SALES-CONTRACT-001). */
+export const contracts = sqliteTable(
+  "contracts",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    status: text("status").notNull(),
+    startDate: text("start_date").notNull(),
+    termMonths: integer("term_months").notNull(),
+    endDate: text("end_date").notNull(),
+    valueCents: integer("value_cents").notNull(),
+    activatedAt: integer("activated_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+  },
+  (table) => [
+    index("contracts_org_idx").on(table.orgId),
+    index("contracts_account_idx").on(table.accountId),
+  ],
+);
+
+export const emailTemplates = sqliteTable(
+  "email_templates",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull().default(LOCAL_ORG_ID),
+    name: text("name").notNull(),
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+  },
+  (table) => [index("email_templates_org_idx").on(table.orgId)],
+);
+
 /** Service cases. Access is controlled by the parent account (SVC-CASE-001). */
 export const cases = sqliteTable(
   "cases",
@@ -738,5 +932,106 @@ export const caseComments = sqliteTable(
   },
   (table) => [
     index("case_comments_org_case_idx").on(table.orgId, table.caseId),
+  ],
+);
+
+export const campaigns = sqliteTable(
+  "campaigns",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull().default(LOCAL_ORG_ID),
+    name: text("name").notNull(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id),
+    status: text("status").notNull().default("planned"),
+    startDate: text("start_date"),
+    endDate: text("end_date"),
+    budgetCents: integer("budget_cents"),
+    description: text("description"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    deletedAt: integer("deleted_at"),
+  },
+  (table) => [index("campaigns_org_idx").on(table.orgId)],
+);
+
+export const campaignMembers = sqliteTable(
+  "campaign_members",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull().default(LOCAL_ORG_ID),
+    campaignId: text("campaign_id")
+      .notNull()
+      .references(() => campaigns.id),
+    leadId: text("lead_id").references(() => leads.id),
+    contactId: text("contact_id").references(() => contacts.id),
+    status: text("status").notNull().default("sent"),
+    createdAt: integer("created_at").notNull(),
+    createdBy: text("created_by").notNull(),
+  },
+  (table) => [
+    index("campaign_members_org_idx").on(table.orgId),
+    index("campaign_members_campaign_idx").on(table.campaignId),
+    uniqueIndex("campaign_members_lead_uidx")
+      .on(table.orgId, table.campaignId, table.leadId)
+      .where(sql`lead_id is not null`),
+    uniqueIndex("campaign_members_contact_uidx")
+      .on(table.orgId, table.campaignId, table.contactId)
+      .where(sql`contact_id is not null`),
+  ],
+);
+
+/** Field history for a record. Writes go through `recordAudit` only. */
+export const auditEvents = sqliteTable(
+  "audit_events",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    actorId: text("actor_id")
+      .notNull()
+      .references(() => users.id),
+    objectKey: text("object_key").notNull(),
+    recordId: text("record_id").notNull(),
+    action: text("action").notNull(),
+    changesJson: text("changes_json").notNull(),
+    at: integer("at").notNull(),
+  },
+  (table) => [
+    index("audit_events_org_record_idx").on(
+      table.orgId,
+      table.objectKey,
+      table.recordId,
+      table.at,
+    ),
+  ],
+);
+
+/**
+ * One stored response per organization, user, and Idempotency-Key.
+ * Inserts go through `apiWrites.ts` only. A retry reads this row.
+ */
+export const apiIdempotencyKeys = sqliteTable(
+  "api_idempotency_keys",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    actorId: text("actor_id")
+      .notNull()
+      .references(() => users.id),
+    idempotencyKey: text("idempotency_key").notNull(),
+    requestHash: text("request_hash").notNull(),
+    statusCode: integer("status_code").notNull(),
+    responseJson: text("response_json").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("api_idempotency_org_actor_key_uidx").on(
+      table.orgId,
+      table.actorId,
+      table.idempotencyKey,
+    ),
   ],
 );

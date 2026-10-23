@@ -4,10 +4,14 @@ import { deleteAccountAction } from "../actions";
 import { ChangeOwnerLink } from "@/components/ChangeOwnerLink";
 import { DeleteButton } from "@/components/DeleteButton";
 import { TasksRelatedList } from "@/components/TasksRelatedList";
+import { ActivityTimeline } from "@/components/ActivityTimeline";
+import { AuditHistory } from "@/components/AuditHistory";
+import { listActivities } from "@/lib/crm/activities";
 import {
   getAccount,
   getAccountHierarchy,
   listAccountAncestors,
+  listAccountHistory,
   readAccount,
 } from "@/lib/crm/accounts";
 import { CustomFieldsSection } from "@/components/CustomFieldsSection";
@@ -306,6 +310,15 @@ export default async function AccountDetailPage({
         tasks={withTaskEditAccess(db, actor, relatedTasks)}
         canCreate={canPerform(db, actor, "task", "create")}
       />
+
+
+      <ActivityTimeline
+
+        activities={listActivities(db, actor, "account", account.id)}
+
+      />
+
+      <AuditHistory entries={listAccountHistory(db, actor, account.id)} />
 
       {hierarchy && inHierarchy ? (
         <section className="rounded-lg border border-[#d9d0c0] bg-white">
