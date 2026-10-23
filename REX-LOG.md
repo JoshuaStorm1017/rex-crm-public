@@ -1033,9 +1033,10 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
   - `actions.test.ts` (+2): `deleteDashboardAction` for the same two actors redirects with the FORBIDDEN notice and leaves the row unchanged.
   - QE's `pr59-dashboards-html-and-canchange.patch` was applied unchanged as `dashboards.qe59.test.ts` (2), and both pass.
 - **Mutants killed** (focused run, 45 tests):
-  - M12, no `assertActor` in `getDashboard`, `deleteDashboard` or `canChangeDashboard`: 6 failed.
-  - M12d, no `assertActor` in `getDashboard` only: 2 failed.
-  - M12x, no `assertActor` in `runDashboard`: 2 failed. It survived until the zero-component board was added.
+  - M12, no `assertActor` in `getDashboard` only: 2 failed.
+  - M12d, no `assertActor` in `getDashboard`, `deleteDashboard` or `canChangeDashboard`: 6 failed.
+  - M13, no `assertActor` in `runDashboard` only: 2 failed. It survived until the zero-component board was added.
+  - (Labels corrected 2026-10-23 in the slice 3 PR to match Reviewer 5's table. This entry first had M12 and M12d swapped and called the `runDashboard` mutant M12x. In the reviewer's table, M12x is the four-function drop in `getDashboard`, `deleteDashboard`, `addDashboardComponent` and `canChangeDashboard`.)
   - QE's org-check mutant, no `orgId` check in `canChangeDashboard`: 2 failed.
   - No Last Modified bump: 1 failed.
 - **Merge:** `origin/main` `aed5639` (#60) merged in, no rebase. The only conflicts were in REX-LOG.md and STATUS.md, and I kept both sides.
@@ -1098,3 +1099,31 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 on `d7b49c9`, 15:38–15:39 EDT, Node v22.23.3, real `node_modules`: typegen, tsc, eslint, 144 files, 1693/1693 tests, Next.js build. `.next` removed afterwards. Log: `fix40b-verify.log`. No browser pass.
 - **Note:** the earlier APPROVE at `4e37431` does not cover this head; #40 needs a full re-gate. The next commit adds only this entry and the STATUS lines.
 
+
+## 2026-10-23 16:45 EDT — #58 slice 3, dashboard detail page and components (fresh PR)
+
+- **Authored-by:** Rex Grok Coder (Grok Bot). The slice 3 code was first written on #58 (head `7dc5ca3`). No commit trailer there records an author, so its model is not recorded.
+- **What:** re-applied from `7dc5ca3` onto `origin/main` `ad282e0` (#40):
+  - `src/app/(crm)/dashboards/[id]/page.tsx` runs the board for the signed-in actor. An unknown, foreign-org or deleted id gives a 404. Delete, Add component and the report picker show only when `canChangeDashboard` is true.
+  - `src/components/DashboardComponents.tsx` shows totals and group bars. An unavailable report shows its title only.
+  - The three dashboard server actions call `unstable_rethrow` first in their `catch`. Before this, a signed-out user's `NEXT_REDIRECT` to `/login` was caught and turned into a notice.
+  - `leads.ts`: the `persistLeadCreate` comment now says the insert and audit run in a nested transaction (a savepoint). This is Reviewer 5's nit on #40. It changes a comment only.
+  - This file: the #61 entry's mutant labels now match Reviewer 5's table (M12, M12d, M13).
+- **Tests:** `dashboards/detail.test.ts` (new, 8 tests) covers:
+  - the owner's view with money and bar widths
+  - a non-owner sees no Delete, add form or picker
+  - a non-owner's delete and add are refused, and the tables are unchanged
+  - 404 for foreign, unknown, odd and deleted ids
+  - escaped HTML in the dashboard name, the component title and a group label
+  - an unavailable report
+  - FORBIDDEN for a deactivated user and for a suspended org
+  - signed-out users: the page and all three actions reject with the real `NEXT_REDIRECT` to `/login`, and nothing is written
+
+  `dashboards/actions.test.ts`: its `next/navigation` mock now keeps the real `unstable_rethrow`.
+- **Mutants:** run in a scratch copy with the focused dashboard tests (53). Log: `s3-mut.log`.
+  - 10 of 11 killed. All the security mutants were killed: M6 (`getDashboard` without `assertActor`, killed by #61's `dashboards.actorGuard.test.ts`), M13, S1 Delete/Add shown to all, S3 name rendered as raw HTML, S4 FORBIDDEN turned into 404.
+  - Also killed: F1, F2 (money and bar width) and R1-R3 (the `unstable_rethrow` removed from each action).
+  - S2 (report list loaded for non-owners) survived. It is equivalent: the list is rendered only inside the owner-only block.
+- **F2b:** Reviewer 2's "parse only posted inputs" mutant in `applyCustomFieldsFromForm` was re-run on this head. It survives even though `customFields.form.test.ts` checks that an unposted editable checkbox stored as true becomes false. The reason is that `setCustomValues` parses every editable field, and `parseStored(checkbox, undefined)` returns "false". So an omitted editable checkbox is already cleared on main, and a non-editable one is left alone. I found no gap and changed no code.
+- **Verify:** `npm run verify` exit 0 at 16:37–16:40 EDT on `493dfa3`, Node v22.23.3. It ran in a private pinned copy (`git archive` plus a real `node_modules` copy): typegen, tsc, eslint, 145 files, 1701/1701 tests, Next.js build. `.next` and the copy were removed afterwards. Log: `s3-verify.log`. No browser pass. The next commit adds only this entry and the STATUS lines.
+- **Gitleaks:** `origin/main..HEAD`, no leaks.
