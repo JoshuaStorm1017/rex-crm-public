@@ -184,7 +184,7 @@ describe("opportunity line item actions", () => {
     const before = s.snapshot();
     await expect(
       addOpportunityLineItemAction(opp.id, form({ productId: s.product.id, quantity: "1", unitPrice: "$1.00" })),
-    ).rejects.toThrow(/standardPriceCents/);
+    ).rejects.toThrow(/notice=You%20cannot%20edit%20Sales%20Price$/);
     expect(s.snapshot()).toBe(before);
     expect(listLineItems(s.db, actor, opp.id)[0]).toMatchObject({ unitPriceCents: null, totalCents: null });
   });
@@ -362,7 +362,7 @@ describe("opportunity line item actions", () => {
     const before = s.snapshot();
     await expect(
       addOpportunityLineItemAction(opp.id, form({ productId: s.product.id, quantity: "1", unitPrice: "$1.00" })),
-    ).rejects.toThrow(/standardPriceCents/);
+    ).rejects.toThrow(/notice=You%20cannot%20edit%20Sales%20Price$/);
     expect(s.snapshot()).toBe(before);
     expect(listLineItems(s.db, seller.actor, opp.id)[0]?.unitPriceCents).toBe(2500);
   });
@@ -599,7 +599,7 @@ describe("opportunity line item actions", () => {
         message = error instanceof Error ? error.message : String(error);
       }
       expect(s.snapshot(), message).toBe(before);
-      expect(message).toMatch(/standardPriceCents/);
+      expect(message).toMatch(/notice=You%20cannot%20edit%20Sales%20Price$/);
     }
   });
 
@@ -675,7 +675,7 @@ describe("opportunity line item actions", () => {
         message = error instanceof Error ? error.message : String(error);
       }
       expect(s.snapshot(), `${unitPrice} ${message}`).toBe(before);
-      expect(message).toMatch(/standardPriceCents/);
+      expect(message).toMatch(/notice=You%20cannot%20edit%20Sales%20Price$/);
       expect(message).not.toMatch(/2500|19\.99/);
     }
     const amount = s.db.select().from(opportunities).where(eq(opportunities.id, opp.id)).get();

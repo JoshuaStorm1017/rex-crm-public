@@ -23,7 +23,9 @@ import {
   LINE_ITEM_MAX_UNIT_CENTS,
   listLineItems,
   opportunityLineTotalCents,
+  SALES_PRICE_LABEL,
   updateLineItem,
+  type UpdateLineItemInput,
 } from "./opportunityLineItems";
 import { addMember, createOrganization } from "./orgs";
 import { canEditField } from "./permissions";
@@ -71,6 +73,13 @@ function refused(s: Setup, fn: () => unknown, code: string) {
   expect(s.snapshot()).toBe(before);
 }
 
+/** updateLineItem with the line's own opportunity unless the test posts one. */
+function edit(s: Setup, actor: Actor, id: string, input: Omit<UpdateLineItemInput, "opportunityId"> & { opportunityId?: string }) {
+  const opportunityId =
+    s.db.select().from(opportunityLineItems).where(eq(opportunityLineItems.id, id)).get()?.opportunityId ?? s.opp.id;
+  return updateLineItem(s.db, actor, id, { opportunityId, ...input });
+}
+
 function stored(s: Setup, id: string) {
   return s.db.select().from(opportunityLineItems).where(eq(opportunityLineItems.id, id)).get();
 }
@@ -111,9 +120,9 @@ function sellerDeal(s: Setup, actor: Actor) {
 describe("updateLineItem", () => {
   it("edits quantity and price and recomputes the total", () => {
     const s = setup();
-    const qty = updateLineItem(s.db, LOCAL_ACTOR, s.line.id, { quantity: 5 });
+    const qty = edit(s, LOCAL_ACTOR, s.line.id, { quantity: 5 });
     expect(qty).toMatchObject({ quantity: 5, unitPriceCents: 2_500, totalCents: 12_500 });
-    const priced = updateLineItem(s.db, LOCAL_ACTOR, s.line.id, {
+    const priced = edit(s, LOCAL_ACTOR, s.line.id, {
       opportunityId: s.opp.id,
       quantity: 3,
       unitPriceCents: 1_999,
@@ -129,10 +138,10 @@ describe("updateLineItem", () => {
   it("accepts a zero price and the maximum quantity", () => {
     const s = setup();
     expect(
-      updateLineItem(s.db, LOCAL_ACTOR, s.line.id, { quantity: LINE_ITEM_MAX_QUANTITY, unitPriceCents: 0 }),
+      edit(s, LOCAL_ACTOR, s.line.id, { quantity: LINE_ITEM_MAX_QUANTITY, unitPriceCents: 0 }),
     ).toMatchObject({ quantity: LINE_ITEM_MAX_QUANTITY, unitPriceCents: 0, totalCents: 0 });
     expect(
-      updateLineItem(s.db, LOCAL_ACTOR, s.line.id, { quantity: 1, unitPriceCents: LINE_ITEM_MAX_UNIT_CENTS }),
+      edit(s, LOCAL_ACTOR, s.line.id, { quantity: 1, unitPriceCents: LINE_ITEM_MAX_UNIT_CENTS }),
     ).toMatchObject({ totalCents: LINE_ITEM_MAX_UNIT_CENTS });
   });
 
@@ -141,14 +150,14 @@ describe("updateLineItem", () => {
     const forged = { quantity: 4, unitPriceCents: 1_000, totalCents: 1, total: 1 } as unknown as Parameters<
       typeof updateLineItem
     >[3];
-    expect(updateLineItem(s.db, LOCAL_ACTOR, s.line.id, forged).totalCents).toBe(4_000);
+    expect(edit(s, LOCAL_ACTOR, s.line.id, forged).totalCents).toBe(4_000);
     expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)[0]?.totalCents).toBe(4_000);
     expect(Object.keys(stored(s, s.line.id) ?? {})).not.toContain("totalCents");
   });
 
   it("writes one update audit row on the opportunity with old and new values", () => {
     const s = setup();
-    updateLineItem(s.db, LOCAL_ACTOR, s.line.id, { quantity: 7, unitPriceCents: 900 });
+    edit(s, LOCAL_ACTOR, s.line.id, { quantity: 7, unitPriceCents: 900 });
     const [event, ...rest] = lineUpdates(s.db, LOCAL_ACTOR, s.opp.id);
     expect(rest).toEqual([]);
     expect(event).toMatchObject({ orgId: LOCAL_ORG_ID, actorId: LOCAL_ACTOR.userId, objectKey: "opportunity" });
@@ -165,7 +174,7 @@ describe("updateLineItem", () => {
       throw new Error("audit insert failed");
     });
     const before = s.snapshot();
-    expect(() => updateLineItem(s.db, LOCAL_ACTOR, s.line.id, { quantity: 9 })).toThrow("audit insert failed");
+    expect(() => edit(s, LOCAL_ACTOR, s.line.id, { quantity: 9 })).toThrow("audit insert failed");
     expect(s.snapshot()).toBe(before);
   });
 
@@ -173,7 +182,7 @@ describe("updateLineItem", () => {
     "refuses quantity %s and writes nothing",
     (quantity) => {
       const s = setup();
-      refused(s, () => updateLineItem(s.db, LOCAL_ACTOR, s.line.id, { quantity }), "INVALID_QUANTITY");
+      refused(s, () => edit(s, LOCAL_ACTOR, s.line.id, { quantity }), "INVALID_QUANTITY");
     },
   );
 
@@ -183,7 +192,7 @@ describe("updateLineItem", () => {
       const s = setup();
       refused(
         s,
-        () => updateLineItem(s.db, LOCAL_ACTOR, s.line.id, { quantity: 1, unitPriceCents }),
+        () => edit(s, LOCAL_ACTOR, s.line.id, { quantity: 1, unitPriceCents }),
         "INVALID_MONEY",
       );
     },
@@ -194,21 +203,21 @@ describe("updateLineItem", () => {
     refused(
       s,
       () =>
-        updateLineItem(s.db, LOCAL_ACTOR, s.line.id, {
+        edit(s, LOCAL_ACTOR, s.line.id, {
           quantity: LINE_ITEM_MAX_QUANTITY,
           unitPriceCents: LINE_ITEM_MAX_UNIT_CENTS,
         }),
       "INVALID_MONEY",
     );
     // The stored price alone can push a new quantity over the limit too.
-    updateLineItem(s.db, LOCAL_ACTOR, s.line.id, { quantity: 1, unitPriceCents: LINE_ITEM_MAX_UNIT_CENTS });
-    refused(s, () => updateLineItem(s.db, LOCAL_ACTOR, s.line.id, { quantity: LINE_ITEM_MAX_QUANTITY }), "INVALID_MONEY");
+    edit(s, LOCAL_ACTOR, s.line.id, { quantity: 1, unitPriceCents: LINE_ITEM_MAX_UNIT_CENTS });
+    refused(s, () => edit(s, LOCAL_ACTOR, s.line.id, { quantity: LINE_ITEM_MAX_QUANTITY }), "INVALID_MONEY");
   });
 
   it("refuses a read-only member with FORBIDDEN and writes nothing", () => {
     const s = setup();
     expect(listLineItems(s.db, RILEY, s.opp.id)).toHaveLength(1);
-    refused(s, () => updateLineItem(s.db, RILEY, s.line.id, { quantity: 9 }), "FORBIDDEN");
+    refused(s, () => edit(s, RILEY, s.line.id, { quantity: 9 }), "FORBIDDEN");
   });
 
   it("hides a line on a private opportunity with NOT_FOUND", () => {
@@ -222,7 +231,7 @@ describe("updateLineItem", () => {
         grantHierarchy: false,
       })),
     );
-    refused(s, () => updateLineItem(s.db, RILEY, s.line.id, { quantity: 9 }), "NOT_FOUND");
+    refused(s, () => edit(s, RILEY, s.line.id, { quantity: 9 }), "NOT_FOUND");
   });
 
   it("refuses another org's actor and never touches that org's same-id row", () => {
@@ -239,9 +248,9 @@ describe("updateLineItem", () => {
       .insert(opportunityLineItems)
       .values({ ...stored(s, s.line.id)!, id: "00ksameid", orgId: other.id })
       .run();
-    refused(s, () => updateLineItem(s.db, otherActor, s.line.id, { quantity: 9 }), "NOT_FOUND");
-    refused(s, () => updateLineItem(s.db, LOCAL_ACTOR, "00ksameid", { quantity: 9 }), "NOT_FOUND");
-    refused(s, () => updateLineItem(s.db, otherActor, "00ksameid", { quantity: 9 }), "NOT_FOUND");
+    refused(s, () => edit(s, otherActor, s.line.id, { quantity: 9 }), "NOT_FOUND");
+    refused(s, () => edit(s, LOCAL_ACTOR, "00ksameid", { quantity: 9 }), "NOT_FOUND");
+    refused(s, () => edit(s, otherActor, "00ksameid", { quantity: 9 }), "NOT_FOUND");
   });
 
   it("refuses a line posted against a different opportunity", () => {
@@ -254,7 +263,7 @@ describe("updateLineItem", () => {
     });
     refused(
       s,
-      () => updateLineItem(s.db, LOCAL_ACTOR, s.line.id, { opportunityId: otherDeal.id, quantity: 9 }),
+      () => edit(s, LOCAL_ACTOR, s.line.id, { opportunityId: otherDeal.id, quantity: 9 }),
       "NOT_FOUND",
     );
   });
@@ -263,42 +272,42 @@ describe("updateLineItem", () => {
     const s = setup();
     const actor = seller(s.db, "gone", { price: { canRead: true, canEdit: true } });
     disableUser(s.db, actor.userId);
-    refused(s, () => updateLineItem(s.db, actor, "00kmissing", { quantity: 1 }), "FORBIDDEN");
-    refused(s, () => updateLineItem(s.db, actor, s.line.id, { quantity: 0 }), "FORBIDDEN");
+    refused(s, () => edit(s, actor, "00kmissing", { quantity: 1 }), "FORBIDDEN");
+    refused(s, () => edit(s, actor, s.line.id, { quantity: 0 }), "FORBIDDEN");
   });
 
   it("refuses a missing line, a deleted opportunity, a suspended org and a disabled user", () => {
     const s = setup();
-    refused(s, () => updateLineItem(s.db, LOCAL_ACTOR, "00kmissing", { quantity: 1 }), "NOT_FOUND");
+    refused(s, () => edit(s, LOCAL_ACTOR, "00kmissing", { quantity: 1 }), "NOT_FOUND");
     const actor = seller(s.db, "dana", { price: { canRead: true, canEdit: true } });
     const { line } = sellerDeal(s, actor);
     disableUser(s.db, actor.userId);
-    refused(s, () => updateLineItem(s.db, actor, line.id, { quantity: 9 }), "FORBIDDEN");
+    refused(s, () => edit(s, actor, line.id, { quantity: 9 }), "FORBIDDEN");
     s.db.update(organizations).set({ status: "suspended" }).where(eq(organizations.id, LOCAL_ORG_ID)).run();
-    refused(s, () => updateLineItem(s.db, LOCAL_ACTOR, s.line.id, { quantity: 9 }), "FORBIDDEN");
+    refused(s, () => edit(s, LOCAL_ACTOR, s.line.id, { quantity: 9 }), "FORBIDDEN");
     s.db.update(organizations).set({ status: "active" }).where(eq(organizations.id, LOCAL_ORG_ID)).run();
     deleteOpportunity(s.db, LOCAL_ACTOR, s.opp.id);
-    refused(s, () => updateLineItem(s.db, LOCAL_ACTOR, s.line.id, { quantity: 9 }), "NOT_FOUND");
+    refused(s, () => edit(s, LOCAL_ACTOR, s.line.id, { quantity: 9 }), "NOT_FOUND");
   });
 
   it("lets a hidden-price seller change quantity at the stored price but not set a price", () => {
     const s = setup();
     const actor = seller(s.db, "hidden", { price: { canRead: false, canEdit: false } });
     const { line } = sellerDeal(s, actor);
-    expect(updateLineItem(s.db, actor, line.id, { quantity: 4 })).toMatchObject({
+    expect(edit(s, actor, line.id, { quantity: 4 })).toMatchObject({
       quantity: 4,
       unitPriceCents: null,
       totalCents: null,
     });
     expect(stored(s, line.id)?.unitPriceCents).toBe(2_500);
-    refused(s, () => updateLineItem(s.db, actor, line.id, { quantity: 1, unitPriceCents: 1 }), "FORBIDDEN");
+    refused(s, () => edit(s, actor, line.id, { quantity: 1, unitPriceCents: 1 }), "FORBIDDEN");
   });
 
   it("refuses a price from a seller who can edit but not read it", () => {
     const s = setup();
     const actor = seller(s.db, "blind", { price: { canRead: false, canEdit: true } });
     const { line } = sellerDeal(s, actor);
-    refused(s, () => updateLineItem(s.db, actor, line.id, { quantity: 1, unitPriceCents: 1 }), "FORBIDDEN");
+    refused(s, () => edit(s, actor, line.id, { quantity: 1, unitPriceCents: 1 }), "FORBIDDEN");
   });
 
   it("refuses a price the seller cannot read even if the edit check says yes", () => {
@@ -307,7 +316,7 @@ describe("updateLineItem", () => {
     const { line } = sellerDeal(s, actor);
     vi.mocked(canEditField).mockReturnValue(true);
     try {
-      refused(s, () => updateLineItem(s.db, actor, line.id, { quantity: 1, unitPriceCents: 1 }), "FORBIDDEN");
+      refused(s, () => edit(s, actor, line.id, { quantity: 1, unitPriceCents: 1 }), "FORBIDDEN");
     } finally {
       vi.mocked(canEditField).mockImplementation(realCanEditField);
     }
@@ -317,8 +326,8 @@ describe("updateLineItem", () => {
     const s = setup();
     const actor = seller(s.db, "locked", { price: { canRead: true, canEdit: false } });
     const { line } = sellerDeal(s, actor);
-    refused(s, () => updateLineItem(s.db, actor, line.id, { quantity: 1, unitPriceCents: 1 }), "FORBIDDEN");
-    expect(updateLineItem(s.db, actor, line.id, { quantity: 2 }).totalCents).toBe(5_000);
+    refused(s, () => edit(s, actor, line.id, { quantity: 1, unitPriceCents: 1 }), "FORBIDDEN");
+    expect(edit(s, actor, line.id, { quantity: 2 }).totalCents).toBe(5_000);
   });
 
   it("refuses a line whose product the actor cannot read", () => {
@@ -331,6 +340,61 @@ describe("updateLineItem", () => {
       closeDate: "2026-11-01",
     });
     const line = addLineItem(s.db, LOCAL_ACTOR, { opportunityId: deal.id, productId: s.product.id, quantity: 1 });
-    refused(s, () => updateLineItem(s.db, actor, line.id, { quantity: 9 }), "NOT_FOUND");
+    refused(s, () => edit(s, actor, line.id, { quantity: 9 }), "NOT_FOUND");
+  });
+
+  it("refuses a missing opportunity id and writes nothing", () => {
+    const s = setup();
+    for (const opportunityId of [undefined, "", null]) {
+      const input = { opportunityId, quantity: 9 } as unknown as UpdateLineItemInput;
+      refused(s, () => updateLineItem(s.db, LOCAL_ACTOR, s.line.id, input), "NOT_FOUND");
+    }
+  });
+
+  it("writes nothing for an edit that changes nothing and still returns the line", () => {
+    const s = setup();
+    // An old stamp, so a bumped updatedAt shows even within the same millisecond.
+    s.db.update(opportunityLineItems).set({ updatedAt: 1 }).where(eq(opportunityLineItems.id, s.line.id)).run();
+    const before = s.snapshot();
+    expect(edit(s, LOCAL_ACTOR, s.line.id, { quantity: 2 })).toMatchObject({ quantity: 2, totalCents: 5_000 });
+    expect(edit(s, LOCAL_ACTOR, s.line.id, { quantity: 2, unitPriceCents: 2_500 })).toMatchObject({
+      quantity: 2,
+      unitPriceCents: 2_500,
+      totalCents: 5_000,
+    });
+    // No audit row and the stored row (updatedAt, updatedBy) is unchanged.
+    expect(s.snapshot()).toBe(before);
+  });
+
+  it("still checks rights on an edit that changes nothing", () => {
+    const s = setup();
+    refused(s, () => edit(s, RILEY, s.line.id, { quantity: 2 }), "FORBIDDEN");
+    refused(s, () => edit(s, LOCAL_ACTOR, s.line.id, { quantity: 0 }), "INVALID_QUANTITY");
+  });
+
+  it.each([
+    ["quantity", { quantity: 3 }, { quantity: 3, unitPriceCents: 2_500 }],
+    ["unitPriceCents", { quantity: 2, unitPriceCents: 2_400 }, { quantity: 2, unitPriceCents: 2_400 }],
+  ] as const)("audits a change of %s alone", (field, input, after) => {
+    const s = setup();
+    const was = stored(s, s.line.id)!;
+    edit(s, LOCAL_ACTOR, s.line.id, input);
+    expect(stored(s, s.line.id)).toMatchObject(after);
+    expect(stored(s, s.line.id)!.updatedAt).toBeGreaterThanOrEqual(was.updatedAt);
+    const events = lineUpdates(s.db, LOCAL_ACTOR, s.opp.id);
+    expect(events).toHaveLength(1);
+    expect(parseAuditChanges(events[0]?.changesJson ?? "").new).toEqual({
+      [`lineItem.${s.line.id}.${field}`]: after[field],
+    });
+  });
+
+  it("names the field by its label when a price is refused", () => {
+    const s = setup();
+    const actor = seller(s.db, "label", { price: { canRead: false, canEdit: false } });
+    const { line } = sellerDeal(s, actor);
+    expect(SALES_PRICE_LABEL).toBe("Sales Price");
+    expect(() => edit(s, actor, line.id, { quantity: 1, unitPriceCents: 1 })).toThrow(
+      /^You cannot edit Sales Price$/,
+    );
   });
 });

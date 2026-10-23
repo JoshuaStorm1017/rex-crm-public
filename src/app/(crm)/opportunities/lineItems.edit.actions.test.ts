@@ -25,7 +25,8 @@ import { LOCAL_ORG_ID, RILEY_USER_ID } from "@/lib/crm/constants";
 import { requireActor } from "@/lib/crm/currentUser";
 import { createOpportunity } from "@/lib/crm/opportunities";
 import { addLineItem, listLineItems } from "@/lib/crm/opportunityLineItems";
-import { createOrganization } from "@/lib/crm/orgs";
+import { addMember, createOrganization } from "@/lib/crm/orgs";
+import { createProfile, setFieldPermission, setObjectPermission } from "@/lib/crm/profiles";
 import { createProduct } from "@/lib/crm/products";
 import { createUser } from "@/lib/crm/users";
 import { getDb, openMemoryDb } from "@/lib/db/client";
@@ -190,5 +191,39 @@ describe("updateOpportunityLineItemAction", () => {
     expect(caught?.message).not.toContain("notice=");
     expect(s.snapshot()).toBe(before);
     expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("names the Sales Price field, not its column, when a price is refused", async () => {
+    const s = setup();
+    const user = createUser(s.db, {
+      name: "Seller Label",
+      email: "label@example.com",
+      username: "label",
+      password: "long-enough",
+    });
+    const profileId = createProfile(s.db, LOCAL_ACTOR, "Profile label");
+    const full = { canCreate: true, canRead: true, canUpdate: true, canDelete: true };
+    for (const key of ["account", "opportunity", "product"] as const) {
+      setObjectPermission(s.db, LOCAL_ACTOR, profileId, key, full);
+    }
+    setFieldPermission(s.db, LOCAL_ACTOR, profileId, "product", "standardPriceCents", {
+      canRead: true,
+      canEdit: false,
+    });
+    addMember(s.db, LOCAL_ORG_ID, user.id, "member", profileId);
+    const actor = actorFor(user.id);
+    const deal = createOpportunity(s.db, actor, {
+      accountId: createAccount(s.db, actor, { name: "Label Co" }).id,
+      name: "Label Deal",
+      stage: "Prospecting",
+      closeDate: "2026-11-01",
+    });
+    const line = addLineItem(s.db, actor, { opportunityId: deal.id, productId: s.product.id, quantity: 1 });
+    vi.mocked(requireActor).mockResolvedValue(actor as never);
+    const before = s.snapshot();
+    expect(
+      await outcome(updateOpportunityLineItemAction(deal.id, line.id, form({ quantity: "1", unitPrice: "1" }))),
+    ).toBe(notice(deal.id, "You cannot edit Sales Price"));
+    expect(s.snapshot()).toBe(before);
   });
 });

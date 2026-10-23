@@ -211,6 +211,9 @@ export function opportunityLineTotalCents(
   }, 0);
 }
 
+/** The line's price field as the opportunity page labels it. */
+export const SALES_PRICE_LABEL = "Sales Price";
+
 export function addLineItem(db: Db, actor: Actor, input: AddLineItemInput): LineItemView {
   assertActor(db, actor);
   const opp = requireOpportunity(db, actor, input.opportunityId, "edit");
@@ -227,7 +230,7 @@ export function addLineItem(db: Db, actor: Actor, input: AddLineItemInput): Line
     // A missing field row stays editable. Product update is still required,
     // the same check that hides the unit price input on the opportunity page.
     if (!canEditField(db, actor, "product", "standardPriceCents")) {
-      throw new DomainError("FORBIDDEN", "You cannot edit standardPriceCents");
+      throw new DomainError("FORBIDDEN", `You cannot edit ${SALES_PRICE_LABEL}`);
     }
     assertUnitPrice(input.unitPriceCents);
     unitPriceCents = input.unitPriceCents;
@@ -270,8 +273,8 @@ export function deleteLineItem(db: Db, actor: Actor, id: string): void {
 }
 
 export type UpdateLineItemInput = {
-  /** When set, the line must belong to this opportunity. */
-  opportunityId?: string;
+  /** The line must belong to this opportunity. */
+  opportunityId: string;
   quantity: number;
   /** Omit to keep the line's current price. */
   unitPriceCents?: number;
@@ -307,7 +310,7 @@ export function updateLineItem(
     .where(and(eq(opportunityLineItems.id, id), eq(opportunityLineItems.orgId, actor.orgId)))
     .get();
   if (!row) throw new DomainError("NOT_FOUND", "Line item not found");
-  if (input.opportunityId !== undefined && input.opportunityId !== row.opportunityId) {
+  if (input.opportunityId !== row.opportunityId) {
     throw new DomainError("NOT_FOUND", "Line item not found");
   }
   const opp = readOpportunity(db, actor, row.opportunityId);
@@ -323,12 +326,16 @@ export function updateLineItem(
       !seesSalePrice(db, actor) ||
       !canEditField(db, actor, "product", "standardPriceCents")
     ) {
-      throw new DomainError("FORBIDDEN", "You cannot edit standardPriceCents");
+      throw new DomainError("FORBIDDEN", `You cannot edit ${SALES_PRICE_LABEL}`);
     }
     assertUnitPrice(input.unitPriceCents);
     unitPriceCents = input.unitPriceCents;
   }
   lineTotal(input.quantity, unitPriceCents);
+  // Nothing changed: no write, no audit row, updatedAt kept.
+  if (input.quantity === row.quantity && unitPriceCents === row.unitPriceCents) {
+    return toLineView(db, actor, { row, productName: product.name || "" });
+  }
   const next: OpportunityLineItem = {
     ...row,
     quantity: input.quantity,
