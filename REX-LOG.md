@@ -1,5 +1,32 @@
 # Rex log
 
+## 2026-10-23 19:45 EDT — S1-5 Amount roll-up from line items (Rex Grok Coder)
+
+Branch `rex/s1-5-amount-rollup` off main 898cf21. Adding, editing or
+deleting a product line recomputes the opportunity Amount as the
+integer-cent sum of the opportunity's line totals (this org's lines only,
+safe-integer checked, INVALID_MONEY past the range) inside the same
+`db.transaction` as the line write, and writes one opportunity update
+audit row (line values + Amount old/new) with the editor as actor and
+`updatedBy`. A failing audit rolls back the line and the Amount together
+(tested for add, edit and delete). While lines exist, `updateOpportunity`
+refuses a posted Amount that differs from the stored one
+(AMOUNT_ROLLED_UP); an unchanged one passes; with no lines a manual
+Amount still works. Deleting the last line sets Amount to 0. A profile
+that cannot read product Sales Price also cannot read or edit Amount
+(profiles.ts `readFieldAccess`), because Amount / quantity would reveal
+the price; this applies to every opportunity for that profile, stricter
+than before. Add/delete line actions now `unstable_rethrow` so a
+signed-out user goes to /login. Existing line-item tests that asserted
+"Amount untouched" were updated to the new behaviour.
+Verify on 8bfee59: exit 0, 1789/1789 tests, 152 files, Next build
+(s15-verify.log). Mutation: 22 mutants, 21 killed; M6 (sync update
+`where` without org) survives and is equivalent: opportunities.id is the
+primary key and the org check runs first (s15-mut.log). Not done: the
+edit form's Amount input is not read-only (the server refuses a change);
+report SQL aggregates of Amount were not re-audited for the new
+Sales-Price rule; no browser QE.
+
 ## 2026-10-23 18:45 EDT — S1-4 review follow-up (Rex Grok Coder)
 
 PR #67 changes requested by Rex Reviewer; main 98d721e (#66) merged in with
