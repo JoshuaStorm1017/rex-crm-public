@@ -87,10 +87,11 @@ export function createDashboard(db: Db, actor: Actor, name: string): Dashboard {
   return row;
 }
 
-/** Owner, or an org modify-all admin, and only inside the actor's org. */
+/** Owner, or an org modify-all admin, only inside the actor's org, and never a soft-deleted dashboard. */
 export function canChangeDashboard(db: Db, actor: Actor, dashboard: Dashboard): boolean {
   assertActor(db, actor);
   return (
+    dashboard.deletedAt == null &&
     dashboard.orgId === actor.orgId &&
     (dashboard.ownerId === actor.userId || hasModifyAllData(db, actor))
   );

@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireActor } from "@/lib/crm/currentUser";
-import { addDashboardComponent, createDashboard } from "@/lib/crm/dashboards";
-import { actionError, type ActionState } from "@/lib/crm/form";
+import { addDashboardComponent, createDashboard, deleteDashboard } from "@/lib/crm/dashboards";
+import { actionError, formatError, type ActionState } from "@/lib/crm/form";
 import { getDb } from "@/lib/db/client";
 
 export type { ActionState };
@@ -43,4 +43,15 @@ export async function addDashboardComponentAction(
   }
   revalidatePath(`/dashboards/${dashboardId}`);
   redirect(`/dashboards/${dashboardId}`);
+}
+
+export async function deleteDashboardAction(id: string): Promise<void> {
+  try {
+    const actor = await requireActor();
+    deleteDashboard(getDb(), actor, id);
+  } catch (error) {
+    redirect(`/dashboards?notice=${encodeURIComponent(formatError(error))}`);
+  }
+  revalidatePath("/dashboards");
+  redirect("/dashboards");
 }
