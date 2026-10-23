@@ -336,6 +336,18 @@ describe("dashboards", () => {
     expect(JSON.stringify(c)).not.toMatch(/Anvil Restock|Rocket Skates|Local Operator|rows/);
   });
 
+  it("refuses canChangeDashboard on a soft-deleted dashboard, even for the owner and an admin", () => {
+    const db = openMemoryDb().db;
+    const dash = createDashboard(db, LOCAL_ACTOR, "Retired Board");
+    expect(canChangeDashboard(db, LOCAL_ACTOR, dash)).toBe(true);
+    deleteDashboard(db, LOCAL_ACTOR, dash.id);
+    const stale = db.select().from(dashboards).where(eq(dashboards.id, dash.id)).get()!;
+    expect(stale.deletedAt).not.toBeNull();
+    // LOCAL_ACTOR owns the dashboard and is the org admin; a stale row must still be refused.
+    expect(canChangeDashboard(db, LOCAL_ACTOR, stale)).toBe(false);
+    expect(canChangeDashboard(db, LOCAL_ACTOR, { ...stale, deletedAt: 1 })).toBe(false);
+  });
+
   it("is not found after a soft delete, including a second delete", () => {
     const s = setup();
     addDashboardComponent(s.db, LOCAL_ACTOR, s.dash.id, s.report.id);
