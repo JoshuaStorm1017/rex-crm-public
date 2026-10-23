@@ -50,6 +50,11 @@ function cleanName(raw: string, label: string): string {
 /** Org-scoped and live. Any org member can see a dashboard, like reports. */
 export function getDashboard(db: Db, actor: Actor, id: string): Dashboard | undefined {
   assertActor(db, actor);
+  return liveDashboard(db, actor, id);
+}
+
+/** No actor check: every exported caller runs assertActor itself first. */
+function liveDashboard(db: Db, actor: Actor, id: string): Dashboard | undefined {
   return db
     .select()
     .from(dashboards)
@@ -140,16 +145,24 @@ export function addDashboardComponent(
     );
   }
   const id = newId(ID_PREFIX.dashboardComponent);
-  db.insert(dashboardComponents)
-    .values({
-      id,
-      orgId: actor.orgId,
-      dashboardId: dash.id,
-      reportId: report.id,
-      title: cleanName(title?.trim() || report.name, "Component title"),
-      position: existing.length,
-    })
-    .run();
+  const componentTitle = cleanName(title?.trim() || report.name, "Component title");
+  db.transaction((tx) => {
+    tx.insert(dashboardComponents)
+      .values({
+        id,
+        orgId: actor.orgId,
+        dashboardId: dash.id,
+        reportId: report.id,
+        title: componentTitle,
+        position: existing.length,
+      })
+      .run();
+    // Adding a component changes the dashboard, so Last Modified moves.
+    tx.update(dashboards)
+      .set({ updatedAt: Date.now(), updatedBy: actor.userId })
+      .where(and(eq(dashboards.id, dash.id), eq(dashboards.orgId, actor.orgId)))
+      .run();
+  });
   return id;
 }
 
@@ -174,7 +187,8 @@ export function runDashboard(
   id: string,
   options: { today?: string } = {},
 ): { dashboard: Dashboard; components: DashboardComponentResult[] } {
-  const dashboard = getDashboard(db, actor, id);
+  assertActor(db, actor);
+  const dashboard = liveDashboard(db, actor, id);
   if (!dashboard) throw new DomainError("NOT_FOUND", "Dashboard not found");
   const components = componentRows(db, actor, dashboard.id).map(
     (row): DashboardComponentResult => {
