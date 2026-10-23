@@ -9,6 +9,7 @@ import { createContact } from "./contacts";
 import {
   createCustomField,
   deleteCustomValuesForRecord,
+  deleteCustomValuesForRecords,
   getCustomValues,
   setCustomValues,
 } from "./customFields";
@@ -82,9 +83,13 @@ describe("custom field read permission on every detail-page object (P0-5)", () =
 
   it("the value setCustomValues returns does not leak an unreadable field", () => {
     const { db, rho, ids } = setup();
-    const returned = setCustomValues(db, rho, "lead", ids.lead, { Open__c: "changed", Peek__c: "peek", Secret__c: "hidden fictional lead" });
+    // Only the editable field is written. Whether a member's write to a hidden
+    // field is refused is P0-4 (#60), which this PR must merge after or with.
+    const returned = setCustomValues(db, rho, "lead", ids.lead, { Open__c: "changed by member" });
     expect(returned.map((r) => r.field.apiName).sort()).toEqual(["Open__c", "Peek__c"]);
+    expect(Object.fromEntries(returned.map((r) => [r.field.apiName, r.raw])).Open__c).toBe("changed by member");
     expect(JSON.stringify(returned)).not.toContain("hidden fictional");
+    expect(JSON.stringify(returned)).not.toContain("Secret__c");
   });
 });
 
@@ -110,6 +115,27 @@ describe("deleteCustomValuesForRecord is scoped to the actor's org (P0-5 a)", ()
     deleteCustomValuesForRecord(db, actorFor(LOCAL_USER_ID, other.id), ids.lead);
     expect(rowsFor(db, ids.lead, LOCAL_ORG_ID)).toHaveLength(3);
     expect(rowsFor(db, ids.lead, other.id)).toHaveLength(0);
+  });
+
+  it("deleting a lead cascades to its tasks and removes only this org's task custom values", () => {
+    // deleteLead -> deleteTasksForRecord -> deleteCustomValuesForRecords (plural).
+    const { db, ids } = setup();
+    const other = foreignRow(db, ids.task, "task");
+    expect(rowsFor(db, ids.task, LOCAL_ORG_ID)).toHaveLength(3);
+    deleteLead(db, LOCAL_ACTOR, ids.lead);
+    expect(rowsFor(db, ids.task, LOCAL_ORG_ID)).toHaveLength(0);
+    expect(rowsFor(db, ids.task, other.id)).toEqual([
+      expect.objectContaining({ id: "cfv_foreign_0001", orgId: other.id, value: "other org" }),
+    ]);
+  });
+
+  it("deleteCustomValuesForRecords called from another org removes nothing in this org", () => {
+    const { db, ids } = setup();
+    const other = foreignRow(db, ids.task, "task");
+    deleteCustomValuesForRecords(db, actorFor(LOCAL_USER_ID, other.id), [ids.task, ids.lead]);
+    expect(rowsFor(db, ids.task, LOCAL_ORG_ID)).toHaveLength(3);
+    expect(rowsFor(db, ids.lead, LOCAL_ORG_ID)).toHaveLength(3);
+    expect(rowsFor(db, ids.task, other.id)).toHaveLength(0);
   });
 
   it("deleting a lead removes only this org's custom values", () => {
