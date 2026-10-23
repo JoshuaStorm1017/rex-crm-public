@@ -229,7 +229,12 @@ export function countLeads(db: Db, actor: Actor): number {
   return row?.n ?? 0;
 }
 
-export function createLead(
+/**
+ * Create body without its own transaction. Callers must already be inside one
+ * (assignment advances the round-robin cursor before validation runs).
+ * It checks the actor itself, so no caller can skip that gate.
+ */
+export function persistLeadCreate(
   db: Db,
   actor: Actor,
   input: LeadCreateInput,
@@ -283,6 +288,16 @@ export function createLead(
     return stored;
   });
   return presentRecord(db, actor, "lead", created);
+}
+
+export function createLead(
+  db: Db,
+  actor: Actor,
+  input: LeadCreateInput,
+): Lead {
+  return db.transaction((tx) =>
+    persistLeadCreate(tx as unknown as Db, actor, input),
+  );
 }
 
 export function updateLead(

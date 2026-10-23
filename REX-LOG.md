@@ -962,6 +962,18 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Not done:** line items do not roll into Opportunity Amount. No edit of an existing line. No bearer token. The read API still returns a lookup id when the related record is unreadable.
 - **Next:** Sprint 1 items 5 and 6 (amount rollup, dashboard pages) belong to the other lane. The next platform piece is custom objects, or hiding a lookup id the actor cannot read.
 
+## 2026-10-23 09:28 EDT — #40 review fixes: actor gate inside persistLeadCreate, mutant-killing tests
+
+- **What:** `persistLeadCreate` now calls `assertActor` itself, so `createLead` and the form action cannot skip it. Tests in `leads.atomic.test.ts`: a deleted user, a user with no password, a user with no username, a suspended org, and a non-member are each refused with the actor-check message, and nothing is written. A field that field-level security makes read-only is refused. A create that does not stick fails with `WRITE_FAILED` and leaves no lead or audit row. `createdBy` is the actor. In `actions.test.ts`, a bad custom field value rolls back the whole create, and the lead is written through the transaction handle.
+- **Why:** Reviewer 2's checklist on #40. Mutants M2, M4 and M7 survived the old tests.
+- **Mutants (full suite, 1566 tests):** M2 killed (4 failed), M4 killed (1), M7 killed (1), M9 killed (1), M10 killed (1), M11 killed (39). With M2 applied, `assertCanPerform` still refuses a deleted user, a disabled login, and a non-member, but not a suspended org: that case is only caught by `recordAudit` after the insert, and the transaction then rolls back. Only the error message shows that the actor check ran first, so the tests assert the message. With M7 applied, there is only one SQLite connection, so writing through `getDb()` is still atomic. The test therefore checks that `getDb` is called only once.
+- **Not done:** nothing new. The original change is by Sonnet 5.5 (Claude). These fixes are by Rex Grok Coder (Grok Bot).
+
+## 2026-10-23 10:12 EDT — #40: cross-org tests for Reviewer 2's M16 and M17
+
+- **What:** Merged `origin/main` (`b656017`, #41). Added two tenant-isolation tests to `leads.atomic.test.ts`. M16: org A's `setCustomValues` on org B's lead id is NOT_FOUND and writes no custom value. M17: org B's matching lead duplicate rule has no effect on org A's create, its message never appears, and it still blocks inside org B. Tests only; no product code changed. Corrected the M2 note above: a suspended org is caught by `recordAudit` after the insert, then rolled back.
+- **Mutants (full suite, 1583 tests):** M16 (drop the org filter in `assertLiveRecord`) killed, 1 failed. M17 (drop the org filter in duplicate-rule `liveRows`) killed, 1 failed. Each mutant was restored and diffed clean.
+
 ## 2026-10-23 10:46 EDT — P0-4, custom fields follow field-level edit
 
 - **What:** `setCustomValues` refuses (`FORBIDDEN`, the same rule as `assertEditableFields`) any supplied value for a custom field the actor cannot edit. A non-editable field that was not supplied keeps its stored value instead of being cleared. `applyCustomFieldsFromForm` parses only fields the actor can edit, plus any non-editable input that was posted anyway, so a forged `cf__X` is refused and an omitted hidden field (including a checkbox) is left alone.
@@ -969,6 +981,13 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Tests:** QE's `leads/actions.customFieldFls.test.ts` (2, applied unchanged) and `customFields.fls.test.ts` (5). With the fix reverted, 6 of 7 fail (the admin no-rows test passes either way by design). Mutants killed: no refusal (3 fail), no keep (3 fail), parse every field (2 fail), ignore posted non-editable inputs (2 fail).
 - **Verify:** `npm run verify` exit 0 at 10:45 EDT on `13cebb1`, Node 22, 128 files, 1577 tests, Next.js build. `.next` removed afterwards. No browser pass.
 - **Not done:** the read API and write API custom-field paths were not reviewed in this change. Object-level edit is still checked by the record write, not here.
+
+## 2026-10-23 10:48 EDT — #40: merged the P0-4 fix (#60)
+
+- **What:** Merged `rex/p0-4-custom-field-fls` (`e0ae371`, #60) into this branch. The only conflict was this log, where both sides appended; both entries are kept. #40 does not change `customFields.ts`, so the fix came in unchanged.
+- **Mutants re-checked after the merge (`leads.atomic.test.ts`):** M16 (drop the org filter in `assertLiveRecord`) still killed, 1 failed. M17 (drop the org filter in duplicate-rule `liveRows`) still killed, 1 failed. Both were restored and the tree was clean.
+- **Verify:** `npm run verify` exit 0 at 10:47 EDT on `7509cee`, Node 22, 129 files, 1590 tests, Next.js build. `.next` removed afterwards. Only this docs commit follows.
+- **Not done:** backlog `passes` flags were not changed. P0-4 is fixed in code; QE or the reviewers decide whether to flip it.
 
 ## 2026-10-23 11:04 EDT — P0-4 follow-up, write API and custom fields
 
@@ -1069,3 +1088,13 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 on `fe95a5f`, 14:13–14:14 EDT, Node v22.23.3, in a private pinned worktree with a real `node_modules` copy: typegen, tsc, eslint, 138 files, 1657/1657 tests, Next.js build. `.next` removed afterwards. Log: `fix33c-verify.log`. No browser pass.
 - **Mutants** (targeted run of `caseComments*` and `cases/` tests, 23 tests, on `fe95a5f`): C5 (1 fail), C11 (1), C12 (1), R3-A1 / Rex Reviewer's M1 (4) are all still killed. Unmutated baseline: 23/23 pass. Log: `fix33c-mut.json`.
 - **Note:** the earlier APPROVE at `055a712` is void at this head; #33 needs a full re-gate. The next commit adds only this entry and the STATUS line.
+
+## 2026-10-23 15:45 EDT — #40: merged main up to 223bcb4, kill M7c, full mutant re-run
+
+- **Merges** (merge commits; no rebase, no force push): `ce13302` merged main `b262932` into `470538d` (local merge of #60's branch on top of remote head `4e37431`). `889ac2d` merged main `3c5fa1d` (#62), `38d8e9a` merged main `0f206d3` (#33), and `d7b49c9` merged main `223bcb4` (#64). The first merge had append-only conflicts in REX-LOG.md and STATUS.md; both sides were kept. The later three merged without conflicts. #40 adds no migration, so `0057_case_comments` from #33 is unaffected.
+- **Diff vs main:** after the merges, the P0-4 `customFields.ts` change and its tests (`customFields.fls.test.ts`, `leads/actions.customFieldFls.test.ts`, the API custom-field route test) are byte-identical to main and drop out of the diff. What is left: `leads.ts` and `leads/actions.ts` (the atomic create), `leads.atomic.test.ts` and `leads/actions.test.ts` (its tests), `customFields.form.test.ts` (new, see below), and these two logs.
+- **New tests** in `customFields.form.test.ts`: an editable custom checkbox stored as true saves false when the form is saved without it; an editable text field left out of the form is cleared; and `withCustomFieldWrite` writes custom values through `tx`, never the outer handle. The last one wraps the db so the outer handle refuses insert, update and delete, and kills M7c, which Reviewer 2 had marked equivalent because both handles are the same SQLite connection.
+- **Mutants** (Reviewer 2's round-5 set, 28 mutants, full `npx vitest run` each, scratch worktree, restore checked): M1–M9 on `889ac2d` (1650 tests), the rest on `38d8e9a` (1682 tests). 27/28 killed (96%). Every security and atomicity mutant is killed: M16 (1 failed), M17 (1), F1 (7), F2 (3), F3 (6), F4 (10), M7c (1). F2b (logic) survives: with it applied, an omitted editable field is still cleared and an omitted checkbox still saves false, because `setCustomValues` handles a missing key the same way, so it is equivalent. Logs: `fix40b-mut.json`, `fix40b-mut.log`. `223bcb4` added tests only, so the results are a lower bound at `d7b49c9`.
+- **Verify:** `npm run verify` exit 0 on `d7b49c9`, 15:38–15:39 EDT, Node v22.23.3, real `node_modules`: typegen, tsc, eslint, 144 files, 1693/1693 tests, Next.js build. `.next` removed afterwards. Log: `fix40b-verify.log`. No browser pass.
+- **Note:** the earlier APPROVE at `4e37431` does not cover this head; #40 needs a full re-gate. The next commit adds only this entry and the STATUS lines.
+
