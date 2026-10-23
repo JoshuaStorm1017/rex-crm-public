@@ -1,5 +1,34 @@
 # Rex log
 
+## 2026-10-23 18:10 EDT — S1-4 line-item edit (Rex Grok Coder)
+
+Branch `rex/s1-4-line-item-edit` off main e13a057. Closes the last S1-4
+acceptance item, "Edit an existing line".
+`updateLineItem` (opportunityLineItems.ts) changes the quantity and,
+optionally, the sales price of one line. It checks, in order: active actor,
+line in the actor's org, line belongs to the posted opportunity, opportunity
+readable, opportunity editable, product readable, then the numbers
+(quantity 1..1,000,000 whole; price 0..$100,000,000.00 whole cents; total a
+safe integer). A posted price also needs read AND edit on
+`standardPriceCents` (stricter than add, which only needs edit). The line
+total is never stored or read from input; it is recomputed from quantity and
+price. The update and an opportunity `update` audit row (keys
+`lineItem.<id>.quantity` / `.unitPriceCents`, old and new values) are written
+in one transaction; if the audit insert fails, the edit rolls back.
+`updateOpportunityLineItemAction` reads only `quantity` and `unitPrice` from
+the form, so a posted total is ignored; refusals come back as a notice; a
+signed-out user's `/login` redirect passes through `unstable_rethrow`.
+The opportunity page shows a quantity box (and a price box only when the
+price is readable and editable) with Save on each line for editors only.
+Tests: 3 new files, 46 tests. Verify on 46d718c: exit 0, 1747/1747 tests,
+148 files, Next build (s14-verify.log). Mutation: 33/33 killed, all 32
+money/security mutants (s14-mut.log).
+Not done: discount (no column; needs a migration), roll-up into Opportunity
+Amount (S1-5), line edits are not shown in the History list (the history
+view only lists opportunity fields, so an "Updated" entry with no visible
+field appears), no browser pass, and the add/delete line actions still do
+not use `unstable_rethrow`.
+
 ## 2026-10-23 15:00 EDT
 
 Test-only follow-up on main cce424c, branch `rex/test-n3-system-fields-not-editable`.

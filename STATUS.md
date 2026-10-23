@@ -2457,3 +2457,9 @@ fresh verification evidence for each slice.
 
   This closes the "no detail page" and "signed-out handling" gaps listed above. No browser pass.
 - Not done: no browser pass of the dashboard pages. No component edit, reorder or remove.
+
+## 2026-10-23 — S1-4 edit an existing opportunity line item
+
+- WORKS (verified 2026-10-23 18:05 EDT, `npm run verify` exit 0 on `46d718c`, Node v22.23.3, 1747/1747 tests across 148 files, Next.js build; `.next` and the copy removed afterwards): an editor of the opportunity can change a line's quantity and, when they can read and edit the sales price, its price. The total is recomputed on the server; a posted total is ignored. Invalid quantities and prices, a total beyond a safe integer, another org's line, a line posted under a different opportunity, a hidden opportunity or product, a read-only member, a disabled user and a suspended org are all refused with nothing written. Each edit writes one opportunity `update` audit row in the same transaction. A signed-out user is sent to `/login`. Mutants 33/33 killed.
+- Not done: no discount (no column). Lines still do not roll into Opportunity Amount (S1-5). Line edits do not show in the History list. No browser pass.
+
