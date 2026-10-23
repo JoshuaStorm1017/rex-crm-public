@@ -932,3 +932,49 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Tests:** `src/app/api/v1/objects/[apiName]/records/customFields.route.test.ts` (3). A restricted user (Locked__c read-only) gets 400 for a forged `Locked__c`, `cf__Locked__c` or `customFields` key on create (no lead, no value row) and on update (stored value kept). A `PATCH` of `phone` only, by the restricted user and then by the admin, keeps both `Locked__c` and the editable `Open__c`. The tests pass with no fix because there is no hole, so there was no fix to revert. To show they would catch one, I ran mutants: M1 (`decodeFields` lets unknown keys through) fails 2 of 3, and M2 (the API update deletes the record's custom values) fails 1 of 3.
 - **Verify:** `npm run verify` exit 0 at 11:04 EDT on `02bf669`, Node 22, 129 files, 1580 tests, Next.js build. `.next` removed afterwards. No browser pass.
 - **Not done:** the API cannot set custom fields for any user. If that is added later, it must reuse `setCustomValues` so the field-level check applies.
+
+## 2026-10-23 10:51 EDT — #58 slice 2: dashboard list and new pages, delete action, forms
+
+- **What:** Ported from #58 (`7dc5ca3`): `/dashboards` (list, New Dashboard link, string-only notice), `/dashboards/new`, `DashboardForms.tsx`, `deleteDashboardAction`, and the Dashboards nav link. The delete button sits on the detail page, which is slice 3, so in this slice the action is tested but no page calls it yet. Also fixed Rex Reviewer's non-blocking note on #59: `canChangeDashboard` refuses a soft-deleted dashboard, even for its owner or an admin.
+- **Tests:** #58's delete-action tests, and a new `pages.test.ts` (5): org-scoped list and the create form, the other org's view, notice escaping with a non-string notice ignored, an escaped name, and a deleted dashboard left off the list. Also a `dashboards.test.ts` case for a stale soft-deleted row.
+- **Mutants killed:** drop the `deletedAt` check (1 failed); skip the delete call in the action (2 failed); drop the delete error notice (2 failed); accept an array notice (1 failed).
+- **Verify:** `npm run verify` exit 0 at 10:50 EDT on `80da3d3`, Node 22, 127 files, 1590 tests, Next.js build listing `/dashboards` and `/dashboards/new`. `.next` removed afterwards. No browser pass.
+- **Not done:** the dashboard detail page, components and delete button (slice 3) and the `writes.route` test (slice 4). A list link to `/dashboards/{id}` returns 404 until slice 3 lands. I dropped a signed-out page test I tried, because `renderToStaticMarkup` surfaced the mocked rejection as a failure; no test was weakened.
+
+## 2026-10-23 11:25 EDT — #61: mutation review fixes (tests only) and retarget to main
+
+- **What:** Mutation review asked for changes because M7 (`createDashboardAction` ignores the session user) and M7b (org pinned to the local org) survived. I added three tests to `src/app/(crm)/dashboards/actions.test.ts`, all going through the action:
+  - Riley creates a dashboard, and `ownerId`, `createdBy` and `updatedBy` are Riley.
+  - A user in another org creates one, and `orgId` is their org. It is listed for them and not for the local user.
+  - A signed-out user creates nothing.
+
+  No product code changed. M7 now fails 2 tests and M7b fails 1. Both are killed.
+- **Retarget:** #59 merged (squash, `d04806d`, 11:14 EDT), so I merged `origin/main` into this branch (no rebase) and moved #61's base to `main`. There were two conflicts, from the squash: `canChangeDashboard` and its test in `dashboards.ts` and `dashboards.test.ts`. I kept this branch's side, which is main's code plus the soft-delete check that slice 2 added.
+- **Verify:** `npm run verify` exit 0 at 11:25 EDT on `2cfa296`, Node 22, 127 files, 1593 tests, Next.js build. `.next` removed afterwards. No browser pass.
+- **Observed, not changed:** `createDashboardAction` (like the other actions) calls `requireActor()` inside `try`, so in production a signed-out user's Next.js redirect error is caught by `actionError` and comes back as an error state instead of a redirect to `/login`. Nothing is written either way.
+- **Backlog for #58 slice 3 (detail page and components), from Reviewer 5:**
+  - (a) Adding a component does not update the dashboard's Last Modified (`updatedAt` and `updatedBy`).
+  - (b) A mutant that removes `assertActor` from `getDashboard` survives. Slice 3 should add FORBIDDEN tests for a deactivated user and a suspended org, and give `runDashboard` its own `assertActor` check. `getDashboard` and `runDashboard` are on main as of #59, so (b) is folded into slice 3.
+
+## 2026-10-23 12:03 EDT — #61: dashboard actor checks, Last Modified, QE #59 tests
+
+- **What:** Reviewer 5 (a) and (b) and Rex Reviewer's delete-path findings, pulled into #61 from the slice 3 backlog. Slice 3 itself is on hold (local only).
+  - `getDashboard` and `runDashboard` each call `assertActor` and then share an unchecked `liveDashboard` loader, so neither check hides behind the other.
+  - `addDashboardComponent` sets the dashboard's `updatedAt` and `updatedBy` in the same transaction as the insert. A refused add changes nothing.
+  - `deleteDashboard` and `canChangeDashboard` already called `assertActor`. Only tests were added there.
+- **Tests:**
+  - `dashboards.actorGuard.test.ts` (5):
+    - A deactivated user and a suspended-org user get FORBIDDEN from `getDashboard` and `runDashboard`, on a board with components and on one with zero components. `runReport`'s own check masks the non-empty case.
+    - A disabled owner and an owning member of a suspended org get FORBIDDEN from `canChangeDashboard` and `deleteDashboard`, and the row is unchanged (`deletedAt` stays null).
+    - Last Modified moves to the adder and time on add, and stays put on a refused add.
+  - `actions.test.ts` (+2): `deleteDashboardAction` for the same two actors redirects with the FORBIDDEN notice and leaves the row unchanged.
+  - QE's `pr59-dashboards-html-and-canchange.patch` was applied unchanged as `dashboards.qe59.test.ts` (2), and both pass.
+- **Mutants killed** (focused run, 45 tests):
+  - M12, no `assertActor` in `getDashboard`, `deleteDashboard` or `canChangeDashboard`: 6 failed.
+  - M12d, no `assertActor` in `getDashboard` only: 2 failed.
+  - M12x, no `assertActor` in `runDashboard`: 2 failed. It survived until the zero-component board was added.
+  - QE's org-check mutant, no `orgId` check in `canChangeDashboard`: 2 failed.
+  - No Last Modified bump: 1 failed.
+- **Merge:** `origin/main` `aed5639` (#60) merged in, no rebase. The only conflicts were in REX-LOG.md and STATUS.md, and I kept both sides.
+- **Verify:** `npm run verify` exit 0 at 12:02 EDT on the merge `abbf618`, Node 22, 132 files, 1612 tests, Next.js build. `.next` removed afterwards. No browser pass.
+- **Still open:** signed-out redirect handling in the dashboard actions (slice 3).
