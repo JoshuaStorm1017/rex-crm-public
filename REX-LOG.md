@@ -1,5 +1,23 @@
 # Rex log
 
+## 2026-10-23 18:45 EDT — S1-4 review follow-up (Rex Grok Coder)
+
+PR #67 changes requested by Rex Reviewer; main 98d721e (#66) merged in with
+a normal merge commit (5e38ba2; STATUS.md kept both entries).
+F1: Rex QE's patch `pr67-34fbd07-f1-editor-not-owner.patch` applied unchanged
+as `opportunityLineItems.editActor.test.ts` (3 tests, written by Rex QE): an
+editor who is neither the opportunity owner nor the line creator edits a
+line; the audit actorId/orgId and stored updatedBy are the editor's.
+Survivors M14 (audit actor = owner) and M18 (updatedBy = creator) now killed.
+Fixes: price refusals say "Sales Price", not `standardPriceCents`; an edit
+that changes nothing writes no row, no audit and keeps updatedAt (rights and
+numbers still checked first); `opportunityId` is required on
+`updateLineItem` in the type and at runtime (missing one: NOT_FOUND, nothing
+written). Verify on 810abef: exit 0, 1774/1774 tests, 151 files, Next build
+(s14b-verify.log). Mutation: 44/44 killed, money/security 40/40, including
+M14, M18, the no-op/misdetect/optional-id mutants N1-N6 and label L1-L3
+(s14-mut.log).
+
 ## 2026-10-23 18:10 EDT — S1-4 line-item edit (Rex Grok Coder)
 
 Branch `rex/s1-4-line-item-edit` off main e13a057. Closes the last S1-4
@@ -1171,5 +1189,5 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 at 17:35–17:37 EDT on `d116894`, Node v22.23.3, pinned private copy (`git archive` plus a real `node_modules` copy): typegen, tsc, eslint, 146 files, 1714/1714 tests, Next.js build. `.next` and the copy removed. Log: `s12-verify.log`. No browser pass. The next commit adds only this entry, the STATUS lines and nothing else.
 - **Gitleaks:** `origin/main..HEAD`, no leaks.
 - **Deferred:** lead conversion's status change writes no lead row; setup changes are not audited.
-- **F1 (Reviewer 2, CHANGES REQUESTED at `1498177`), 18:00 EDT:** tests only, no production change. `audit.actor.test.ts` (new, 4) comes from Rex QE's patch `pr66-1498177-f1-actor-not-owner.patch`: the admin restores, cascade-deletes tasks of, clears Reports To on, and purges Riley-owned records, and each audit row must name the admin, not the owner. Re-run in a scratch copy: R5 (restore actor), T5 (cascade actor), C4 (Reports To actor) and a new P5 (purge actor) all killed, 4/4; unmutated focused run 94/94. Verify exit 0 on `d001f83` (147 files, 1718/1718 tests, build), Node v22.23.3, pinned private copy. Logs: `s12-mut.log`, `s12b-verify.log`.
+- **F1 (Reviewer 2, CHANGES REQUESTED at `1498177`), 18:00 EDT:** tests only, no production change. `audit.actor.test.ts` (new, 4) comes from Rex QE's patch `pr66-1498177-f1-actor-not-owner.patch`: the admin restores, cascade-deletes tasks of, clears Reports To on, and purges Riley-owned records, and each audit row must name the admin, not the owner. Re-run in a scratch copy: R5 (restore actor), T5 (cascade actor), C4 (Reports To actor) and a new P5 (purge actor; Reviewer 2's P7) all killed, 4/4; unmutated focused run 94/94. Verify exit 0 on `d001f83` (147 files, 1718/1718 tests, build), Node v22.23.3, pinned private copy. Logs: `s12-mut.log`, `s12b-verify.log`.
 
