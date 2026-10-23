@@ -2,9 +2,10 @@ import Link from "next/link";
 import {
   addOpportunityLineItemAction,
   deleteOpportunityLineItemAction,
+  updateOpportunityLineItemAction,
 } from "@/app/(crm)/opportunities/actions";
 import { DeleteButton } from "@/components/DeleteButton";
-import { formatUsd } from "@/lib/crm/money";
+import { centsToInput, formatUsd } from "@/lib/crm/money";
 
 export type OpportunityLineRow = {
   id: string;
@@ -68,6 +69,31 @@ export function OpportunityLineItems({
                 {showSalePrice ? <td className="px-4 py-2">{formatUsd(line.totalCents)}</td> : null}
                 {canEdit ? (
                   <td className="px-4 py-2 text-right">
+                    <form
+                      action={updateOpportunityLineItemAction.bind(null, opportunityId, line.id)}
+                      className="mb-2 flex flex-wrap items-center justify-end gap-2"
+                    >
+                      <input
+                        name="quantity"
+                        required
+                        defaultValue={String(line.quantity)}
+                        inputMode="numeric"
+                        aria-label={`Quantity for ${line.productName || "this product"}`}
+                        className={`${inputClass} w-24`}
+                      />
+                      {showSalePrice && canSetSalePrice ? (
+                        <input
+                          name="unitPrice"
+                          defaultValue={centsToInput(line.unitPriceCents)}
+                          placeholder="Keep price"
+                          aria-label={`Sales price for ${line.productName || "this product"}`}
+                          className={`${inputClass} w-28`}
+                        />
+                      ) : null}
+                      <button type="submit" className="rounded border border-[#cfc6b6] px-3 py-1.5 text-sm hover:bg-[#f6f1e7]">
+                        Save
+                      </button>
+                    </form>
                     <DeleteButton
                       label="Remove"
                       confirmMessage={`Remove ${line.productName || "this product"} from this opportunity?`}

@@ -2,6 +2,7 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { opportunityLineItems, priceBookEntries, products } from "../db/schema";
 import { assertActor, type Actor } from "./actor";
+import { recordAudit, type AuditFieldMap } from "./audit";
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
 import { readOpportunity } from "./opportunities";
@@ -210,6 +211,9 @@ export function opportunityLineTotalCents(
   }, 0);
 }
 
+/** The line's price field as the opportunity page labels it. */
+export const SALES_PRICE_LABEL = "Sales Price";
+
 export function addLineItem(db: Db, actor: Actor, input: AddLineItemInput): LineItemView {
   assertActor(db, actor);
   const opp = requireOpportunity(db, actor, input.opportunityId, "edit");
@@ -226,7 +230,7 @@ export function addLineItem(db: Db, actor: Actor, input: AddLineItemInput): Line
     // A missing field row stays editable. Product update is still required,
     // the same check that hides the unit price input on the opportunity page.
     if (!canEditField(db, actor, "product", "standardPriceCents")) {
-      throw new DomainError("FORBIDDEN", "You cannot edit standardPriceCents");
+      throw new DomainError("FORBIDDEN", `You cannot edit ${SALES_PRICE_LABEL}`);
     }
     assertUnitPrice(input.unitPriceCents);
     unitPriceCents = input.unitPriceCents;
@@ -266,4 +270,97 @@ export function deleteLineItem(db: Db, actor: Actor, id: string): void {
   db.delete(opportunityLineItems)
     .where(and(eq(opportunityLineItems.id, id), eq(opportunityLineItems.orgId, actor.orgId)))
     .run();
+}
+
+export type UpdateLineItemInput = {
+  /** The line must belong to this opportunity. */
+  opportunityId: string;
+  quantity: number;
+  /** Omit to keep the line's current price. */
+  unitPriceCents?: number;
+};
+
+/**
+ * Audit keys for one line, stored on its opportunity's history. Line items
+ * are not a standard object, so the keys name the line. The opportunity
+ * history page lists only opportunity fields, so a hidden price is not shown.
+ */
+function lineAuditValues(row: OpportunityLineItem): AuditFieldMap {
+  return {
+    [`lineItem.${row.id}.quantity`]: row.quantity,
+    [`lineItem.${row.id}.unitPriceCents`]: row.unitPriceCents,
+  };
+}
+
+/**
+ * Edit an existing line's quantity and, with sale price access, its price.
+ * Product and opportunity stay fixed. The total is never stored or taken
+ * from input: it is quantity times unit price, recomputed on every read.
+ */
+export function updateLineItem(
+  db: Db,
+  actor: Actor,
+  id: string,
+  input: UpdateLineItemInput,
+): LineItemView {
+  assertActor(db, actor);
+  const row = db
+    .select()
+    .from(opportunityLineItems)
+    .where(and(eq(opportunityLineItems.id, id), eq(opportunityLineItems.orgId, actor.orgId)))
+    .get();
+  if (!row) throw new DomainError("NOT_FOUND", "Line item not found");
+  if (input.opportunityId !== row.opportunityId) {
+    throw new DomainError("NOT_FOUND", "Line item not found");
+  }
+  const opp = readOpportunity(db, actor, row.opportunityId);
+  if (!opp) throw new DomainError("NOT_FOUND", "Line item not found");
+  assertCanAccessRecord(db, actor, "opportunity", "edit", opp);
+  const product = getProduct(db, actor, row.productId);
+  if (!product) throw new DomainError("NOT_FOUND", "Line item not found");
+  assertQuantity(input.quantity);
+  let unitPriceCents = row.unitPriceCents;
+  if (input.unitPriceCents !== undefined) {
+    // Stricter than add: a price the actor cannot read cannot be set either.
+    if (
+      !seesSalePrice(db, actor) ||
+      !canEditField(db, actor, "product", "standardPriceCents")
+    ) {
+      throw new DomainError("FORBIDDEN", `You cannot edit ${SALES_PRICE_LABEL}`);
+    }
+    assertUnitPrice(input.unitPriceCents);
+    unitPriceCents = input.unitPriceCents;
+  }
+  lineTotal(input.quantity, unitPriceCents);
+  // Nothing changed: no write, no audit row, updatedAt kept.
+  if (input.quantity === row.quantity && unitPriceCents === row.unitPriceCents) {
+    return toLineView(db, actor, { row, productName: product.name || "" });
+  }
+  const next: OpportunityLineItem = {
+    ...row,
+    quantity: input.quantity,
+    unitPriceCents,
+    updatedAt: Date.now(),
+    updatedBy: actor.userId,
+  };
+  db.transaction((tx) => {
+    tx.update(opportunityLineItems)
+      .set({
+        quantity: next.quantity,
+        unitPriceCents: next.unitPriceCents,
+        updatedAt: next.updatedAt,
+        updatedBy: next.updatedBy,
+      })
+      .where(and(eq(opportunityLineItems.id, row.id), eq(opportunityLineItems.orgId, actor.orgId)))
+      .run();
+    recordAudit(tx, actor, {
+      objectKey: "opportunity",
+      recordId: opp.id,
+      action: "update",
+      before: lineAuditValues(row),
+      after: lineAuditValues(next),
+      at: next.updatedAt,
+    });
+  });
+  return toLineView(db, actor, { row: next, productName: product.name || "" });
 }

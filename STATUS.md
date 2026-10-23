@@ -2464,3 +2464,9 @@ fresh verification evidence for each slice.
 - Mutation: 27 mutants on the touched audit code, 27 killed after one added test (`auditSnapshot` keeps numbers); all 22 security mutants killed. Log: `s12-mut.log` (outside the repo).
 - Not done: lead conversion's status change still writes no lead row. Setup changes are not audited. No browser pass; page checks are `renderToStaticMarkup`.
 
+## 2026-10-23 — S1-4 edit an existing opportunity line item
+
+- WORKS (verified 2026-10-23 18:05 EDT, `npm run verify` exit 0 on `46d718c`, Node v22.23.3, 1747/1747 tests across 148 files, Next.js build; `.next` and the copy removed afterwards): an editor of the opportunity can change a line's quantity and, when they can read and edit the sales price, its price. The total is recomputed on the server; a posted total is ignored. Invalid quantities and prices, a total beyond a safe integer, another org's line, a line posted under a different opportunity, a hidden opportunity or product, a read-only member, a disabled user and a suspended org are all refused with nothing written. Each edit writes one opportunity `update` audit row in the same transaction. A signed-out user is sent to `/login`. Mutants 33/33 killed.
+- Review follow-up (verified 2026-10-23 18:39 EDT, `npm run verify` exit 0 on `810abef` after merging main 98d721e, 1774/1774 tests across 151 files, Next.js build): the audit row and stored updatedBy name the editor even when someone else owns the opportunity and created the line (Rex QE's tests). A price refusal names "Sales Price". An edit that changes nothing writes nothing (no audit row, updatedAt kept) but is still checked for rights and valid numbers. A missing opportunity id is refused with nothing written. Mutants 44/44 killed (40/40 money/security), M14 and M18 included.
+- Not done: no discount (no column). Lines still do not roll into Opportunity Amount (S1-5). Line edits do not show in the History list. No browser pass.
+

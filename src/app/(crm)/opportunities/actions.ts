@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { getAccount } from "@/lib/crm/accounts";
 import {
   createOpportunity,
@@ -32,7 +32,12 @@ import {
 } from "@/lib/crm/form";
 import { requireActor } from "@/lib/crm/currentUser";
 import { parseUsdToCents } from "@/lib/crm/money";
-import { addLineItem, deleteLineItem, parseLineQuantity } from "@/lib/crm/opportunityLineItems";
+import {
+  addLineItem,
+  deleteLineItem,
+  parseLineQuantity,
+  updateLineItem,
+} from "@/lib/crm/opportunityLineItems";
 import { parseOpportunityUpdateFormData } from "@/lib/crm/recordFormData";
 import { getDb } from "@/lib/db/client";
 
@@ -256,6 +261,33 @@ export async function deleteOpportunityLineItemAction(
     deleteLineItem(getDb(), actor, lineItemId);
     revalidatePath(`/opportunities/${opportunityId}`);
   } catch (error) {
+    redirect(
+      `/opportunities/${opportunityId}?notice=${encodeURIComponent(formatError(error))}`,
+    );
+  }
+  redirect(`/opportunities/${opportunityId}`);
+}
+
+/**
+ * Only quantity and unit price are read from the form. A posted total,
+ * product, or opportunity is ignored: the total is recomputed on read.
+ */
+export async function updateOpportunityLineItemAction(
+  opportunityId: string,
+  lineItemId: string,
+  formData: FormData,
+): Promise<void> {
+  try {
+    const actor = await requireActor();
+    updateLineItem(getDb(), actor, lineItemId, {
+      opportunityId,
+      quantity: parseLineQuantity(blank(formData.get("quantity")) ?? ""),
+      unitPriceCents: parseUsdToCents(blank(formData.get("unitPrice"))),
+    });
+    revalidatePath(`/opportunities/${opportunityId}`);
+  } catch (error) {
+    // A signed-out user's redirect to /login must leave the action, not become a notice.
+    unstable_rethrow(error);
     redirect(
       `/opportunities/${opportunityId}?notice=${encodeURIComponent(formatError(error))}`,
     );
