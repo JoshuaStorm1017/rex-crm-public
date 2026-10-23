@@ -390,7 +390,7 @@ export function deleteOpportunity(db: Db, actor: Actor, id: string): void {
   db.transaction((tx) => {
     deleteTasksForRecord(tx, actor, id);
     deleteOpportunityContactRolesForOpportunity(tx, actor, id);
-    deleteCustomValuesForRecord(tx, id);
+    deleteCustomValuesForRecord(tx, actor, id);
     const ts = now();
     tx.update(opportunities)
       .set({ deletedAt: ts, updatedAt: ts })
