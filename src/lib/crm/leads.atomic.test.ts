@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
 import { eq } from "drizzle-orm";
-import { assignmentRules, auditEvents, leads, orgMemberships, organizations, users } from "../db/schema";
+import {
+  assignmentRules,
+  auditEvents,
+  customFieldValues,
+  leads,
+  orgMemberships,
+  organizations,
+  users,
+} from "../db/schema";
+import { createCustomField, getCustomValues, setCustomValues } from "./customFields";
 import { LOCAL_ACTOR, actorFor } from "./actor";
 import { createProfile, setFieldPermission, setObjectPermission } from "./profiles";
 import { createAssignmentRule } from "./assignmentRules";
-import { addMember } from "./orgs";
+import { addMember, createOrganization } from "./orgs";
 import { createDuplicateRule } from "./duplicateRules";
 import { createLead, persistLeadCreate } from "./leads";
 import { createUser } from "./users";
@@ -198,5 +207,73 @@ describe("persistLeadCreate's own gates (Reviewer 2 mutants M2, M4)", () => {
         audit: db.select().from(auditEvents).all(),
       }),
     ).toBe(before);
+  });
+});
+
+describe("lead writes stay inside the actor's org (Reviewer 2 mutants M16, M17)", () => {
+  function orgB(db: Db) {
+    const owner = createUser(db, {
+      name: "Org B Owner",
+      email: "orgb-owner@example.invalid",
+      username: "orgbowner",
+      password: "long-enough",
+    });
+    const org = createOrganization(db, "Fictional Org B", owner.id);
+    return actorFor(owner.id, org.id);
+  }
+
+  it("refuses an org A custom-field write onto org B's lead id and writes nothing (M16)", () => {
+    const db = openMemoryDb().db;
+    const actorB = orgB(db);
+    const leadB = createLead(db, actorB, { lastName: "Org B Lead", company: "B Fictional" });
+    createCustomField(db, LOCAL_ACTOR, {
+      objectType: "lead",
+      apiName: "Lead_Note__c",
+      label: "Lead Note",
+      type: "text",
+    });
+    const before = JSON.stringify({
+      values: db.select().from(customFieldValues).all(),
+      leads: db.select().from(leads).all(),
+    });
+    expect(codeOf(() => setCustomValues(db, LOCAL_ACTOR, "lead", leadB.id, { Lead_Note__c: "planted" }))).toBe(
+      "NOT_FOUND",
+    );
+    expect(codeOf(() => getCustomValues(db, LOCAL_ACTOR, "lead", leadB.id))).toBe("NOT_FOUND");
+    expect(
+      JSON.stringify({
+        values: db.select().from(customFieldValues).all(),
+        leads: db.select().from(leads).all(),
+      }),
+    ).toBe(before);
+    expect(db.select().from(customFieldValues).where(eq(customFieldValues.recordId, leadB.id)).all()).toEqual([]);
+  });
+
+  it("ignores org B's matching duplicate rule on org A's create and never shows its message (M17)", () => {
+    const db = openMemoryDb().db;
+    const actorB = orgB(db);
+    const orgBMessage = "Org B only: that company is already a lead.";
+    createDuplicateRule(db, actorB, {
+      name: "Org B unique company",
+      objectType: "lead",
+      matchField: "company",
+      errorMessage: orgBMessage,
+    });
+    createLead(db, LOCAL_ACTOR, { lastName: "First", company: "Shared Fictional Co" });
+    let message = "";
+    let second;
+    try {
+      second = createLead(db, LOCAL_ACTOR, { lastName: "Second", company: "Shared Fictional Co" });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).not.toContain("Org B only");
+    expect(second?.company).toBe("Shared Fictional Co");
+    expect(
+      db.select().from(leads).where(eq(leads.orgId, LOCAL_ORG_ID)).all().filter((l) => l.company === "Shared Fictional Co"),
+    ).toHaveLength(2);
+    // Org B's own rule still works inside org B.
+    createLead(db, actorB, { lastName: "B One", company: "Shared Fictional Co" });
+    expect(() => createLead(db, actorB, { lastName: "B Two", company: "Shared Fictional Co" })).toThrow(orgBMessage);
   });
 });
