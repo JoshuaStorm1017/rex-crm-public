@@ -917,3 +917,10 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 at 03:26 EDT on Node v22.23.3. typegen, tsc, eslint, 125 files, 1552 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
 - **Not done:** line items do not roll into Opportunity Amount. No edit of an existing line. No bearer token. The read API still returns a lookup id when the related record is unreadable.
 - **Next:** Sprint 1 items 5 and 6 (amount rollup, dashboard pages) belong to the other lane. The next platform piece is custom objects, or hiding a lookup id the actor cannot read.
+
+## 2026-10-23 09:28 EDT — #40 review fixes: actor gate inside persistLeadCreate, mutant-killing tests
+
+- **What:** `persistLeadCreate` now calls `assertActor` itself, so `createLead` and the form action cannot skip it. Tests in `leads.atomic.test.ts`: a deleted user, a user with no password, a user with no username, a suspended org, and a non-member are each refused with the actor-check message, and nothing is written. A field that field-level security makes read-only is refused. A create that does not stick fails with `WRITE_FAILED` and leaves no lead or audit row. `createdBy` is the actor. In `actions.test.ts`, a bad custom field value rolls back the whole create, and the lead is written through the transaction handle.
+- **Why:** Reviewer 2's checklist on #40. Mutants M2, M4 and M7 survived the old tests.
+- **Mutants (full suite, 1566 tests):** M2 killed (4 failed), M4 killed (1), M7 killed (1), M9 killed (1), M10 killed (1), M11 killed (39). With M2 applied, `assertCanPerform` still refuses every broken actor. Only the error message shows that the actor check ran, so the tests assert the message. With M7 applied, there is only one SQLite connection, so writing through `getDb()` is still atomic. The test therefore checks that `getDb` is called only once.
+- **Not done:** nothing new. The original change is by Sonnet 5.5 (Claude). These fixes are by Rex Grok Coder (Grok Bot).
