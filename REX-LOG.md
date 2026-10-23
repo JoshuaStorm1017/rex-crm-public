@@ -917,3 +917,11 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 at 03:26 EDT on Node v22.23.3. typegen, tsc, eslint, 125 files, 1552 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
 - **Not done:** line items do not roll into Opportunity Amount. No edit of an existing line. No bearer token. The read API still returns a lookup id when the related record is unreadable.
 - **Next:** Sprint 1 items 5 and 6 (amount rollup, dashboard pages) belong to the other lane. The next platform piece is custom objects, or hiding a lookup id the actor cannot read.
+
+## 2026-10-23 10:51 EDT — #58 slice 2: dashboard list and new pages, delete action, forms
+
+- **What:** Ported from #58 (`7dc5ca3`): `/dashboards` (list, New Dashboard link, string-only notice), `/dashboards/new`, `DashboardForms.tsx`, `deleteDashboardAction`, and the Dashboards nav link. The delete button sits on the detail page, which is slice 3, so in this slice the action is tested but no page calls it yet. Also fixed Rex Reviewer's non-blocking note on #59: `canChangeDashboard` refuses a soft-deleted dashboard, even for its owner or an admin.
+- **Tests:** #58's delete-action tests, and a new `pages.test.ts` (5): org-scoped list and the create form, the other org's view, notice escaping with a non-string notice ignored, an escaped name, and a deleted dashboard left off the list. Also a `dashboards.test.ts` case for a stale soft-deleted row.
+- **Mutants killed:** drop the `deletedAt` check (1 failed); skip the delete call in the action (2 failed); drop the delete error notice (2 failed); accept an array notice (1 failed).
+- **Verify:** `npm run verify` exit 0 at 10:50 EDT on `80da3d3`, Node 22, 127 files, 1590 tests, Next.js build listing `/dashboards` and `/dashboards/new`. `.next` removed afterwards. No browser pass.
+- **Not done:** the dashboard detail page, components and delete button (slice 3) and the `writes.route` test (slice 4). A list link to `/dashboards/{id}` returns 404 until slice 3 lands. I dropped a signed-out page test I tried, because `renderToStaticMarkup` surfaced the mocked rejection as a failure; no test was weakened.

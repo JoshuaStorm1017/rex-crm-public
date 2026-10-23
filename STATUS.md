@@ -2377,3 +2377,8 @@ fresh verification evidence for each slice.
 
 - WORKS (verified 2026-10-17 03:26 EDT, `npm run verify` exit 0 on Node v22.23.3, 1552/1552 tests across 125 files, Next.js 16.3.5 build): this branch contains `origin/main` at `f6c0b69` (write API v0, migration 0056, and the opportunity product list) and this branch's posted-price rule. The page renders `OpportunityLineItems`. A posted unit price requires product update via `canEditField`, so a product reader cannot store an override and the price box stays hidden. Omitting the price stores the standard price. A hidden product name stays off the page and the picker still offers the product. `parseUsdToCents` refuses `$`, `,`, a third decimal, `1e2`, and `0x10`. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
 - Not done: line items do not roll into Opportunity Amount. No edit of an existing line. No bearer token. The read API still returns a lookup id when the related record is unreadable.
+
+## 2026-10-23 — #58 slice 2, dashboard list and new pages
+
+- WORKS (verified 2026-10-23 10:50 EDT, `npm run verify` exit 0 on `80da3d3`, 1590/1590 tests across 127 files, Next.js build): `/dashboards` lists only the actor's org dashboards, leaves out deleted ones, and escapes names and notices. `/dashboards/new` creates a dashboard. `deleteDashboardAction` deletes for the owner or a modify-all admin and redirects with a notice otherwise. `canChangeDashboard` is false for a soft-deleted dashboard. No browser pass.
+- Not done: no dashboard detail page yet (slice 3), so a list link leads to a 404, and no page offers delete yet.
