@@ -925,3 +925,18 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Mutants killed:** drop the `deletedAt` check (1 failed); skip the delete call in the action (2 failed); drop the delete error notice (2 failed); accept an array notice (1 failed).
 - **Verify:** `npm run verify` exit 0 at 10:50 EDT on `80da3d3`, Node 22, 127 files, 1590 tests, Next.js build listing `/dashboards` and `/dashboards/new`. `.next` removed afterwards. No browser pass.
 - **Not done:** the dashboard detail page, components and delete button (slice 3) and the `writes.route` test (slice 4). A list link to `/dashboards/{id}` returns 404 until slice 3 lands. I dropped a signed-out page test I tried, because `renderToStaticMarkup` surfaced the mocked rejection as a failure; no test was weakened.
+
+## 2026-10-23 11:25 EDT — #61: mutation review fixes (tests only) and retarget to main
+
+- **What:** Mutation review asked for changes because M7 (`createDashboardAction` ignores the session user) and M7b (org pinned to the local org) survived. I added three tests to `src/app/(crm)/dashboards/actions.test.ts`, all going through the action:
+  - Riley creates a dashboard, and `ownerId`, `createdBy` and `updatedBy` are Riley.
+  - A user in another org creates one, and `orgId` is their org. It is listed for them and not for the local user.
+  - A signed-out user creates nothing.
+
+  No product code changed. M7 now fails 2 tests and M7b fails 1. Both are killed.
+- **Retarget:** #59 merged (squash, `d04806d`, 11:14 EDT), so I merged `origin/main` into this branch (no rebase) and moved #61's base to `main`. There were two conflicts, from the squash: `canChangeDashboard` and its test in `dashboards.ts` and `dashboards.test.ts`. I kept this branch's side, which is main's code plus the soft-delete check that slice 2 added.
+- **Verify:** `npm run verify` exit 0 at 11:25 EDT on `2cfa296`, Node 22, 127 files, 1593 tests, Next.js build. `.next` removed afterwards. No browser pass.
+- **Observed, not changed:** `createDashboardAction` (like the other actions) calls `requireActor()` inside `try`, so in production a signed-out user's Next.js redirect error is caught by `actionError` and comes back as an error state instead of a redirect to `/login`. Nothing is written either way.
+- **Backlog for #58 slice 3 (detail page and components), from Reviewer 5:**
+  - (a) Adding a component does not update the dashboard's Last Modified (`updatedAt` and `updatedBy`).
+  - (b) A mutant that removes `assertActor` from `getDashboard` survives. Slice 3 should add FORBIDDEN tests for a deactivated user and a suspended org, and give `runDashboard` its own `assertActor` check. `getDashboard` and `runDashboard` are on main as of #59, so (b) is folded into slice 3.
