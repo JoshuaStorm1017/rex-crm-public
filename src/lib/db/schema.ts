@@ -913,6 +913,28 @@ export const cases = sqliteTable(
   ],
 );
 
+/** Comments on a case. Visibility follows the parent case (SVC-CASE-002). */
+export const caseComments = sqliteTable(
+  "case_comments",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    caseId: text("case_id")
+      .notNull()
+      .references(() => cases.id),
+    authorId: text("author_id")
+      .notNull()
+      .references(() => users.id),
+    body: text("body").notNull(),
+    isInternal: integer("is_internal", { mode: "boolean" }).notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("case_comments_org_case_idx").on(table.orgId, table.caseId),
+  ],
+);
+
 export const campaigns = sqliteTable(
   "campaigns",
   {

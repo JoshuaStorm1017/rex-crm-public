@@ -38,6 +38,7 @@ export const ID_PREFIX = {
   approvalRequest: "04g",
   contract: "800",
   case: "500",
+  caseComment: "00a",
   campaign: "701",
   campaignMember: "00v",
   auditEvent: "0ae",
