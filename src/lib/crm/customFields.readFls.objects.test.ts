@@ -83,13 +83,26 @@ describe("custom field read permission on every detail-page object (P0-5)", () =
 
   it("the value setCustomValues returns does not leak an unreadable field", () => {
     const { db, rho, ids } = setup();
-    // Only the editable field is written. Whether a member's write to a hidden
-    // field is refused is P0-4 (#60), which this PR must merge after or with.
     const returned = setCustomValues(db, rho, "lead", ids.lead, { Open__c: "changed by member" });
     expect(returned.map((r) => r.field.apiName).sort()).toEqual(["Open__c", "Peek__c"]);
     expect(Object.fromEntries(returned.map((r) => [r.field.apiName, r.raw])).Open__c).toBe("changed by member");
     expect(JSON.stringify(returned)).not.toContain("hidden fictional");
     expect(JSON.stringify(returned)).not.toContain("Secret__c");
+  });
+  it("a member's write of a different value to an unreadable field is refused and the stored value is unchanged", () => {
+    const { db, rho, ids } = setup();
+    expect(() =>
+      setCustomValues(db, rho, "lead", ids.lead, { Open__c: "changed by member", Secret__c: "member overwrite" }),
+    ).toThrow(expect.objectContaining({ code: "FORBIDDEN" }));
+    expect(() => setCustomValues(db, rho, "lead", ids.lead, { Secret__c: "" })).toThrow(
+      expect.objectContaining({ code: "FORBIDDEN" }),
+    );
+    const stored = Object.fromEntries(getCustomValues(db, LOCAL_ACTOR, "lead", ids.lead).map((r) => [r.field.apiName, r.raw]));
+    expect(stored).toEqual({ Secret__c: "hidden fictional lead", Peek__c: "peek", Open__c: "visible" });
+    // Saving only the editable field keeps the unreadable one.
+    setCustomValues(db, rho, "lead", ids.lead, { Open__c: "changed by member" });
+    const after = Object.fromEntries(getCustomValues(db, LOCAL_ACTOR, "lead", ids.lead).map((r) => [r.field.apiName, r.raw]));
+    expect(after).toEqual({ Secret__c: "hidden fictional lead", Peek__c: "peek", Open__c: "changed by member" });
   });
 });
 

@@ -672,8 +672,21 @@ export function setCustomValues(
       );
     }
   }
+  // Same rule as assertEditableFields for standard fields: a supplied value for
+  // a field the actor cannot edit is refused. A non-editable field that was not
+  // supplied keeps its stored value instead of being cleared.
+  const access = fieldAccess(db, actor, objectType);
+  const editable = new Set(
+    fields.filter((field) => access.canEdit(field.apiName)).map((field) => field.apiName),
+  );
+  for (const key of Object.keys(values)) {
+    if (!editable.has(key)) {
+      throw new DomainError("FORBIDDEN", `You cannot edit ${key}`);
+    }
+  }
   const ts = now();
   for (const field of fields) {
+    if (!editable.has(field.apiName)) continue;
     const stored = parseStored(
       field,
       Object.prototype.hasOwnProperty.call(values, field.apiName)
@@ -722,12 +735,21 @@ export function applyCustomFieldsFromForm(
   assertActor(db, actor);
   const fields = listCustomFields(db, actor, objectType);
   if (fields.length === 0) return;
+  // The form never renders a field the actor cannot edit. Parse only those it
+  // can, plus any non-editable field that was posted anyway, so a forged value
+  // is refused by setCustomValues and an omitted one is left alone.
+  const access = fieldAccess(db, actor, objectType);
+  const posted = fields.filter(
+    (field) =>
+      access.canEdit(field.apiName) ||
+      formData.has(customFieldInputName(field.apiName)),
+  );
   setCustomValues(
     db,
     actor,
     objectType,
     recordId,
-    parseCustomFieldFormData(formData, fields),
+    parseCustomFieldFormData(formData, posted),
   );
 }
 
