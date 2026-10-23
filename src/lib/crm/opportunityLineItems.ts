@@ -2,6 +2,7 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { opportunityLineItems, priceBookEntries, products } from "../db/schema";
 import { assertActor, type Actor } from "./actor";
+import { recordAudit, type AuditFieldMap } from "./audit";
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
 import { readOpportunity } from "./opportunities";
@@ -266,4 +267,93 @@ export function deleteLineItem(db: Db, actor: Actor, id: string): void {
   db.delete(opportunityLineItems)
     .where(and(eq(opportunityLineItems.id, id), eq(opportunityLineItems.orgId, actor.orgId)))
     .run();
+}
+
+export type UpdateLineItemInput = {
+  /** When set, the line must belong to this opportunity. */
+  opportunityId?: string;
+  quantity: number;
+  /** Omit to keep the line's current price. */
+  unitPriceCents?: number;
+};
+
+/**
+ * Audit keys for one line, stored on its opportunity's history. Line items
+ * are not a standard object, so the keys name the line. The opportunity
+ * history page lists only opportunity fields, so a hidden price is not shown.
+ */
+function lineAuditValues(row: OpportunityLineItem): AuditFieldMap {
+  return {
+    [`lineItem.${row.id}.quantity`]: row.quantity,
+    [`lineItem.${row.id}.unitPriceCents`]: row.unitPriceCents,
+  };
+}
+
+/**
+ * Edit an existing line's quantity and, with sale price access, its price.
+ * Product and opportunity stay fixed. The total is never stored or taken
+ * from input: it is quantity times unit price, recomputed on every read.
+ */
+export function updateLineItem(
+  db: Db,
+  actor: Actor,
+  id: string,
+  input: UpdateLineItemInput,
+): LineItemView {
+  assertActor(db, actor);
+  const row = db
+    .select()
+    .from(opportunityLineItems)
+    .where(and(eq(opportunityLineItems.id, id), eq(opportunityLineItems.orgId, actor.orgId)))
+    .get();
+  if (!row) throw new DomainError("NOT_FOUND", "Line item not found");
+  if (input.opportunityId !== undefined && input.opportunityId !== row.opportunityId) {
+    throw new DomainError("NOT_FOUND", "Line item not found");
+  }
+  const opp = readOpportunity(db, actor, row.opportunityId);
+  if (!opp) throw new DomainError("NOT_FOUND", "Line item not found");
+  assertCanAccessRecord(db, actor, "opportunity", "edit", opp);
+  const product = getProduct(db, actor, row.productId);
+  if (!product) throw new DomainError("NOT_FOUND", "Line item not found");
+  assertQuantity(input.quantity);
+  let unitPriceCents = row.unitPriceCents;
+  if (input.unitPriceCents !== undefined) {
+    // Stricter than add: a price the actor cannot read cannot be set either.
+    if (
+      !seesSalePrice(db, actor) ||
+      !canEditField(db, actor, "product", "standardPriceCents")
+    ) {
+      throw new DomainError("FORBIDDEN", "You cannot edit standardPriceCents");
+    }
+    assertUnitPrice(input.unitPriceCents);
+    unitPriceCents = input.unitPriceCents;
+  }
+  lineTotal(input.quantity, unitPriceCents);
+  const next: OpportunityLineItem = {
+    ...row,
+    quantity: input.quantity,
+    unitPriceCents,
+    updatedAt: Date.now(),
+    updatedBy: actor.userId,
+  };
+  db.transaction((tx) => {
+    tx.update(opportunityLineItems)
+      .set({
+        quantity: next.quantity,
+        unitPriceCents: next.unitPriceCents,
+        updatedAt: next.updatedAt,
+        updatedBy: next.updatedBy,
+      })
+      .where(and(eq(opportunityLineItems.id, row.id), eq(opportunityLineItems.orgId, actor.orgId)))
+      .run();
+    recordAudit(tx, actor, {
+      objectKey: "opportunity",
+      recordId: opp.id,
+      action: "update",
+      before: lineAuditValues(row),
+      after: lineAuditValues(next),
+      at: next.updatedAt,
+    });
+  });
+  return toLineView(db, actor, { row: next, productName: product.name || "" });
 }
