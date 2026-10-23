@@ -2378,6 +2378,13 @@ fresh verification evidence for each slice.
 - WORKS (verified 2026-10-17 03:26 EDT, `npm run verify` exit 0 on Node v22.23.3, 1552/1552 tests across 125 files, Next.js 16.3.5 build): this branch contains `origin/main` at `f6c0b69` (write API v0, migration 0056, and the opportunity product list) and this branch's posted-price rule. The page renders `OpportunityLineItems`. A posted unit price requires product update via `canEditField`, so a product reader cannot store an override and the price box stays hidden. Omitting the price stores the standard price. A hidden product name stays off the page and the picker still offers the product. `parseUsdToCents` refuses `$`, `,`, a third decimal, `1e2`, and `0x10`. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
 - Not done: line items do not roll into Opportunity Amount. No edit of an existing line. No bearer token. The read API still returns a lookup id when the related record is unreadable.
 
+## 2026-10-23 — P0-4, custom field edit permission
+
+- WORKS (verified 2026-10-23 10:45 EDT, `npm run verify` exit 0 on `13cebb1`, 1577/1577 tests across 128 files, Next.js build): a custom field the actor's profile marks not editable is refused if its value is supplied (`FORBIDDEN`) and is kept when it is missing from the form. Editable fields that are missing are still cleared, as before. No browser pass.
+- Not done: custom-field writes through the API were not re-checked in this change. (Superseded by the 11:04 follow-up below.)
+- WORKS (verified 2026-10-23 11:04 EDT, `npm run verify` exit 0 on `02bf669`, 1580/1580 tests across 129 files, Next.js build): the write API (`POST`/`PATCH /api/v1/objects/{apiName}/records`) has no custom-field path. A forged custom field key (`Locked__c`, `cf__Locked__c`, `customFields`) is refused with 400 `INVALID_INPUT` and writes nothing. A `PATCH` that omits custom fields leaves every stored custom value unchanged. No hole was found and no product code changed.
+- Not done: the API still cannot set custom fields at all, for any user (by design today). Purging a record from the recycle bin removes its custom values along with the record; that is a record-level action, not a field-level one.
+
 ## 2026-10-23 — #58 slice 2, dashboard list and new pages
 
 - WORKS (verified 2026-10-23 10:50 EDT, `npm run verify` exit 0 on `80da3d3`, 1590/1590 tests across 127 files, Next.js build): `/dashboards` lists only the actor's org dashboards, leaves out deleted ones, and escapes names and notices. `/dashboards/new` creates a dashboard. `deleteDashboardAction` deletes for the owner or a modify-all admin and redirects with a notice otherwise. `canChangeDashboard` is false for a soft-deleted dashboard. No browser pass.
