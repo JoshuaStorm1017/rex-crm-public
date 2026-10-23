@@ -27,9 +27,9 @@ import {
 } from "@/lib/crm/dashboards";
 import { addMember, createOrganization } from "@/lib/crm/orgs";
 import { createReport } from "@/lib/crm/reports";
-import { createUser } from "@/lib/crm/users";
+import { createUser, disableUser } from "@/lib/crm/users";
 import { getDb, openMemoryDb } from "@/lib/db/client";
-import { dashboardComponents, dashboards, users } from "@/lib/db/schema";
+import { dashboardComponents, dashboards, organizations, users } from "@/lib/db/schema";
 import { addDashboardComponentAction, createDashboardAction, deleteDashboardAction } from "./actions";
 
 function form(entries: Record<string, string>) {
@@ -287,5 +287,48 @@ describe("dashboard actions", () => {
     );
     expect(outcome).toContain("REDIRECT /login");
     expect(db.select().from(dashboards).all()).toEqual([]);
+  });
+});
+
+describe("deleteDashboardAction refuses an inactive owner (Rex Reviewer)", () => {
+  async function refusal(id: string): Promise<string> {
+    try {
+      await deleteDashboardAction(id);
+      return "no redirect";
+    } catch (error) {
+      return decodeURIComponent(String((error as Error).message));
+    }
+  }
+
+  it("a disabled owner is sent back with the FORBIDDEN notice and nothing is deleted", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const u = createUser(db, { name: "Dana Sample", email: "dana@example.com", username: "dana", password: "helmet-42" });
+    addMember(db, LOCAL_ORG_ID, u.id, "member");
+    const dana = actorFor(u.id, LOCAL_ORG_ID);
+    const dash = createDashboard(db, dana, "Dana Board");
+    const before = db.select().from(dashboards).where(eq(dashboards.id, dash.id)).get();
+    disableUser(db, u.id);
+    vi.mocked(requireActor).mockResolvedValue(dana as never);
+
+    expect(await refusal(dash.id)).toBe("REDIRECT /dashboards?notice=Your user account is not active");
+    expect(db.select().from(dashboards).where(eq(dashboards.id, dash.id)).get()).toEqual(before);
+  });
+
+  it("an owning member of a suspended org is sent back with the FORBIDDEN notice and nothing is deleted", async () => {
+    const db = openMemoryDb().db;
+    vi.mocked(getDb).mockReturnValue(db);
+    const admin = createUser(db, { name: "Sol Sample", email: "sol@example.com", username: "sol", password: "helmet-42" });
+    const org = createOrganization(db, "Fictional Suspended Org", admin.id);
+    const m = createUser(db, { name: "Mo Sample", email: "moe@example.com", username: "moe", password: "helmet-42" });
+    addMember(db, org.id, m.id, "member");
+    const mo = actorFor(m.id, org.id);
+    const dash = createDashboard(db, mo, "Mo Board");
+    const before = db.select().from(dashboards).where(eq(dashboards.id, dash.id)).get();
+    db.update(organizations).set({ status: "suspended" }).where(eq(organizations.id, org.id)).run();
+    vi.mocked(requireActor).mockResolvedValue(mo as never);
+
+    expect(await refusal(dash.id)).toBe("REDIRECT /dashboards?notice=Organization is not active");
+    expect(db.select().from(dashboards).where(eq(dashboards.id, dash.id)).get()).toEqual(before);
   });
 });
