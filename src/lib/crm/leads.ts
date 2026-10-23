@@ -8,7 +8,10 @@ import { createContact } from "./contacts";
 import {
   listAuditEvents,
   parseAuditChanges,
+  historyAction,
   recordAudit,
+  showsFieldChanges,
+  type AuditAction,
   type AuditFieldMap,
   type AuditValue,
 } from "./audit";
@@ -92,7 +95,7 @@ export type LeadHistoryChange = {
 
 export type LeadHistoryEntry = {
   id: string;
-  action: "create" | "update" | "delete";
+  action: AuditAction;
   actorId: string;
   actorName: string;
   at: number;
@@ -177,7 +180,7 @@ export function listLeadHistory(
   return listAuditEvents(db, actor, "lead", leadId).map((event) => {
     const changes = parseAuditChanges(event.changesJson);
     const visible: LeadHistoryChange[] = [];
-    for (const field of LEAD_AUDIT_FIELDS) {
+    for (const field of showsFieldChanges(event.action) ? LEAD_AUDIT_FIELDS : []) {
       const inOld = changes.old ? Object.prototype.hasOwnProperty.call(changes.old, field) : false;
       const inNew = changes.new ? Object.prototype.hasOwnProperty.call(changes.new, field) : false;
       if (event.action === "create" && !inNew) continue;
@@ -197,7 +200,7 @@ export function listLeadHistory(
     }
     return {
       id: event.id,
-      action: event.action === "create" || event.action === "delete" ? event.action : "update",
+      action: historyAction(event.action),
       actorId: event.actorId,
       actorName: ownerLabel(db, event.actorId),
       at: event.at,
