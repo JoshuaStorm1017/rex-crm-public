@@ -2445,3 +2445,15 @@ fresh verification evidence for each slice.
 
 - WORKS (verified 2026-10-23 15:39 EDT, `npm run verify` exit 0 on `d7b49c9`, Node v22.23.3, 1693/1693 tests across 144 files, Next.js build): #40's atomic lead create (`persistLeadCreate` inside `createLead`'s transaction and inside the form action's `withCustomFieldWrite` transaction) on top of main `223bcb4`. All 23 security and atomicity mutants are killed, including M16, M17, the P0-4 FLS mutants F1–F4, and M7c (custom values through the outer handle), which a new structural test now kills. No browser pass.
 - Not done: F2b (parse only posted custom inputs) still survives. It is a logic mutant and behaves the same as the real code, because `setCustomValues` treats an omitted editable field like a blank one. The behaviour itself is pinned by two tests in `customFields.form.test.ts`. The `4e37431` APPROVE no longer counts; #40 needs a re-gate at the new head.
+
+## 2026-10-23 — #58 slice 3, dashboard detail page and components
+
+- WORKS (verified 2026-10-23 16:40 EDT, `npm run verify` exit 0 on `493dfa3`, 1701/1701 tests across 145 files, Next.js build):
+  - `/dashboards/[id]` shows a dashboard's components with totals and group bars to members of its org.
+  - Other orgs, unknown ids and deleted boards get a 404. Deactivated users and suspended orgs get FORBIDDEN.
+  - Only the owner or an admin sees Delete and Add component, and a non-owner's delete or add is refused.
+  - Names, titles and group labels are escaped. A component whose report is gone shows "This report is not available."
+  - Signed-out users of the page and the dashboard actions are redirected to `/login`, not shown a notice.
+
+  This closes the "no detail page" and "signed-out handling" gaps listed above. No browser pass.
+- Not done: no browser pass of the dashboard pages. No component edit, reorder or remove.
