@@ -4,10 +4,25 @@ import { dashboardComponents, dashboards } from "../db/schema";
 import { assertActor, hasModifyAllData, type Actor } from "./actor";
 import { DomainError, isDomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
-import { getReport, reportHref, runReport, type ReportValues } from "./reports";
+import {
+  getReport,
+  reportHref,
+  runReport,
+  type ReportMeasure,
+  type ReportValues,
+} from "./reports";
 
 export type Dashboard = typeof dashboards.$inferSelect;
 export const DASHBOARD_MAX_COMPONENTS = 20;
+
+export type DashboardMeasure = Pick<ReportMeasure, "key" | "label" | "kind" | "field">;
+
+/** One bar on a grouped report. Detail rows stay on the report page. */
+export type DashboardGroupBar = {
+  label: string;
+  count: number;
+  values: ReportValues;
+};
 
 export type DashboardComponentResult =
   | {
@@ -17,6 +32,10 @@ export type DashboardComponentResult =
       reportHref: string;
       count: number;
       values: ReportValues;
+      measures: DashboardMeasure[];
+      /** Null when the report is not grouped. */
+      groupByLabel: string | null;
+      groups: DashboardGroupBar[] | null;
     }
   | { id: string; title: string; status: "unavailable" };
 
@@ -68,11 +87,20 @@ export function createDashboard(db: Db, actor: Actor, name: string): Dashboard {
   return row;
 }
 
+/** Owner, or an org modify-all admin, and only inside the actor's org. */
+export function canChangeDashboard(db: Db, actor: Actor, dashboard: Dashboard): boolean {
+  assertActor(db, actor);
+  return (
+    dashboard.orgId === actor.orgId &&
+    (dashboard.ownerId === actor.userId || hasModifyAllData(db, actor))
+  );
+}
+
 /** Visible dashboard the actor may change: its owner or an org modify-all admin. */
 function editableDashboard(db: Db, actor: Actor, id: string): Dashboard {
   const dash = getDashboard(db, actor, id);
   if (!dash) throw new DomainError("NOT_FOUND", "Dashboard not found");
-  if (dash.ownerId !== actor.userId && !hasModifyAllData(db, actor)) {
+  if (!canChangeDashboard(db, actor, dash)) {
     throw new DomainError("FORBIDDEN", "Only the owner or an admin can change this dashboard");
   }
   return dash;
@@ -160,6 +188,20 @@ export function runDashboard(
           reportHref: reportHref(report),
           count: result.total.count,
           values: result.total.values,
+          measures: result.measures.map((measure) => ({
+            key: measure.key,
+            label: measure.label,
+            kind: measure.kind,
+            field: measure.field,
+          })),
+          groupByLabel: result.groupByLabel,
+          groups: result.groups
+            ? result.groups.map((group) => ({
+                label: group.label,
+                count: group.count,
+                values: group.values,
+              }))
+            : null,
         };
       } catch (error) {
         if (isDomainError(error)) {
