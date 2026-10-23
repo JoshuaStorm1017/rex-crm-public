@@ -172,6 +172,33 @@ describe("opportunity Amount roll-up", () => {
     expect(s.db.select().from(organizations).where(eq(organizations.id, other.id)).get()).toBeTruthy();
   });
 
+  it("refuses a line sum past the safe-integer range instead of drifting", () => {
+    const s = setup();
+    const now = Date.now();
+    // Each line is a safe integer (5e15 cents); their sum (1e16) is not.
+    for (const id of ["00kROLLUPHUGELINE00000000001", "00kROLLUPHUGELINE00000000002"]) {
+      s.db.insert(opportunityLineItems).values({
+        id, orgId: LOCAL_ORG_ID, opportunityId: s.opp.id, productId: s.anvil.id,
+        quantity: 1_000_000, unitPriceCents: 5_000_000_000, createdAt: now, updatedAt: now,
+        createdBy: LOCAL_ACTOR.userId, updatedBy: LOCAL_ACTOR.userId,
+      }).run();
+    }
+    expect(code(() => rolledUpAmountCents(s.db, LOCAL_ORG_ID, s.opp.id))).toBe("INVALID_MONEY");
+  });
+
+  it("still allows a manual Amount when only another org's stray line points at the opportunity", () => {
+    const s = setup();
+    const owner = createUser(s.db, { name: "Avery Sample", email: "avery.rollup@example.com", username: "averyrollup", password: "helmet-42" });
+    const other = createOrganization(s.db, "Stray Rollup Org", owner.id);
+    const now = Date.now();
+    s.db.insert(opportunityLineItems).values({
+      id: "00kOTHERORGROLLUPLINE0000002", orgId: other.id, opportunityId: s.opp.id, productId: s.helmet.id,
+      quantity: 1, unitPriceCents: 100, createdAt: now, updatedAt: now,
+      createdBy: LOCAL_ACTOR.userId, updatedBy: LOCAL_ACTOR.userId,
+    }).run();
+    expect(updateOpportunity(s.db, LOCAL_ACTOR, s.opp.id, { amountCents: 7_777 }).amountCents).toBe(7_777);
+  });
+
   it("refuses a reader and a profile without opportunity update, leaving Amount unchanged", () => {
     const s = setup();
     const a = addLineItem(s.db, LOCAL_ACTOR, { opportunityId: s.opp.id, productId: s.anvil.id, quantity: 1 });
