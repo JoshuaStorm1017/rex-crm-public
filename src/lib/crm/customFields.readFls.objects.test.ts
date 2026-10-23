@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
-import { customFieldValues } from "../db/schema";
+import { customFieldValues, organizations } from "../db/schema";
 import { LOCAL_ACTOR, actorFor, type Actor } from "./actor";
 import { createAccount } from "./accounts";
 import { LOCAL_ORG_ID, LOCAL_USER_ID, PROFILE_OBJECT_TYPES, type CustomFieldObjectType } from "./constants";
@@ -18,7 +18,8 @@ import { createOpportunity } from "./opportunities";
 import { addMember, createOrganization } from "./orgs";
 import { assignProfile, createProfile, setFieldPermission, setObjectPermission } from "./profiles";
 import { createTask } from "./tasks";
-import { createUser } from "./users";
+import { isDomainError } from "./errors";
+import { createUser, disableUser } from "./users";
 
 // P0-5: every detail page reads custom fields through getCustomValues, so the
 // read rule there covers all five objects. Fictional data only.
@@ -157,5 +158,52 @@ describe("deleteCustomValuesForRecord is scoped to the actor's org (P0-5 a)", ()
     deleteLead(db, LOCAL_ACTOR, ids.lead);
     expect(rowsFor(db, ids.lead, LOCAL_ORG_ID)).toHaveLength(0);
     expect(rowsFor(db, ids.lead, other.id)).toHaveLength(1);
+  });
+});
+
+describe("getCustomValues refuses an inactive actor before any lookup (Reviewer 5, M3)", () => {
+  // FORBIDDEN for an existing record and for a missing id alike, so an
+  // inactive actor cannot use NOT_FOUND to learn which ids exist.
+  const codeOf = (run: () => unknown) => {
+    try {
+      run();
+      return "no error";
+    } catch (error) {
+      return isDomainError(error) ? error.code : String(error);
+    }
+  };
+  const MISSING = "00Qnonexistentfictional";
+
+  function deactivated() {
+    const s = setup();
+    expect(names(s.db, s.rho, "lead", s.ids.lead).sort()).toEqual(["Open__c", "Peek__c"]);
+    disableUser(s.db, s.rho.userId);
+    return s;
+  }
+  function suspended() {
+    const s = setup();
+    expect(names(s.db, s.rho, "lead", s.ids.lead).sort()).toEqual(["Open__c", "Peek__c"]);
+    s.db.update(organizations).set({ status: "suspended" }).where(eq(organizations.id, LOCAL_ORG_ID)).run();
+    return s;
+  }
+
+  it("deactivated user, existing record: FORBIDDEN", () => {
+    const { db, rho, ids } = deactivated();
+    expect(codeOf(() => getCustomValues(db, rho, "lead", ids.lead))).toBe("FORBIDDEN");
+  });
+
+  it("deactivated user, nonexistent id: FORBIDDEN, not NOT_FOUND", () => {
+    const { db, rho } = deactivated();
+    expect(codeOf(() => getCustomValues(db, rho, "lead", MISSING))).toBe("FORBIDDEN");
+  });
+
+  it("suspended-org user, existing record: FORBIDDEN", () => {
+    const { db, rho, ids } = suspended();
+    expect(codeOf(() => getCustomValues(db, rho, "lead", ids.lead))).toBe("FORBIDDEN");
+  });
+
+  it("suspended-org user, nonexistent id: FORBIDDEN, not NOT_FOUND", () => {
+    const { db, rho } = suspended();
+    expect(codeOf(() => getCustomValues(db, rho, "lead", MISSING))).toBe("FORBIDDEN");
   });
 });
