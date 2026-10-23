@@ -30,6 +30,14 @@ import { createValidationRule } from "./validationRules";
 
 const riley = actorFor(RILEY_USER_ID);
 
+/** Audit ids are random within one millisecond, so ordered asserts step past it. */
+function nextMs(): void {
+  const start = Date.now();
+  while (Date.now() === start) {
+    // spin
+  }
+}
+
 function memory(): Db {
   return openMemoryDb().db;
 }
@@ -1086,10 +1094,13 @@ describe("account audit log", () => {
       "Restored Child",
     );
 
+    nextMs();
     undeleteRecord(db, LOCAL_ACTOR, "account", child.id);
     const history = listAccountHistory(db, LOCAL_ACTOR, child.id);
-    expect(history.map((entry) => entry.action)).toEqual(["delete", "update", "create"]);
-    const deleted = history[0];
+    expect(history.map((entry) => entry.action)).toEqual(["restore", "delete", "update", "create"]);
+    expect(history[0]?.changes).toEqual([]);
+    expect(history[0]?.actorName).toBe("Local Operator");
+    const deleted = history[1];
     expect(deleted?.changes.find((change) => change.field === "name")).toEqual({
       field: "name",
       label: "Name",

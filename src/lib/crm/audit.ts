@@ -6,7 +6,45 @@ import { assertActor } from "./actor";
 import { ID_PREFIX, newId } from "./ids";
 import type { StandardObjectKey } from "./registry";
 
-export type AuditAction = "create" | "update" | "delete";
+export type AuditAction = "create" | "update" | "delete" | "restore" | "purge";
+
+const AUDIT_ACTIONS: readonly string[] = ["create", "update", "delete", "restore", "purge"];
+
+/** The stored action as a history list shows it. Unknown values read as update. */
+export function historyAction(action: string): AuditAction {
+  return AUDIT_ACTIONS.includes(action) ? (action as AuditAction) : "update";
+}
+
+/** Only create, update and delete rows list field changes on a record page. */
+export function showsFieldChanges(action: string): boolean {
+  return action === "create" || action === "update" || action === "delete";
+}
+
+const SNAPSHOT_SKIP = new Set([
+  "id",
+  "orgId",
+  "createdAt",
+  "createdBy",
+  "updatedAt",
+  "updatedBy",
+  "deletedAt",
+]);
+
+/**
+ * String, number and null values of a stored row, without bookkeeping
+ * columns. Used where a write has no per-object field list (change owner).
+ * Update rows keep only the changed keys, and history pages still show only
+ * their own audited fields.
+ */
+export function auditSnapshot(row: Record<string, unknown>): AuditFieldMap {
+  const out: AuditFieldMap = {};
+  for (const [key, value] of Object.entries(row)) {
+    if (SNAPSHOT_SKIP.has(key)) continue;
+    if (value == null) out[key] = null;
+    else if (typeof value === "string" || typeof value === "number") out[key] = value;
+  }
+  return out;
+}
 export type AuditValue = string | number | null;
 export type AuditFieldMap = Record<string, AuditValue>;
 
@@ -101,7 +139,7 @@ function changesFor(
   after: AuditFieldMap | null,
 ): AuditChanges {
   if (action === "create") return { old: null, new: after ?? {} };
-  if (action === "delete") return { old: before ?? {}, new: null };
+  if (action === "delete" || action === "purge") return { old: before ?? {}, new: null };
   const old: AuditFieldMap = {};
   const next: AuditFieldMap = {};
   const seen = new Set<string>();

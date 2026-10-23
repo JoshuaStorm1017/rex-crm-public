@@ -36,6 +36,14 @@ import { createValidationRule } from "./validationRules";
 
 const riley = actorFor(RILEY_USER_ID);
 
+/** Audit ids are random within one millisecond, so ordered asserts step past it. */
+function nextMs(): void {
+  const start = Date.now();
+  while (Date.now() === start) {
+    // spin
+  }
+}
+
 function memory(): Db {
   return openMemoryDb().db;
 }
@@ -847,7 +855,7 @@ describe("task audit log", () => {
     expect(JSON.stringify(listTaskHistory(db, LOCAL_ACTOR, created.id))).toContain("Quarry Co");
   });
 
-  it("does not write history for change owner, restore, purge, or a parent cascade", () => {
+  it("writes history for change owner, restore, purge, and a parent cascade", () => {
     const db = memory();
     const quarry = account(db, LOCAL_ACTOR, "Quarry Co");
     const created = createTask(db, LOCAL_ACTOR, {
@@ -855,26 +863,40 @@ describe("task audit log", () => {
       relatedObjectType: "account",
       relatedRecordId: quarry.id,
     });
+    nextMs();
     changeOwner(db, LOCAL_ACTOR, "task", created.id, { newOwnerId: RILEY_USER_ID });
     expect(db.select().from(tasks).all().find((row) => row.id === created.id)?.ownerId).toBe(
       RILEY_USER_ID,
     );
     const afterOwner = db.select().from(auditEvents).where(eq(auditEvents.recordId, created.id)).all();
-    expect(afterOwner).toHaveLength(1);
-    expect(afterOwner[0]?.action).toBe("create");
-    expect(JSON.stringify(listTaskHistory(db, LOCAL_ACTOR, created.id))).not.toContain("Riley Demo");
+    expect(afterOwner.map((row) => row.action).sort()).toEqual(["create", "update"]);
+    expect(listTaskHistory(db, LOCAL_ACTOR, created.id)[0]?.changes).toEqual([
+      expect.objectContaining({ field: "ownerId", before: "Local Operator", after: "Riley Demo" }),
+    ]);
 
+    nextMs();
     deleteTask(db, LOCAL_ACTOR, created.id);
     expect(listTaskHistory(db, LOCAL_ACTOR, created.id)).toEqual([]);
+    nextMs();
     undeleteRecord(db, LOCAL_ACTOR, "task", created.id);
     const restored = db
       .select()
       .from(auditEvents)
       .where(eq(auditEvents.recordId, created.id))
       .all();
-    expect(restored.map((row) => row.action).sort()).toEqual(["create", "delete"]);
+    expect(restored.map((row) => row.action).sort()).toEqual([
+      "create",
+      "delete",
+      "restore",
+      "update",
+    ]);
     const restoredHistory = listTaskHistory(db, LOCAL_ACTOR, created.id);
-    expect(restoredHistory.map((row) => row.action)).toEqual(["delete", "create"]);
+    expect(restoredHistory.map((row) => row.action)).toEqual([
+      "restore",
+      "delete",
+      "update",
+      "create",
+    ]);
 
     deleteTask(db, LOCAL_ACTOR, created.id);
     const beforePurge = db
@@ -884,7 +906,7 @@ describe("task audit log", () => {
       .all()
       .map((row) => row.action)
       .sort();
-    expect(beforePurge).toEqual(["create", "delete", "delete"]);
+    expect(beforePurge).toEqual(["create", "delete", "delete", "restore", "update"]);
     purgeRecord(db, LOCAL_ACTOR, "task", created.id);
     expect(listTaskHistory(db, LOCAL_ACTOR, created.id)).toEqual([]);
     expect(
@@ -895,7 +917,7 @@ describe("task audit log", () => {
         .all()
         .map((row) => row.action)
         .sort(),
-    ).toEqual(beforePurge);
+    ).toEqual(["create", "delete", "delete", "purge", "restore", "update"]);
 
     const parent = account(db, LOCAL_ACTOR, "Parent Co");
     const child = createTask(db, LOCAL_ACTOR, {
@@ -911,7 +933,15 @@ describe("task audit log", () => {
       .from(auditEvents)
       .where(eq(auditEvents.recordId, child.id))
       .all();
-    expect(childEvents.map((row) => row.action)).toEqual(["create"]);
+    expect(childEvents.map((row) => row.action).sort()).toEqual(["create", "delete"]);
+    expect(childEvents.find((row) => row.action === "delete")).toMatchObject({
+      orgId: LOCAL_ORG_ID,
+      actorId: LOCAL_ACTOR.userId,
+      objectKey: "task",
+    });
+    expect(childEvents.find((row) => row.action === "delete")?.changesJson).toContain(
+      "Cascade call",
+    );
     expect(listTaskHistory(db, LOCAL_ACTOR, child.id)).toEqual([]);
   });
 

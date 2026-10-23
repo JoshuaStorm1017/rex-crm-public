@@ -18,7 +18,10 @@ import { getAccount } from "./accounts";
 import {
   listAuditEvents,
   parseAuditChanges,
+  historyAction,
   recordAudit,
+  showsFieldChanges,
+  type AuditAction,
   type AuditFieldMap,
   type AuditValue,
 } from "./audit";
@@ -93,7 +96,7 @@ export type ContactHistoryChange = {
 
 export type ContactHistoryEntry = {
   id: string;
-  action: "create" | "update" | "delete";
+  action: AuditAction;
   actorId: string;
   actorName: string;
   at: number;
@@ -190,7 +193,7 @@ export function listContactHistory(
   return listAuditEvents(db, actor, "contact", contactId).map((event) => {
     const changes = parseAuditChanges(event.changesJson);
     const visible: ContactHistoryChange[] = [];
-    for (const field of CONTACT_AUDIT_FIELDS) {
+    for (const field of showsFieldChanges(event.action) ? CONTACT_AUDIT_FIELDS : []) {
       const inOld = changes.old ? Object.prototype.hasOwnProperty.call(changes.old, field) : false;
       const inNew = changes.new ? Object.prototype.hasOwnProperty.call(changes.new, field) : false;
       if (event.action === "create" && !inNew) continue;
@@ -211,7 +214,7 @@ export function listContactHistory(
     }
     return {
       id: event.id,
-      action: event.action === "create" || event.action === "delete" ? event.action : "update",
+      action: historyAction(event.action),
       actorId: event.actorId,
       actorName: ownerLabel(db, event.actorId),
       at: event.at,
@@ -506,6 +509,14 @@ export function deleteContact(db: Db, actor: Actor, id: string): void {
         .set({ reportsToId: null, updatedAt: ts })
         .where(and(eq(contacts.id, row.id), eq(contacts.orgId, actor.orgId)))
         .run();
+      recordAudit(tx, actor, {
+        objectKey: "contact",
+        recordId: row.id,
+        action: "update",
+        before: contactAuditValues(row),
+        after: contactAuditValues({ ...row, reportsToId: null }),
+        at: ts,
+      });
     }
     tx.update(contacts)
       .set({ deletedAt: ts, updatedAt: ts })

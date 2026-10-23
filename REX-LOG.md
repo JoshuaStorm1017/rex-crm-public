@@ -1036,7 +1036,7 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
   - M12, no `assertActor` in `getDashboard` only: 2 failed.
   - M12d, no `assertActor` in `getDashboard`, `deleteDashboard` or `canChangeDashboard`: 6 failed.
   - M13, no `assertActor` in `runDashboard` only: 2 failed. It survived until the zero-component board was added.
-  - (Labels corrected 2026-10-23 in the slice 3 PR to match Reviewer 5's table. This entry first had M12 and M12d swapped and called the `runDashboard` mutant M12x. In the reviewer's table, M12x is the four-function drop in `getDashboard`, `deleteDashboard`, `addDashboardComponent` and `canChangeDashboard`.)
+  - (Labels corrected 2026-10-23 in the slice 3 PR to match Rex Reviewer's table. The table is signed by Rex Reviewer; this note credited it to Reviewer 5 until S1-2. This entry first had M12 and M12d swapped and called the `runDashboard` mutant M12x. In the reviewer's table, M12x is the four-function drop in `getDashboard`, `deleteDashboard`, `addDashboardComponent` and `canChangeDashboard`.)
   - QE's org-check mutant, no `orgId` check in `canChangeDashboard`: 2 failed.
   - No Last Modified bump: 1 failed.
 - **Merge:** `origin/main` `aed5639` (#60) merged in, no rebase. The only conflicts were in REX-LOG.md and STATUS.md, and I kept both sides.
@@ -1108,7 +1108,7 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
   - `src/components/DashboardComponents.tsx` shows totals and group bars. An unavailable report shows its title only.
   - The three dashboard server actions call `unstable_rethrow` first in their `catch`. Before this, a signed-out user's `NEXT_REDIRECT` to `/login` was caught and turned into a notice.
   - `leads.ts`: the `persistLeadCreate` comment now says the insert and audit run in a nested transaction (a savepoint). This is Reviewer 5's nit on #40. It changes a comment only.
-  - This file: the #61 entry's mutant labels now match Reviewer 5's table (M12, M12d, M13).
+  - This file: the #61 entry's mutant labels now match Rex Reviewer's table (M12, M12d, M13). (This line said Reviewer 5 until S1-2.)
 - **Tests:** `dashboards/detail.test.ts` (new, 8 tests) covers:
   - the owner's view with money and bar widths
   - a non-owner sees no Delete, add form or picker

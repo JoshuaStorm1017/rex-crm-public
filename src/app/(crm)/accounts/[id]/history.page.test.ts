@@ -247,4 +247,33 @@ describe("account history related list", () => {
     expect(hostile).not.toContain("<img");
     expect(hostile).not.toContain("<b>");
   });
+
+  it("labels restore and purge rows", () => {
+    const html = renderToStaticMarkup(
+      AuditHistory({
+        entries: [
+          {
+            id: "0aeRESTORE",
+            action: "restore",
+            actorId: LOCAL_USER_ID,
+            actorName: "Local Operator",
+            at: Date.UTC(2026, 9, 16, 18, 6),
+            changes: [],
+          },
+          {
+            id: "0aePURGE",
+            action: "purge",
+            actorId: LOCAL_USER_ID,
+            actorName: "Local Operator",
+            at: Date.UTC(2026, 9, 16, 18, 7),
+            changes: [],
+          },
+        ],
+      }),
+    );
+    expect(html).toContain("History (2)");
+    expect(html).toContain("Restored");
+    expect(html).toContain("Purged");
+    expect(html).not.toContain("<ul");
+  });
 });

@@ -38,6 +38,14 @@ import { createValidationRule } from "./validationRules";
 
 const riley = actorFor(RILEY_USER_ID);
 
+/** Audit ids are random within one millisecond, so ordered asserts step past it. */
+function nextMs(): void {
+  const start = Date.now();
+  while (Date.now() === start) {
+    // spin
+  }
+}
+
 function memory(): Db {
   return openMemoryDb().db;
 }
@@ -952,7 +960,7 @@ describe("opportunity audit log", () => {
     expect(JSON.stringify(edited[0])).toContain("Form note");
   });
 
-  it("does not audit change owner or restore, and a converted lead's deal has its own create row", () => {
+  it("audits change owner and restore, and a converted lead's deal has its own create row", () => {
     const db = memory();
     const quarry = account(db, LOCAL_ACTOR, "Owner Co");
     const created = createOpportunity(db, LOCAL_ACTOR, {
@@ -967,6 +975,7 @@ describe("opportunity audit log", () => {
       .from(auditEvents)
       .all()
       .filter((row) => row.recordId === created.id).length;
+    nextMs();
     changeOwner(db, LOCAL_ACTOR, "opportunity", created.id, { newOwnerId: RILEY_USER_ID });
     expect(getOpportunity(db, LOCAL_ACTOR, created.id)?.ownerId).toBe(RILEY_USER_ID);
     expect(
@@ -975,19 +984,31 @@ describe("opportunity audit log", () => {
         .from(auditEvents)
         .all()
         .filter((row) => row.recordId === created.id),
-    ).toHaveLength(beforeOwner);
-    const ownerHistory = JSON.stringify(listOpportunityHistory(db, LOCAL_ACTOR, created.id));
-    expect(ownerHistory).toContain("Local Operator");
-    expect(ownerHistory).not.toContain("Riley Demo");
+    ).toHaveLength(beforeOwner + 1);
+    const ownerHistory = listOpportunityHistory(db, LOCAL_ACTOR, created.id);
+    expect(ownerHistory[0]?.action).toBe("update");
+    expect(ownerHistory[0]?.changes.find((change) => change.field === "ownerId")).toMatchObject({
+      before: "Local Operator",
+      after: "Riley Demo",
+    });
 
     updateOpportunity(db, LOCAL_ACTOR, created.id, { amountCents: 250000 });
+    nextMs();
     deleteOpportunity(db, LOCAL_ACTOR, created.id);
     expect(listOpportunityHistory(db, LOCAL_ACTOR, created.id)).toEqual([]);
     expect(listOpportunityHistory(db, riley, created.id)).toEqual([]);
+    nextMs();
     undeleteRecord(db, LOCAL_ACTOR, "opportunity", created.id);
     const restored = listOpportunityHistory(db, LOCAL_ACTOR, created.id);
-    expect(restored.map((entry) => entry.action)).toEqual(["delete", "update", "create"]);
-    expect(restored[0]?.changes.find((change) => change.field === "amountCents")).toEqual({
+    expect(restored.map((entry) => entry.action)).toEqual([
+      "restore",
+      "delete",
+      "update",
+      "update",
+      "create",
+    ]);
+    expect(restored[0]?.changes).toEqual([]);
+    expect(restored[1]?.changes.find((change) => change.field === "amountCents")).toEqual({
       field: "amountCents",
       label: "Amount",
       before: "$2,500.00",
@@ -1582,7 +1603,7 @@ describe("opportunity audit log", () => {
     expect(restored).not.toContain(secret.id);
   });
 
-  it("does not add a history row when the opportunity is purged", () => {
+  it("records who purged the opportunity, with no field values and no history page", () => {
     const db = memory();
     const other = otherOrg(db);
     const quarry = account(db, LOCAL_ACTOR, "Purge Co");
@@ -1607,7 +1628,15 @@ describe("opportunity audit log", () => {
       .from(auditEvents)
       .all()
       .filter((row) => row.recordId === created.id);
-    expect(after.map((row) => row.action).sort()).toEqual(["create", "delete"]);
+    expect(after.map((row) => row.action).sort()).toEqual(["create", "delete", "purge"]);
+    const purged = after.find((row) => row.action === "purge");
+    expect(purged).toMatchObject({
+      orgId: LOCAL_ORG_ID,
+      actorId: LOCAL_ACTOR.userId,
+      objectKey: "opportunity",
+    });
+    expect(purged?.changesJson).not.toContain("Purge Deal");
+    expect(purged?.changesJson).not.toContain("Purge note");
     expect(listOpportunityHistory(db, LOCAL_ACTOR, created.id)).toEqual([]);
     expect(listOpportunityHistory(db, other.actor, created.id)).toEqual([]);
     expect(JSON.stringify(listOpportunityHistory(db, other.actor, created.id))).not.toContain(

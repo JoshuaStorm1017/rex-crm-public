@@ -31,6 +31,14 @@ import { createValidationRule } from "./validationRules";
 
 const riley = actorFor(RILEY_USER_ID);
 
+/** Audit ids are random within one millisecond, so ordered asserts step past it. */
+function nextMs(): void {
+  const start = Date.now();
+  while (Date.now() === start) {
+    // spin
+  }
+}
+
 function memory(): Db {
   return openMemoryDb().db;
 }
@@ -1112,7 +1120,7 @@ describe("lead audit log", () => {
     expect(listLeadHistory(db, other.actor, created.id)).toEqual([]);
   });
 
-  it("does not audit change owner, convert, or restore, and hides the delete phone after restore", () => {
+  it("audits change owner and restore but not convert, and hides the delete phone after restore", () => {
     const db = memory();
     const created = createLead(db, LOCAL_ACTOR, {
       lastName: "Transferred",
@@ -1124,6 +1132,7 @@ describe("lead audit log", () => {
       .from(auditEvents)
       .all()
       .filter((row) => row.recordId === created.id).length;
+    nextMs();
     changeOwner(db, LOCAL_ACTOR, "lead", created.id, { newOwnerId: RILEY_USER_ID });
     expect(getLead(db, LOCAL_ACTOR, created.id)?.ownerId).toBe(RILEY_USER_ID);
     expect(
@@ -1132,19 +1141,31 @@ describe("lead audit log", () => {
         .from(auditEvents)
         .all()
         .filter((row) => row.recordId === created.id),
-    ).toHaveLength(beforeOwner);
-    const ownerHistory = JSON.stringify(listLeadHistory(db, LOCAL_ACTOR, created.id));
-    expect(ownerHistory).toContain("Local Operator");
-    expect(ownerHistory).not.toContain("Riley Demo");
+    ).toHaveLength(beforeOwner + 1);
+    const ownerHistory = listLeadHistory(db, LOCAL_ACTOR, created.id);
+    expect(ownerHistory[0]?.action).toBe("update");
+    expect(ownerHistory[0]?.changes.find((change) => change.field === "ownerId")).toMatchObject({
+      before: "Local Operator",
+      after: "Riley Demo",
+    });
 
     updateLead(db, LOCAL_ACTOR, created.id, { phone: "555-0109" });
+    nextMs();
     deleteLead(db, LOCAL_ACTOR, created.id);
     expect(listLeadHistory(db, LOCAL_ACTOR, created.id)).toEqual([]);
     expect(listLeadHistory(db, riley, created.id)).toEqual([]);
+    nextMs();
     undeleteRecord(db, LOCAL_ACTOR, "lead", created.id);
     const restored = listLeadHistory(db, LOCAL_ACTOR, created.id);
-    expect(restored.map((entry) => entry.action)).toEqual(["delete", "update", "create"]);
-    expect(restored[0]?.changes.find((change) => change.field === "phone")).toEqual({
+    expect(restored.map((entry) => entry.action)).toEqual([
+      "restore",
+      "delete",
+      "update",
+      "update",
+      "create",
+    ]);
+    expect(restored[0]?.changes).toEqual([]);
+    expect(restored[1]?.changes.find((change) => change.field === "phone")).toEqual({
       field: "phone",
       label: "Phone",
       before: "555-0109",

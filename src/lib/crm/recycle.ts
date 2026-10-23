@@ -13,6 +13,7 @@ import {
 } from "../db/schema";
 import type { Actor } from "./actor";
 import { assertActor, hasModifyAllData } from "./actor";
+import { recordAudit } from "./audit";
 import { RECORD_OBJECT_TYPES, type RecordObjectType } from "./constants";
 import { DomainError } from "./errors";
 import { assertCanAccessRecord, canAccessRecord, canPerform } from "./permissions";
@@ -149,10 +150,20 @@ function restore(
     throw new DomainError("NOT_FOUND", "Record not found");
   }
   assertCanAccessRecord(db, actor, objectType, "delete", existing);
-  db.update(table)
-    .set({ deletedAt: null, updatedAt: ts })
-    .where(and(eq(table.id, id), eq(table.orgId, actor.orgId)))
-    .run();
+  db.transaction((tx) => {
+    tx.update(table)
+      .set({ deletedAt: null, updatedAt: ts })
+      .where(and(eq(table.id, id), eq(table.orgId, actor.orgId)))
+      .run();
+    recordAudit(tx, actor, {
+      objectKey: objectType,
+      recordId: id,
+      action: "restore",
+      before: { deletedAt: existing.deletedAt },
+      after: { deletedAt: null },
+      at: ts,
+    });
+  });
 }
 
 type RecordTable =
@@ -270,6 +281,16 @@ export function purgeRecord(db: Db, actor: Actor, objectType: string, id: string
       if (isForeignKeyViolation(error)) throw hasChildren();
       throw error;
     }
+    // Who purged what, and when. No field values: the delete row already
+    // holds them, and a purge should not copy the record again.
+    recordAudit(tx, actor, {
+      objectKey: objectType,
+      recordId: id,
+      action: "purge",
+      before: null,
+      after: null,
+      at: Date.now(),
+    });
   });
 }
 

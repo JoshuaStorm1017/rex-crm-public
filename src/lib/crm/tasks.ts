@@ -18,7 +18,10 @@ import { DomainError } from "./errors";
 import {
   listAuditEvents,
   parseAuditChanges,
+  historyAction,
   recordAudit,
+  showsFieldChanges,
+  type AuditAction,
   type AuditFieldMap,
   type AuditValue,
 } from "./audit";
@@ -81,7 +84,7 @@ export type TaskHistoryChange = {
 
 export type TaskHistoryEntry = {
   id: string;
-  action: "create" | "update" | "delete";
+  action: AuditAction;
   actorId: string;
   actorName: string;
   at: number;
@@ -349,7 +352,7 @@ export function listTaskHistory(
   return listAuditEvents(db, actor, "task", taskId).map((event) => {
     const changes = parseAuditChanges(event.changesJson);
     const visible: TaskHistoryChange[] = [];
-    for (const field of TASK_AUDIT_FIELDS) {
+    for (const field of showsFieldChanges(event.action) ? TASK_AUDIT_FIELDS : []) {
       const inOld = changes.old
         ? Object.prototype.hasOwnProperty.call(changes.old, field)
         : false;
@@ -374,7 +377,7 @@ export function listTaskHistory(
     }
     return {
       id: event.id,
-      action: event.action === "create" || event.action === "delete" ? event.action : "update",
+      action: historyAction(event.action),
       actorId: event.actorId,
       actorName: ownerLabel(db, event.actorId),
       at: event.at,
@@ -622,7 +625,7 @@ export function deleteTasksForRecord(
   // never deleted, changed, or left pointing at a deleted parent. Every
   // task is checked before anything is written. The message does not
   // name the task.
-  const deletable: string[] = [];
+  const deletable: Task[] = [];
   for (const task of related) {
     // Record delete access implies record read under sharing (owner,
     // hierarchy, or public read/write all grant read), but profile delete
@@ -636,15 +639,24 @@ export function deleteTasksForRecord(
         "Cannot delete this record while other records still depend on it",
       );
     }
-    deletable.push(task.id);
+    deletable.push(task);
   }
   if (deletable.length === 0) return;
-  deleteCustomValuesForRecords(db, actor, deletable);
+  deleteCustomValuesForRecords(db, actor, deletable.map((task) => task.id));
   const ts = now();
-  for (const id of deletable) {
+  // Each cascaded task gets its own delete row, in the parent's transaction.
+  for (const task of deletable) {
     db.update(tasks)
       .set({ deletedAt: ts, updatedAt: ts })
-      .where(and(eq(tasks.id, id), eq(tasks.orgId, actor.orgId)))
+      .where(and(eq(tasks.id, task.id), eq(tasks.orgId, actor.orgId)))
       .run();
+    recordAudit(db, actor, {
+      objectKey: "task",
+      recordId: task.id,
+      action: "delete",
+      before: taskAuditValues(task),
+      after: null,
+      at: ts,
+    });
   }
 }
