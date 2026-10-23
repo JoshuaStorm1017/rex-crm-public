@@ -23,6 +23,7 @@ import { createProfile, setFieldPermission, setObjectPermission } from "@/lib/cr
 import { createProduct } from "@/lib/crm/products";
 import { createUser, getUser, type PublicUser } from "@/lib/crm/users";
 import { getDb, openMemoryDb, type Db } from "@/lib/db/client";
+import { OpportunityLineItems } from "@/components/OpportunityLineItems";
 import OpportunityDetailPage from "./page";
 
 const FULL = { canCreate: true, canRead: true, canUpdate: true, canDelete: true } as const;
@@ -118,5 +119,19 @@ describe("opportunity line edit form", () => {
     const page = await html(opp.id);
     expect(page).not.toContain("<script>alert(1)</script>");
     expect(page).toContain('aria-label="Quantity for Anvil &quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;"');
+  });
+
+  it("never renders a price box for a hidden price, even if the caller says it can be set", () => {
+    const markup = renderToStaticMarkup(OpportunityLineItems({
+      opportunityId: "006x",
+      lines: [{ id: "00kx", productId: "01tx", productName: "Painted Anvil", quantity: 2, unitPriceCents: null, totalCents: null }],
+      products: [],
+      canEdit: true,
+      canReadProducts: true,
+      showSalePrice: false,
+      canSetSalePrice: true,
+    }));
+    expect(markup).toContain(EDIT_MARK);
+    expect(markup).not.toContain(PRICE_MARK);
   });
 });

@@ -4,6 +4,10 @@ vi.mock("./audit", async () => {
   const actual = await vi.importActual<typeof import("./audit")>("./audit");
   return { ...actual, recordAudit: vi.fn(actual.recordAudit) };
 });
+vi.mock("./permissions", async () => {
+  const actual = await vi.importActual<typeof import("./permissions")>("./permissions");
+  return { ...actual, canEditField: vi.fn(actual.canEditField) };
+});
 
 import { eq } from "drizzle-orm";
 import { openMemoryDb, type Db } from "../db/client";
@@ -22,11 +26,14 @@ import {
   updateLineItem,
 } from "./opportunityLineItems";
 import { addMember, createOrganization } from "./orgs";
+import { canEditField } from "./permissions";
 import { createProduct } from "./products";
 import { createProfile, setFieldPermission, setObjectPermission } from "./profiles";
 import { saveOrgWideDefaults } from "./sharing";
 import { createUser, disableUser } from "./users";
 
+const { canEditField: realCanEditField } =
+  await vi.importActual<typeof import("./permissions")>("./permissions");
 const FULL = { canCreate: true, canRead: true, canUpdate: true, canDelete: true } as const;
 const RILEY = actorFor(RILEY_USER_ID, LOCAL_ORG_ID);
 
@@ -252,6 +259,14 @@ describe("updateLineItem", () => {
     );
   });
 
+  it("checks the actor before looking up the line", () => {
+    const s = setup();
+    const actor = seller(s.db, "gone", { price: { canRead: true, canEdit: true } });
+    disableUser(s.db, actor.userId);
+    refused(s, () => updateLineItem(s.db, actor, "00kmissing", { quantity: 1 }), "FORBIDDEN");
+    refused(s, () => updateLineItem(s.db, actor, s.line.id, { quantity: 0 }), "FORBIDDEN");
+  });
+
   it("refuses a missing line, a deleted opportunity, a suspended org and a disabled user", () => {
     const s = setup();
     refused(s, () => updateLineItem(s.db, LOCAL_ACTOR, "00kmissing", { quantity: 1 }), "NOT_FOUND");
@@ -284,6 +299,18 @@ describe("updateLineItem", () => {
     const actor = seller(s.db, "blind", { price: { canRead: false, canEdit: true } });
     const { line } = sellerDeal(s, actor);
     refused(s, () => updateLineItem(s.db, actor, line.id, { quantity: 1, unitPriceCents: 1 }), "FORBIDDEN");
+  });
+
+  it("refuses a price the seller cannot read even if the edit check says yes", () => {
+    const s = setup();
+    const actor = seller(s.db, "regress", { price: { canRead: false, canEdit: false } });
+    const { line } = sellerDeal(s, actor);
+    vi.mocked(canEditField).mockReturnValue(true);
+    try {
+      refused(s, () => updateLineItem(s.db, actor, line.id, { quantity: 1, unitPriceCents: 1 }), "FORBIDDEN");
+    } finally {
+      vi.mocked(canEditField).mockImplementation(realCanEditField);
+    }
   });
 
   it("refuses a price from a seller who can read but not edit it", () => {
