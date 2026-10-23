@@ -230,8 +230,9 @@ export function countLeads(db: Db, actor: Actor): number {
 }
 
 /**
- * Create body without its own transaction. Callers must already be inside one
- * (assignment advances the round-robin cursor before validation runs).
+ * Create body. Callers must already be inside a transaction (assignment
+ * advances the round-robin cursor before validation runs); the insert and its
+ * audit row run in a nested transaction (a savepoint) inside the caller's.
  * It checks the actor itself, so no caller can skip that gate.
  */
 export function persistLeadCreate(
