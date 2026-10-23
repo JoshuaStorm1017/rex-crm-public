@@ -2377,3 +2377,8 @@ fresh verification evidence for each slice.
 
 - WORKS (verified 2026-10-17 03:26 EDT, `npm run verify` exit 0 on Node v22.23.3, 1552/1552 tests across 125 files, Next.js 16.3.5 build): this branch contains `origin/main` at `f6c0b69` (write API v0, migration 0056, and the opportunity product list) and this branch's posted-price rule. The page renders `OpportunityLineItems`. A posted unit price requires product update via `canEditField`, so a product reader cannot store an override and the price box stays hidden. Omitting the price stores the standard price. A hidden product name stays off the page and the picker still offers the product. `parseUsdToCents` refuses `$`, `,`, a third decimal, `1e2`, and `0x10`. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
 - Not done: line items do not roll into Opportunity Amount. No edit of an existing line. No bearer token. The read API still returns a lookup id when the related record is unreadable.
+
+## 2026-10-23 — P0-5, custom field read permission
+
+- WORKS (verified 2026-10-23 11:18 EDT, `npm run verify` exit 0 on `4ef4925`, 1580/1580 tests across 128 files, Next.js build): `getCustomValues` drops any custom field the viewer's profile marks not readable, so the lead, account, contact, opportunity and task detail pages (and the edit form, and the value `setCustomValues` returns) no longer show it. Admins still see every field. `deleteCustomValuesForRecord` deletes only rows in the actor's org. No browser pass.
+- Not done: list views, reports and the read API do not show custom values today, so there was nothing to filter there. On #60 (not yet on main), a required custom field the user cannot edit is skipped, so "required" is not enforced for that user.
