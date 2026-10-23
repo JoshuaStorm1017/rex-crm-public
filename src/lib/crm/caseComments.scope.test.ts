@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
 import * as schema from "../db/schema";
-import { caseComments } from "../db/schema";
+import { caseComments, organizations } from "../db/schema";
 import { LOCAL_ACTOR, actorFor } from "./actor";
 import { createAccount } from "./accounts";
 import { addCaseComment, deleteCaseComment, listCaseComments, type CaseCommentInput } from "./caseComments";
@@ -103,4 +103,32 @@ describe("the deleteCaseComment DELETE statement is org-scoped (C5)", () => {
     deleteCaseComment(db, LOCAL_ACTOR, kase.id, c.id);
     expect(rowsIn(db, LOCAL_ORG_ID)).toEqual([]);
   });
+});
+
+describe("addCaseComment checks the actor before validating input (R3-A1)", () => {
+  const badBodies: Array<[string, string]> = [
+    ["a blank body", "   "],
+    ["a 4001-character body", "x".repeat(4001)],
+  ];
+
+  for (const [label, body] of badBodies) {
+    it(`a non-member gets FORBIDDEN, not INVALID_INPUT, for ${label}, and nothing is written`, () => {
+      const { db, kase, outsider } = setup();
+      // outsider owns another org but is not a member of the case's org.
+      const intruder = actorFor(outsider.id, LOCAL_ORG_ID);
+      expect(() => addCaseComment(db, intruder, { caseId: kase.id, body })).toThrow(
+        expect.objectContaining({ code: "FORBIDDEN" }),
+      );
+      expect(db.select().from(caseComments).all()).toEqual([]);
+    });
+
+    it(`a suspended-org actor gets FORBIDDEN, not INVALID_INPUT, for ${label}, and nothing is written`, () => {
+      const { db, kase } = setup();
+      db.update(organizations).set({ status: "suspended" }).where(eq(organizations.id, LOCAL_ORG_ID)).run();
+      expect(() => addCaseComment(db, LOCAL_ACTOR, { caseId: kase.id, body })).toThrow(
+        expect.objectContaining({ code: "FORBIDDEN" }),
+      );
+      expect(db.select().from(caseComments).all()).toEqual([]);
+    });
+  }
 });
