@@ -184,10 +184,11 @@ describe("drizzle journal", () => {
       sqlite.pragma("foreign_keys = ON");
       applyEntries(sqlite, prior);
       insertLegacyRows(sqlite);
-      const tablesBefore = sqlite.prepare("SELECT count(*) AS n FROM sqlite_master").get() as { n: number };
+      const applied = () => (sqlite.prepare("SELECT count(*) AS n FROM __drizzle_migrations").get() as { n: number }).n;
+      expect(applied()).toBe(prior.length);
       migrate(drizzle(sqlite), { migrationsFolder });
-      const tablesAfter = sqlite.prepare("SELECT count(*) AS n FROM sqlite_master").get() as { n: number };
-      expect(tablesAfter.n).toBeGreaterThan(tablesBefore.n);
+      // The newest (0058) is a data backfill, so count applied migrations, not tables.
+      expect(applied()).toBe(journal.entries.length);
       const account = sqlite.prepare("SELECT org_id FROM accounts WHERE id = ?").get("001MIGRATE") as { org_id: string };
       expect(account.org_id).toBe("00D000000000LOCALORG0001");
     } finally {

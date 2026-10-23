@@ -28,6 +28,7 @@ export type CustomFormField = {
   required?: boolean;
   placeholder?: string;
   helpText?: string | null;
+  readOnly?: boolean;
 };
 
 function inputType(

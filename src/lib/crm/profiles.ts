@@ -157,32 +157,14 @@ export function readFieldAccess(
         .all()
     : [];
   const byName = new Map(rows.map((row) => [row.fieldName, row]));
-  // Amount is the sum of the products' sale prices (S1-5), so a profile that
-  // closes Sales Price also closes Amount; otherwise price = Amount / quantity.
-  const amountHidden =
-    objectType === "opportunity" &&
-    !!member?.profileId &&
-    db
-      .select({ canRead: profileFieldPermissions.canRead })
-      .from(profileFieldPermissions)
-      .where(
-        and(
-          eq(profileFieldPermissions.profileId, member.profileId),
-          eq(profileFieldPermissions.objectType, "product"),
-          eq(profileFieldPermissions.fieldName, "standardPriceCents"),
-        ),
-      )
-      .get()?.canRead === false;
   return {
     canRead(fieldName: string) {
       if (SYSTEM_FIELDS.has(fieldName)) return true;
-      if (amountHidden && fieldName === "amountCents") return false;
       const row = byName.get(fieldName);
       return row ? row.canRead : true;
     },
     canEdit(fieldName: string) {
       if (SYSTEM_FIELDS.has(fieldName)) return false;
-      if (amountHidden && fieldName === "amountCents") return false;
       const row = byName.get(fieldName);
       if (row && !row.canRead) return false;
       return row ? row.canEdit : true;

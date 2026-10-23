@@ -218,6 +218,13 @@
       "when": 1792762767455,
       "tag": "0057_case_comments",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1792799315770,
+      "tag": "0058_amount_rollup_backfill",
+      "breakpoints": true
     }
   ]
 }

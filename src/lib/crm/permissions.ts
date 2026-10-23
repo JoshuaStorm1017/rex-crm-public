@@ -144,7 +144,24 @@ export function fieldAccess(
   actor: Actor,
   object: CrmObject,
 ): FieldAccess {
-  return readFieldAccess(db, actor, object);
+  const access = readFieldAccess(db, actor, object);
+  if (object !== "opportunity") return access;
+  // S1-5: Amount is the sum of the lines' sale prices, so it follows the
+  // Sales Price rule exactly (else price = Amount / quantity). Expected
+  // Revenue is Amount × probability, so it follows Amount.
+  const priceRead = canReadField(db, actor, "product", "standardPriceCents");
+  const amountRead = priceRead && access.canRead("amountCents");
+  return {
+    canRead(fieldName: string) {
+      if (fieldName === "amountCents") return amountRead;
+      if (fieldName === "expectedRevenueCents") return amountRead && access.canRead(fieldName);
+      return access.canRead(fieldName);
+    },
+    canEdit(fieldName: string) {
+      if (fieldName === "amountCents" && !priceRead) return false;
+      return access.canEdit(fieldName);
+    },
+  };
 }
 
 export function canReadField(

@@ -339,6 +339,8 @@ describe("opportunity audit log", () => {
     );
 
     const profileId = createProfile(db, LOCAL_ACTOR, "Opportunity Flags");
+    // S1-5: Amount follows the Sales Price rule, which needs product read.
+    setObjectPermission(db, LOCAL_ACTOR, profileId, "product", { canCreate: false, canRead: true, canUpdate: false, canDelete: false });
     setObjectPermission(db, LOCAL_ACTOR, profileId, "opportunity", {
       canCreate: true,
       canRead: true,

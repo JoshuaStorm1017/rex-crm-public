@@ -159,7 +159,8 @@ function storedOpportunity(
     .get();
 }
 
-function hasLineItems(db: Db, actor: Actor, opportunityId: string): boolean {
+/** True when the opportunity has a product line in the actor's org. */
+export function hasLineItems(db: Db, actor: Actor, opportunityId: string): boolean {
   const row = db
     .select({ id: opportunityLineItems.id })
     .from(opportunityLineItems)

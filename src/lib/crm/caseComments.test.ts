@@ -159,7 +159,7 @@ describe("case comments (SVC-CASE-002)", () => {
       const journal = JSON.parse(readFileSync("drizzle/meta/_journal.json", "utf8")) as { entries: { tag: string }[] };
       const tags = journal.entries.map((e) => e.tag);
       const stop = tags.indexOf("0056_api_idempotency");
-      expect(tags.slice(stop + 1)).toEqual(["0057_case_comments"]);
+      expect(tags[stop + 1]).toBe("0057_case_comments");
       const run = (tag: string) => {
         for (const s of readFileSync(`drizzle/${tag}.sql`, "utf8").split("--> statement-breakpoint")) {
           if (s.trim()) sqlite.exec(s.trim());

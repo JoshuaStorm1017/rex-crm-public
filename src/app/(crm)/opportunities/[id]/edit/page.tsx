@@ -5,7 +5,7 @@ import { updateOpportunityAction } from "../../actions";
 import { EditDenied } from "@/components/EditDenied";
 import { RecordForm } from "@/components/RecordForm";
 import { getAccount } from "@/lib/crm/accounts";
-import { getOpportunity } from "@/lib/crm/opportunities";
+import { getOpportunity, hasLineItems } from "@/lib/crm/opportunities";
 import {
   OPPORTUNITY_STAGES,
   OPPORTUNITY_TYPES,
@@ -36,6 +36,7 @@ export default async function EditOpportunityPage({
   }
   const action = updateOpportunityAction.bind(null, opportunity.id);
   const account = getAccount(db, actor, opportunity.accountId);
+  const rolledUp = hasLineItems(db, actor, opportunity.id);
 
   return (
     <div className="space-y-4">
@@ -79,6 +80,10 @@ export default async function EditOpportunityPage({
               name: "amount",
               label: "Amount (USD)",
               defaultValue: centsToInput(opportunity.amountCents),
+              readOnly: rolledUp,
+              helpText: rolledUp
+                ? "Rolled up from the products on this opportunity. Edit the products to change it."
+                : undefined,
             },
             {
               name: "probability",
