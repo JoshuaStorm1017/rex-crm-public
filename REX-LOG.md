@@ -917,3 +917,18 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Verify:** `npm run verify` exit 0 at 03:26 EDT on Node v22.23.3. typegen, tsc, eslint, 125 files, 1552 tests, Next.js 16.3.5 build. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
 - **Not done:** line items do not roll into Opportunity Amount. No edit of an existing line. No bearer token. The read API still returns a lookup id when the related record is unreadable.
 - **Next:** Sprint 1 items 5 and 6 (amount rollup, dashboard pages) belong to the other lane. The next platform piece is custom objects, or hiding a lookup id the actor cannot read.
+
+## 2026-10-23 10:46 EDT — P0-4, custom fields follow field-level edit
+
+- **What:** `setCustomValues` refuses (`FORBIDDEN`, the same rule as `assertEditableFields`) any supplied value for a custom field the actor cannot edit. A non-editable field that was not supplied keeps its stored value instead of being cleared. `applyCustomFieldsFromForm` parses only fields the actor can edit, plus any non-editable input that was posted anyway, so a forged `cf__X` is refused and an omitted hidden field (including a checkbox) is left alone.
+- **Why:** QE P0-4. A forged `cf__X` for a read-only field was stored on create, and saving the edit form cleared every custom field the form did not render.
+- **Tests:** QE's `leads/actions.customFieldFls.test.ts` (2, applied unchanged) and `customFields.fls.test.ts` (5). With the fix reverted, 6 of 7 fail (the admin no-rows test passes either way by design). Mutants killed: no refusal (3 fail), no keep (3 fail), parse every field (2 fail), ignore posted non-editable inputs (2 fail).
+- **Verify:** `npm run verify` exit 0 at 10:45 EDT on `13cebb1`, Node 22, 128 files, 1577 tests, Next.js build. `.next` removed afterwards. No browser pass.
+- **Not done:** the read API and write API custom-field paths were not reviewed in this change. Object-level edit is still checked by the record write, not here.
+
+## 2026-10-23 11:04 EDT — P0-4 follow-up, write API and custom fields
+
+- **What:** audited every write route under `src/app/api` (only `POST /api/v1/objects/{apiName}/records`, `PATCH` and `DELETE .../{id}`). All go through `src/lib/crm/apiWrites.ts`, where `decodeFields` accepts only the standard `WRITABLE` fields and throws `INVALID_INPUT` for anything else. Nothing in `apiWrites.ts` or the domain create/update functions touches `customFieldValues`; only `customFields.ts` (fixed in this PR), `recycle.ts` purge (record-level delete), the seed, and the five `(crm)` server actions do. **No hole:** a user cannot set a custom field they cannot edit through the API, and cannot clear one by leaving it out of an update. No product code changed.
+- **Tests:** `src/app/api/v1/objects/[apiName]/records/customFields.route.test.ts` (3). A restricted user (Locked__c read-only) gets 400 for a forged `Locked__c`, `cf__Locked__c` or `customFields` key on create (no lead, no value row) and on update (stored value kept). A `PATCH` of `phone` only, by the restricted user and then by the admin, keeps both `Locked__c` and the editable `Open__c`. The tests pass with no fix because there is no hole, so there was no fix to revert. To show they would catch one, I ran mutants: M1 (`decodeFields` lets unknown keys through) fails 2 of 3, and M2 (the API update deletes the record's custom values) fails 1 of 3.
+- **Verify:** `npm run verify` exit 0 at 11:04 EDT on `02bf669`, Node 22, 129 files, 1580 tests, Next.js build. `.next` removed afterwards. No browser pass.
+- **Not done:** the API cannot set custom fields for any user. If that is added later, it must reuse `setCustomValues` so the field-level check applies.
