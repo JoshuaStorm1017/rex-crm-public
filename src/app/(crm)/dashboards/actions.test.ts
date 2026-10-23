@@ -2,11 +2,15 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("next/navigation", () => ({
-  redirect: vi.fn((to: string) => {
-    throw new Error(`REDIRECT ${to}`);
-  }),
-}));
+vi.mock("next/navigation", async () => {
+  const actual = await vi.importActual<typeof import("next/navigation")>("next/navigation");
+  return {
+    unstable_rethrow: actual.unstable_rethrow,
+    redirect: vi.fn((to: string) => {
+      throw new Error(`REDIRECT ${to}`);
+    }),
+  };
+});
 vi.mock("@/lib/crm/currentUser", () => ({ requireActor: vi.fn() }));
 vi.mock("@/lib/db/client", async () => {
   const actual = await vi.importActual<typeof import("@/lib/db/client")>(
