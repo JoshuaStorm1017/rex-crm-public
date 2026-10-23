@@ -2389,3 +2389,10 @@ fresh verification evidence for each slice.
 
 - WORKS (verified 2026-10-23 10:50 EDT, `npm run verify` exit 0 on `80da3d3`, 1590/1590 tests across 127 files, Next.js build): `/dashboards` lists only the actor's org dashboards, leaves out deleted ones, and escapes names and notices. `/dashboards/new` creates a dashboard. `deleteDashboardAction` deletes for the owner or a modify-all admin and redirects with a notice otherwise. `canChangeDashboard` is false for a soft-deleted dashboard. No browser pass.
 - Not done: no dashboard detail page yet (slice 3), so a list link leads to a 404, and no page offers delete yet.
+
+## 2026-10-23 — #61, dashboard actor checks and Last Modified
+
+- WORKS (verified 2026-10-23 12:02 EDT, `npm run verify` exit 0 on `abbf618`, 1612/1612 tests across 132 files, Next.js build):
+  - Viewing, running, changing or deleting a dashboard is refused (FORBIDDEN) for a disabled user or a member of a suspended org, including a board with no components.
+  - Adding a component updates the dashboard's Last Modified.
+- Not done: dashboard detail page and components UI (slice 3, held). Signed-out handling in the dashboard actions.

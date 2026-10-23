@@ -955,3 +955,26 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Backlog for #58 slice 3 (detail page and components), from Reviewer 5:**
   - (a) Adding a component does not update the dashboard's Last Modified (`updatedAt` and `updatedBy`).
   - (b) A mutant that removes `assertActor` from `getDashboard` survives. Slice 3 should add FORBIDDEN tests for a deactivated user and a suspended org, and give `runDashboard` its own `assertActor` check. `getDashboard` and `runDashboard` are on main as of #59, so (b) is folded into slice 3.
+
+## 2026-10-23 12:03 EDT — #61: dashboard actor checks, Last Modified, QE #59 tests
+
+- **What:** Reviewer 5 (a) and (b) and Rex Reviewer's delete-path findings, pulled into #61 from the slice 3 backlog. Slice 3 itself is on hold (local only).
+  - `getDashboard` and `runDashboard` each call `assertActor` and then share an unchecked `liveDashboard` loader, so neither check hides behind the other.
+  - `addDashboardComponent` sets the dashboard's `updatedAt` and `updatedBy` in the same transaction as the insert. A refused add changes nothing.
+  - `deleteDashboard` and `canChangeDashboard` already called `assertActor`. Only tests were added there.
+- **Tests:**
+  - `dashboards.actorGuard.test.ts` (5):
+    - A deactivated user and a suspended-org user get FORBIDDEN from `getDashboard` and `runDashboard`, on a board with components and on one with zero components. `runReport`'s own check masks the non-empty case.
+    - A disabled owner and an owning member of a suspended org get FORBIDDEN from `canChangeDashboard` and `deleteDashboard`, and the row is unchanged (`deletedAt` stays null).
+    - Last Modified moves to the adder and time on add, and stays put on a refused add.
+  - `actions.test.ts` (+2): `deleteDashboardAction` for the same two actors redirects with the FORBIDDEN notice and leaves the row unchanged.
+  - QE's `pr59-dashboards-html-and-canchange.patch` was applied unchanged as `dashboards.qe59.test.ts` (2), and both pass.
+- **Mutants killed** (focused run, 45 tests):
+  - M12, no `assertActor` in `getDashboard`, `deleteDashboard` or `canChangeDashboard`: 6 failed.
+  - M12d, no `assertActor` in `getDashboard` only: 2 failed.
+  - M12x, no `assertActor` in `runDashboard`: 2 failed. It survived until the zero-component board was added.
+  - QE's org-check mutant, no `orgId` check in `canChangeDashboard`: 2 failed.
+  - No Last Modified bump: 1 failed.
+- **Merge:** `origin/main` `aed5639` (#60) merged in, no rebase. The only conflicts were in REX-LOG.md and STATUS.md, and I kept both sides.
+- **Verify:** `npm run verify` exit 0 at 12:02 EDT on the merge `abbf618`, Node 22, 132 files, 1612 tests, Next.js build. `.next` removed afterwards. No browser pass.
+- **Still open:** signed-out redirect handling in the dashboard actions (slice 3).
