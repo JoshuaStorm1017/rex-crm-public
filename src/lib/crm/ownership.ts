@@ -11,6 +11,7 @@ import {
 } from "../db/schema";
 import type { Actor } from "./actor";
 import { assertActor } from "./actor";
+import { auditSnapshot, recordAudit } from "./audit";
 import { DomainError } from "./errors";
 import { recordLabel } from "./objects";
 import { STANDARD_OBJECT_KEYS } from "./registry";
@@ -449,6 +450,15 @@ function writeOwner(
   };
   const prepared = prepareWrite(db, actor, objectType, next, "update");
   const values = withoutId(prepared as { id: string });
+  // Same transaction as the owner write: a failed insert rolls both back.
+  recordAudit(db, actor, {
+    objectKey: objectType,
+    recordId: row.id,
+    action: "update",
+    before: auditSnapshot(row),
+    after: auditSnapshot(prepared),
+    at: ts,
+  });
   const whereId = row.id;
   const whereOrg = row.orgId;
   switch (objectType) {

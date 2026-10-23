@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-23, test-only: system fields (id, orgId, ownerId, createdBy, ...) are never editable through field security, and forged values are ignored (kills mutant N3).
+Last updated: 2026-10-23, S1-2 audit gaps: change owner, restore, purge, cascaded task deletes and the Reports To clear now write audit rows (verify exit 0, 1714 tests).
 
 The sections dated 2026-10-11 describe the tree verified that day.
 Contact delete no longer clears every junction row or every Reports To
@@ -2457,6 +2457,12 @@ fresh verification evidence for each slice.
 
   This closes the "no detail page" and "signed-out handling" gaps listed above. No browser pass.
 - Not done: no browser pass of the dashboard pages. No component edit, reorder or remove.
+
+## 2026-10-23 — S1-2 audit gaps (Rex Grok Coder)
+
+- WORKS (verified 2026-10-23 17:35–17:37 EDT, Node v22.23.3, `npm run verify` exit 0 on `d116894`, 146 files, 1714 tests, Next.js build, pinned private copy): change owner writes one `update` row per moved record, cascaded account/contact/opportunity/task rows included, holding only the changed `ownerId`. Restore writes a `restore` row (`deletedAt` old to null) for all five objects in the same transaction as the restore. Purge writes a `purge` row with the org, actor, object and id and no field values. A parent delete writes a `delete` row per cascaded task. A deleted manager's Reports To clear writes a contact `update` row. Every row carries the actor's org and id; another org reads none of them. Refused owner changes, restores and purges (wrong org, private record, not deleted, already owner, children, non-admin) write nothing, and a forced audit-insert failure rolls the write back. History pages label Restored and Purged and list no field changes for them.
+- Mutation: 27 mutants on the touched audit code, 27 killed after one added test (`auditSnapshot` keeps numbers); all 22 security mutants killed. Log: `s12-mut.log` (outside the repo).
+- Not done: lead conversion's status change still writes no lead row. Setup changes are not audited. No browser pass; page checks are `renderToStaticMarkup`.
 
 ## 2026-10-23 — S1-4 edit an existing opportunity line item
 

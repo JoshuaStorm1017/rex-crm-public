@@ -2,6 +2,8 @@ const ACTION_LABEL = {
   create: "Created",
   update: "Updated",
   delete: "Deleted",
+  restore: "Restored",
+  purge: "Purged",
 } as const;
 
 type HistoryAction = keyof typeof ACTION_LABEL;

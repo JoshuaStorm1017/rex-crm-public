@@ -204,10 +204,13 @@ describe("lead history related list", () => {
     deleteLead(db, LOCAL_ACTOR, created.id);
     await expect(renderLead(created.id)).rejects.toThrow("NOT_FOUND");
 
+    await new Promise((resolve) => setTimeout(resolve, 5));
     undeleteRecord(db, LOCAL_ACTOR, "lead", created.id);
     const html = await renderLead(created.id);
     const history = html.slice(html.indexOf("History ("));
-    expect(history.startsWith("History (3)")).toBe(true);
+    expect(history.startsWith("History (4)")).toBe(true);
+    expect(history.indexOf("Restored")).toBeGreaterThan(-1);
+    expect(history.indexOf("Restored")).toBeLessThan(history.indexOf("Deleted"));
     expect(history.indexOf("Deleted")).toBeLessThan(history.indexOf("Updated"));
     expect(history.indexOf("Updated")).toBeLessThan(history.indexOf("Created"));
     expect(history).toContain("Phone: 555-0189");

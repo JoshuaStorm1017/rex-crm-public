@@ -37,6 +37,14 @@ import { createValidationRule } from "./validationRules";
 
 const riley = actorFor(RILEY_USER_ID);
 
+/** Audit ids are random within one millisecond, so ordered asserts step past it. */
+function nextMs(): void {
+  const start = Date.now();
+  while (Date.now() === start) {
+    // spin
+  }
+}
+
 function memory(): Db {
   return openMemoryDb().db;
 }
@@ -1311,16 +1319,18 @@ describe("contact audit log", () => {
     expect(JSON.stringify(listContactHistory(db, other.actor, report.id))).not.toContain("Report");
     expect(getContact(db, LOCAL_ACTOR, manager.id)?.name).toBe("Lead");
 
+    nextMs();
     undeleteRecord(db, LOCAL_ACTOR, "contact", report.id);
     const history = listContactHistory(db, LOCAL_ACTOR, report.id);
-    expect(history.map((entry) => entry.action)).toEqual(["delete", "update", "create"]);
-    expect(history[0]?.changes.find((change) => change.field === "phone")).toEqual({
+    expect(history.map((entry) => entry.action)).toEqual(["restore", "delete", "update", "create"]);
+    expect(history[0]?.changes).toEqual([]);
+    expect(history[1]?.changes.find((change) => change.field === "phone")).toEqual({
       field: "phone",
       label: "Phone",
       before: "555-0109",
       after: null,
     });
-    expect(history[0]?.changes.find((change) => change.field === "name")?.before).toBe("Report");
+    expect(history[1]?.changes.find((change) => change.field === "name")?.before).toBe("Report");
     expect(JSON.stringify(history)).not.toContain(account.id);
 
     const profileId = createProfile(db, LOCAL_ACTOR, "Restore No Phone");
@@ -1348,7 +1358,7 @@ describe("contact audit log", () => {
     expect(readerView).not.toContain("555-0101");
   });
 
-  it("does not audit an owner change, and does not clear or name an unreadable report", () => {
+  it("audits an owner change, and does not clear or name an unreadable report", () => {
     const db = memory();
     const account = createAccount(db, LOCAL_ACTOR, { name: "Owner Co" });
     const created = createContact(db, LOCAL_ACTOR, {
@@ -1357,12 +1367,22 @@ describe("contact audit log", () => {
       phone: "555-0104",
     });
     const beforeOwner = db.select().from(auditEvents).all().length;
+    nextMs();
     changeOwner(db, LOCAL_ACTOR, "contact", created.id, { newOwnerId: RILEY_USER_ID });
     expect(getContact(db, LOCAL_ACTOR, created.id)?.ownerId).toBe(RILEY_USER_ID);
-    expect(db.select().from(auditEvents).all()).toHaveLength(beforeOwner);
-    const ownerHistory = JSON.stringify(listContactHistory(db, LOCAL_ACTOR, created.id));
-    expect(ownerHistory).toContain("Local Operator");
-    expect(ownerHistory).not.toContain("Riley Demo");
+    const ownerRows = db.select().from(auditEvents).all().slice(beforeOwner);
+    expect(ownerRows).toHaveLength(1);
+    expect(ownerRows[0]).toMatchObject({
+      orgId: LOCAL_ORG_ID,
+      actorId: LOCAL_ACTOR.userId,
+      objectKey: "contact",
+      recordId: created.id,
+      action: "update",
+    });
+    const ownerHistory = listContactHistory(db, LOCAL_ACTOR, created.id);
+    expect(ownerHistory[0]?.changes).toEqual([
+      expect.objectContaining({ field: "ownerId", before: "Local Operator", after: "Riley Demo" }),
+    ]);
 
     setOrgWideDefault(db, LOCAL_ACTOR, "contact", "private", true);
     const hidden = createContact(db, LOCAL_ACTOR, {
@@ -1403,10 +1423,25 @@ describe("contact audit log", () => {
         (change) => change.field === "reportsToId",
       )?.after,
     ).toBe("Boss");
+    nextMs();
     deleteContact(db, LOCAL_ACTOR, boss.id);
     expect(getContact(db, LOCAL_ACTOR, readable.id)?.reportsToId).toBeNull();
     const readableHistory = listContactHistory(db, LOCAL_ACTOR, readable.id);
-    expect(readableHistory.map((entry) => entry.action)).toEqual(["create"]);
+    expect(readableHistory.map((entry) => entry.action)).toEqual(["update", "create"]);
+    expect(readableHistory[0]?.actorName).toBe("Local Operator");
+    // The deleted manager is unreadable, so the page names no one.
+    expect(readableHistory[0]?.changes).toEqual([]);
+    const clearRow = db
+      .select()
+      .from(auditEvents)
+      .all()
+      .filter((row) => row.recordId === readable.id && row.action === "update");
+    expect(clearRow).toHaveLength(1);
+    expect(clearRow[0]).toMatchObject({ orgId: LOCAL_ORG_ID, actorId: LOCAL_ACTOR.userId });
+    expect(JSON.parse(clearRow[0]!.changesJson)).toEqual({
+      old: { reportsToId: boss.id },
+      new: { reportsToId: null },
+    });
     expect(JSON.stringify(readableHistory)).not.toContain(boss.id);
   });
 });

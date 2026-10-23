@@ -1065,7 +1065,7 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
   - M12, no `assertActor` in `getDashboard` only: 2 failed.
   - M12d, no `assertActor` in `getDashboard`, `deleteDashboard` or `canChangeDashboard`: 6 failed.
   - M13, no `assertActor` in `runDashboard` only: 2 failed. It survived until the zero-component board was added.
-  - (Labels corrected 2026-10-23 in the slice 3 PR to match Reviewer 5's table. This entry first had M12 and M12d swapped and called the `runDashboard` mutant M12x. In the reviewer's table, M12x is the four-function drop in `getDashboard`, `deleteDashboard`, `addDashboardComponent` and `canChangeDashboard`.)
+  - (Labels corrected 2026-10-23 in the slice 3 PR to match Rex Reviewer's table. The table is signed by Rex Reviewer; this note credited it to Reviewer 5 until S1-2. This entry first had M12 and M12d swapped and called the `runDashboard` mutant M12x. In the reviewer's table, M12x is the four-function drop in `getDashboard`, `deleteDashboard`, `addDashboardComponent` and `canChangeDashboard`.)
   - QE's org-check mutant, no `orgId` check in `canChangeDashboard`: 2 failed.
   - No Last Modified bump: 1 failed.
 - **Merge:** `origin/main` `aed5639` (#60) merged in, no rebase. The only conflicts were in REX-LOG.md and STATUS.md, and I kept both sides.
@@ -1137,7 +1137,7 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
   - `src/components/DashboardComponents.tsx` shows totals and group bars. An unavailable report shows its title only.
   - The three dashboard server actions call `unstable_rethrow` first in their `catch`. Before this, a signed-out user's `NEXT_REDIRECT` to `/login` was caught and turned into a notice.
   - `leads.ts`: the `persistLeadCreate` comment now says the insert and audit run in a nested transaction (a savepoint). This is Reviewer 5's nit on #40. It changes a comment only.
-  - This file: the #61 entry's mutant labels now match Reviewer 5's table (M12, M12d, M13).
+  - This file: the #61 entry's mutant labels now match Rex Reviewer's table (M12, M12d, M13). (This line said Reviewer 5 until S1-2.)
 - **Tests:** `dashboards/detail.test.ts` (new, 8 tests) covers:
   - the owner's view with money and bar widths
   - a non-owner sees no Delete, add form or picker
@@ -1156,3 +1156,20 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **F2b:** Reviewer 2's "parse only posted inputs" mutant in `applyCustomFieldsFromForm` was re-run on this head. It survives even though `customFields.form.test.ts` checks that an unposted editable checkbox stored as true becomes false. The reason is that `setCustomValues` parses every editable field, and `parseStored(checkbox, undefined)` returns "false". So an omitted editable checkbox is already cleared on main, and a non-editable one is left alone. I found no gap and changed no code.
 - **Verify:** `npm run verify` exit 0 at 16:37–16:40 EDT on `493dfa3`, Node v22.23.3. It ran in a private pinned copy (`git archive` plus a real `node_modules` copy): typegen, tsc, eslint, 145 files, 1701/1701 tests, Next.js build. `.next` and the copy were removed afterwards. Log: `s3-verify.log`. No browser pass. The next commit adds only this entry and the STATUS lines.
 - **Gitleaks:** `origin/main..HEAD`, no leaks.
+
+## 2026-10-23 17:38 EDT — S1-2: audit gaps (change owner, restore, purge, cascades)
+
+- **Authored-by:** Rex Grok Coder (Grok Bot).
+- **What:** branch `rex/s1-2-audit-gaps` off `origin/main` `e13a057` (#65).
+  - `ownership.ts`: `changeOwner` writes an `update` row for each record it moves, inside the owner-change transaction. `auditSnapshot` leaves out id, org and bookkeeping columns, and update rows keep only changed keys, so the row holds `ownerId` only.
+  - `recycle.ts`: restore runs in a transaction and writes a `restore` row (`deletedAt` old to null). Purge writes a `purge` row with no field values; the delete row already has them.
+  - `tasks.ts`: a parent delete writes a `delete` row per cascaded task, in the parent's transaction. `contacts.ts`: clearing a direct report's Reports To during a manager delete writes a contact `update` row.
+  - `audit.ts`: `restore` and `purge` actions, `historyAction` (unknown reads as update) and `showsFieldChanges`. The five history listers and `AuditHistory` show Restored and Purged with no field list.
+  - This file: the #61 mutation table is credited to Rex Reviewer, who signed it (Reviewer 2's nit on #65).
+- **Tests:** `audit.gaps.test.ts` (new, 12) checks actor, org, object, id and action on every new row; refused writes (other org, private OWD, not deleted, already owner, children, non-admin purge) write nothing; a forced audit-insert failure (SQLite trigger) rolls back change owner, restore, purge and the task cascade; another org lists none of the rows. Existing audit and history page tests that expected no row now expect the new rows; `nextMs()` keeps same-millisecond rows in order (ulid ids are not monotonic).
+- **Mutants:** 27 on the touched audit code, focused run. 26 killed on the first pass; M5 (`auditSnapshot` drops numbers) survived and was killed by a new snapshot test. All 22 security mutants killed, including no row for each new write, restore outside a transaction, purge copying values, and `listAuditEvents` without the org filter. Log: `s12-mut.log`.
+- **Verify:** `npm run verify` exit 0 at 17:35–17:37 EDT on `d116894`, Node v22.23.3, pinned private copy (`git archive` plus a real `node_modules` copy): typegen, tsc, eslint, 146 files, 1714/1714 tests, Next.js build. `.next` and the copy removed. Log: `s12-verify.log`. No browser pass. The next commit adds only this entry, the STATUS lines and nothing else.
+- **Gitleaks:** `origin/main..HEAD`, no leaks.
+- **Deferred:** lead conversion's status change writes no lead row; setup changes are not audited.
+- **F1 (Reviewer 2, CHANGES REQUESTED at `1498177`), 18:00 EDT:** tests only, no production change. `audit.actor.test.ts` (new, 4) comes from Rex QE's patch `pr66-1498177-f1-actor-not-owner.patch`: the admin restores, cascade-deletes tasks of, clears Reports To on, and purges Riley-owned records, and each audit row must name the admin, not the owner. Re-run in a scratch copy: R5 (restore actor), T5 (cascade actor), C4 (Reports To actor) and a new P5 (purge actor) all killed, 4/4; unmutated focused run 94/94. Verify exit 0 on `d001f83` (147 files, 1718/1718 tests, build), Node v22.23.3, pinned private copy. Logs: `s12-mut.log`, `s12b-verify.log`.
+
