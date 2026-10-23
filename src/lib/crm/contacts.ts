@@ -497,7 +497,7 @@ export function deleteContact(db: Db, actor: Actor, id: string): void {
   db.transaction((tx) => {
     deleteTasksForRecord(tx, actor, id);
     deleteOpportunityContactRolesForContact(tx, actor, id);
-    deleteCustomValuesForRecord(tx, id);
+    deleteCustomValuesForRecord(tx, actor, id);
     const ts = now();
     for (const row of reports) {
       if (!canReadRecord(tx, actor, "contact", row)) continue;

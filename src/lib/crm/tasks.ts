@@ -589,7 +589,7 @@ export function deleteTask(db: Db, actor: Actor, id: string): void {
   // Custom-value cleanup shares this transaction with the soft-delete
   // and the audit insert. A failed audit insert must leave both unchanged.
   db.transaction((tx) => {
-    deleteCustomValuesForRecord(tx, id);
+    deleteCustomValuesForRecord(tx, actor, id);
     const ts = now();
     tx.update(tasks)
       .set({ deletedAt: ts, updatedAt: ts })
@@ -639,7 +639,7 @@ export function deleteTasksForRecord(
     deletable.push(task.id);
   }
   if (deletable.length === 0) return;
-  deleteCustomValuesForRecords(db, deletable);
+  deleteCustomValuesForRecords(db, actor, deletable);
   const ts = now();
   for (const id of deletable) {
     db.update(tasks)
