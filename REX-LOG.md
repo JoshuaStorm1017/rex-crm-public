@@ -1,5 +1,26 @@
 # Rex log
 
+## 2026-10-23 14:15 EDT
+
+Test-only follow-up on main 3c5fa1d, branch `rex/test-m6-fls-canedit-requires-read`.
+Kills Reviewer 5's security mutant M6 from #62 (`readFieldAccess().canEdit`
+ignoring `canRead=false`). It survived because `setFieldPermission` never
+stores canRead=false + canEdit=true, so no test ever had that row.
+New `profiles.flsCanEditRequiresRead.test.ts` (7 tests) inserts that row
+straight through drizzle for a fictional profile, on a custom field and on
+lead `phone`, and checks `readFieldAccess`/`fieldAccess`, `canEditField`,
+`canReadField`, `formFieldAllowed`, `assertEditableFields`, `updateLead`,
+`setCustomValues`, `applyCustomFieldsFromForm` and `withCustomFormFields`
+all treat it as neither readable nor editable, with stored values unchanged.
+Also adds Rex QE's `profiles.editImpliesRead.test.ts` (2 tests, applied
+unchanged from qe-patches/main-3c5fa1d-m6-edit-requires-read.patch:
+custom field plus lead `company`, readFieldAccess and setCustomValues).
+Production already did this; no bug found and no production code changed.
+Mutation: with M6 applied, 5 of the 7 new tests fail (the other 2 are a
+raw-row sanity check and `withCustomFormFields`, which also checks canRead);
+QE's file fails 2 of 2 under M6; the six existing FLS suites (126 tests)
+still pass under M6. Reverted: 9/9 pass.
+
 ## 2026-10-13 18:45 EDT
 
 Docs-only follow-up on fresh main 9af1c19, branch `rex/docs-review-rules`.
