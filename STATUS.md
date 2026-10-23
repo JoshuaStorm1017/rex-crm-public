@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-12, a parent delete refuses when any related task is hidden from the actor, so no task is orphaned.
+Last updated: 2026-10-23, test-only: a raw canRead=false + canEdit=true field row is neither readable nor editable (kills mutant M6).
 
 The sections dated 2026-10-11 describe the tree verified that day.
 Contact delete no longer clears every junction row or every Reports To
@@ -40,6 +40,16 @@ sharing rules.
 ## WORKS
 
 Things actually run, with evidence.
+
+### Field edit requires field read, even for a raw stored row (2026-10-23)
+
+A `profile_field_permissions` row with canRead=false and canEdit=true
+(which `setFieldPermission` never writes, but a raw DB row can hold) is
+treated as hidden and read-only by every FLS helper and by the custom-field
+and lead edit paths. Covered by `profiles.flsCanEditRequiresRead.test.ts`
+(7 tests) and Rex QE's `profiles.editImpliesRead.test.ts` (2 tests), which
+kill mutant M6 (7 of 9 fail when the canRead guard in
+`readFieldAccess().canEdit` is removed). Test-only; no behavior change.
 
 ### Hidden related tasks block the parent delete (2026-10-12)
 
@@ -2406,3 +2416,13 @@ fresh verification evidence for each slice.
 - WORKS (other readers, older code, now tested): list views do render custom values; `redactCustomCells` blanks a column the viewer cannot read on all five objects while the admin sees it (`customFields.readFls.listViews.test.ts`). Reports can group, aggregate and filter on custom fields and are guarded by `canReadField`. The read API and setup/data export do not emit custom values. `deleteCustomValuesForRecords` (task cascade on lead/account delete) leaves another org's rows alone.
 - WORKS (with #60 merged in from main `aed5639`): a member's write of a different value (or a blank) to a custom field they cannot read is refused with `FORBIDDEN` and the stored value is unchanged; saving only the editable fields keeps it. Hidden-field clearing on member save is P0-4, fixed by #60, now on main.
 - Not done: no browser pass. Since #60, a required custom field the user cannot edit is skipped, so "required" is not enforced for that user.
+
+## 2026-10-23 — #33 case comments (SVC-CASE-002), review fixes
+
+- WORKS (verified 2026-10-23 13:00 EDT, `npm run verify` exit 0 on Node v22.23.3, 1614/1614 tests across 132 files, Next.js build; `.next` removed afterwards): a case comment's `orgId` and `authorId` always come from the actor. Forged `orgId`/`authorId` keys in the input are ignored, and no row is created in the other org. The DELETE in `deleteCaseComment` is scoped by `org_id` as well as `id`: a row that belongs to another org by the time the DELETE runs is left alone. `addCaseComment` refuses a non-member or a suspended-org actor with `FORBIDDEN` before it validates the body, so a bad body does not reveal `INVALID_INPUT` to an outsider. Mutants: 19/19 killed (Reviewer 2's 18, including C5, C11 and C12, plus Reviewer 3's R3-A1). Merged `origin/main` `aed5639`. No product code changed. No browser pass.
+- Not done: comments cannot be edited. There is no audit row for a comment delete.
+
+## 2026-10-23 — #33 merged with main after #62
+
+- WORKS (verified 2026-10-23 14:14 EDT, `npm run verify` exit 0 on `fe95a5f`, Node v22.23.3, 1657/1657 tests across 138 files, Next.js build): #33's case comments on top of main `3c5fa1d` (#62). Merge conflicts were only in REX-LOG.md and STATUS.md (both sides kept). Mutants C5, C11, C12 and R3-A1 still killed. No browser pass.
+- Not done: full re-gate of #33 at the new head (the `055a712` approval no longer counts).

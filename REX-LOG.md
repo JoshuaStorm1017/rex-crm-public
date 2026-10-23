@@ -1,5 +1,26 @@
 # Rex log
 
+## 2026-10-23 14:15 EDT
+
+Test-only follow-up on main 3c5fa1d, branch `rex/test-m6-fls-canedit-requires-read`.
+Kills Reviewer 5's security mutant M6 from #62 (`readFieldAccess().canEdit`
+ignoring `canRead=false`). It survived because `setFieldPermission` never
+stores canRead=false + canEdit=true, so no test ever had that row.
+New `profiles.flsCanEditRequiresRead.test.ts` (7 tests) inserts that row
+straight through drizzle for a fictional profile, on a custom field and on
+lead `phone`, and checks `readFieldAccess`/`fieldAccess`, `canEditField`,
+`canReadField`, `formFieldAllowed`, `assertEditableFields`, `updateLead`,
+`setCustomValues`, `applyCustomFieldsFromForm` and `withCustomFormFields`
+all treat it as neither readable nor editable, with stored values unchanged.
+Also adds Rex QE's `profiles.editImpliesRead.test.ts` (2 tests, applied
+unchanged from qe-patches/main-3c5fa1d-m6-edit-requires-read.patch:
+custom field plus lead `company`, readFieldAccess and setCustomValues).
+Production already did this; no bug found and no production code changed.
+Mutation: with M6 applied, 5 of the 7 new tests fail (the other 2 are a
+raw-row sanity check and `withCustomFormFields`, which also checks canRead);
+QE's file fails 2 of 2 under M6; the six existing FLS suites (126 tests)
+still pass under M6. Reverted: 9/9 pass.
+
 ## 2026-10-13 18:45 EDT
 
 Docs-only follow-up on fresh main 9af1c19, branch `rex/docs-review-rules`.
@@ -1028,3 +1049,19 @@ Next: manual shares and owner-based rules, then teams, queues, and territories. 
 - **Docs:** the P0-5 entry's test count now gives both the original 8 and the current 15. The Correction paragraph no longer refers to "the line above".
 - **Merge:** merged `origin/main` `b262932` (#61, P0-6) as `0825170`, no rebase. The only conflicts were in REX-LOG.md and STATUS.md, and I kept both sides (main's entries first).
 - **Verify:** `npm run verify` exit 0 at 13:27 EDT on `0825170` (merge with main `b262932`), Node 22, 135 files, 1634/1634 tests, Next.js build. `.next` removed afterwards. The next commit adds only this entry. No browser pass.
+
+## 2026-10-23 13:00 EDT — #33 case comments, review fixes (Reviewer 2 C5/C11/C12, Reviewer 3 R3-A1)
+
+- **What:** Merged `origin/main` `aed5639` into `rex/s031-team-o-case-comments` (merge commit, no conflicts). Added `src/lib/crm/caseComments.scope.test.ts` (8 tests). No product code changed: `caseComments.ts` already takes `orgId` and `authorId` from the actor, scopes the DELETE by org, and calls `assertActor` first. The server action builds the input from `caseId`, `body` and `isInternal` only, so no extra keys reach the domain. No bug found.
+- **Why:** Reviewer 2 (mutation score 15/18) left three security mutants alive. C5 dropped the org filter from the DELETE. C11 took `authorId` from the input. C12 took `orgId` from the input. Reviewer 3's R3-A1 removed the leading `assertActor` from `addCaseComment`. It survived because a bad body failed validation with `INVALID_INPUT` before `visibleCase` ran.
+- **Tests:** C11: a forged `authorId` (another member) is ignored. The stored and returned author is the actor, and the impersonated member gets `FORBIDDEN` on delete. C12: a forged `orgId` (another org) is ignored. The row is in the actor's org, the other org has no rows, and the other org's actor cannot list the case. C5: `id` is the primary key, so another org cannot hold a row with the same id. The test therefore runs `deleteCaseComment` on the same connection with a drizzle logger. Just before the DELETE runs, the logger moves the row to another org, as if the id now named another org's comment. The test asserts the DELETE SQL has `"org_id" = ?` with the actor's org, and that the moved row survives. R3-A1: a non-member and a suspended-org actor each get `FORBIDDEN` (not `INVALID_INPUT`) for a blank body and for a 4001-character body, and no row is written.
+- **Mutants:** I re-applied all 18 of Reviewer 2's mutants plus R3-A1 in a scratch worktree, each run with full `npx vitest run`. 19/19 were killed (log: `fix33-mut.log`). C5, C11, C12 and R3-A1 are each killed by the new tests. During C8, two unrelated files (recycle, assignmentRules) also failed under high load. That is flakiness from load, not the mutant, and the case comment tests killed C8 on their own.
+- **Verify:** `npm run verify` exit 0 at 13:00 EDT on Node v22.23.3: typegen, tsc, eslint, 132 files, 1614 tests, Next.js build. `.next` removed afterwards. The first attempt failed only in `next build`: Turbopack refused a symlinked `node_modules`. I replaced the symlink with a real copy and re-ran. No browser pass.
+
+## 2026-10-23 14:40 EDT — #33 main merge after #62 (re-gate needed)
+
+- **Merge:** merged `origin/main` `3c5fa1d` (#62, P0-5 custom field read permission) into `055a712` as `fe95a5f`, a merge commit; no rebase, no force push. The only conflicts were the append-at-end entries in REX-LOG.md and STATUS.md; I kept both sides (main's P0-5 entries first, then this PR's entries). No code, schema or migration conflicts: #62 adds no migration, so `0057_case_comments` still follows main's highest (`0056_api_idempotency`).
+- **Diff check:** `git diff 3c5fa1d fe95a5f` excluding REX-LOG.md and STATUS.md is byte-identical to `git diff b262932 055a712` with the same exclusions (14 files). #33's product and test code is unchanged; it now sits on #62's code (`customFields.ts` read filter, the five domain deletes passing `actor`, and three new `customFields.readFls*` test files).
+- **Verify:** `npm run verify` exit 0 on `fe95a5f`, 14:13–14:14 EDT, Node v22.23.3, in a private pinned worktree with a real `node_modules` copy: typegen, tsc, eslint, 138 files, 1657/1657 tests, Next.js build. `.next` removed afterwards. Log: `fix33c-verify.log`. No browser pass.
+- **Mutants** (targeted run of `caseComments*` and `cases/` tests, 23 tests, on `fe95a5f`): C5 (1 fail), C11 (1), C12 (1), R3-A1 / Rex Reviewer's M1 (4) are all still killed. Unmutated baseline: 23/23 pass. Log: `fix33c-mut.json`.
+- **Note:** the earlier APPROVE at `055a712` is void at this head; #33 needs a full re-gate. The next commit adds only this entry and the STATUS line.
