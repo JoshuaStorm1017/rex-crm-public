@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-23, test-only: a raw canRead=false + canEdit=true field row is neither readable nor editable (kills mutant M6).
+Last updated: 2026-10-23, test-only: system fields (id, orgId, ownerId, createdBy, ...) are never editable through field security, and forged values are ignored (kills mutant N3).
 
 The sections dated 2026-10-11 describe the tree verified that day.
 Contact delete no longer clears every junction row or every Reports To
@@ -40,6 +40,19 @@ sharing rules.
 ## WORKS
 
 Things actually run, with evidence.
+
+### System fields are never editable through field security (2026-10-23)
+
+`readFieldAccess().canEdit`, `canEditField` and `assertEditableFields`
+refuse id, orgId, ownerId, createdAt, updatedAt, createdBy, updatedBy and
+deletedAt on lead, account and contact, even when a profile row grants
+canEdit=true (raw drizzle row or `setFieldPermission`), and for the admin.
+A forged id/orgId/ownerId/createdBy passed to `createLead`, `updateLead`,
+`updateAccount`, `createLeadAction` or `updateLeadAction` is ignored and
+the stored values do not change. Covered by
+`profiles.systemFieldsNeverEditable.test.ts` (9 tests) and
+`leads/actions.systemFieldsForged.test.ts` (2 tests); 5 of the 11 fail
+under mutant N3. Test-only; no behavior change.
 
 ### Field edit requires field read, even for a raw stored row (2026-10-23)
 
