@@ -2408,3 +2408,8 @@ fresh verification evidence for each slice.
 
 - WORKS (verified 2026-10-23 13:00 EDT, `npm run verify` exit 0 on Node v22.23.3, 1614/1614 tests across 132 files, Next.js build; `.next` removed afterwards): a case comment's `orgId` and `authorId` always come from the actor. Forged `orgId`/`authorId` keys in the input are ignored, and no row is created in the other org. The DELETE in `deleteCaseComment` is scoped by `org_id` as well as `id`: a row that belongs to another org by the time the DELETE runs is left alone. `addCaseComment` refuses a non-member or a suspended-org actor with `FORBIDDEN` before it validates the body, so a bad body does not reveal `INVALID_INPUT` to an outsider. Mutants: 19/19 killed (Reviewer 2's 18, including C5, C11 and C12, plus Reviewer 3's R3-A1). Merged `origin/main` `aed5639`. No product code changed. No browser pass.
 - Not done: comments cannot be edited. There is no audit row for a comment delete.
+
+## 2026-10-23 — #33 merged with main after #62
+
+- WORKS (verified 2026-10-23 14:14 EDT, `npm run verify` exit 0 on `fe95a5f`, Node v22.23.3, 1657/1657 tests across 138 files, Next.js build): #33's case comments on top of main `3c5fa1d` (#62). Merge conflicts were only in REX-LOG.md and STATUS.md (both sides kept). Mutants C5, C11, C12 and R3-A1 still killed. No browser pass.
+- Not done: full re-gate of #33 at the new head (the `055a712` approval no longer counts).
