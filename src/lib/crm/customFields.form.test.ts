@@ -7,6 +7,7 @@ import {
   customFieldInputName,
   getCustomValues,
   setCustomValues,
+  withCustomFieldWrite,
 } from "./customFields";
 import { createLead } from "./leads";
 
@@ -45,5 +46,40 @@ describe("applyCustomFieldsFromForm with editable fields left out of the form", 
     form.set(customFieldInputName("Subscribed__c"), "on");
     applyCustomFieldsFromForm(db, LOCAL_ACTOR, "lead", lead.id, form);
     expect(raw(db, lead.id)).toEqual({ Subscribed__c: "true", Notes__c: null });
+  });
+});
+
+// Reviewer 2's M7c (custom values written through the outer db instead of the
+// transaction handle) is invisible at runtime because both are the same
+// better-sqlite3 connection. This pins the structure instead: the outer handle
+// refuses writes, and its transaction hands the callback the real db as tx, so
+// only writes that go through tx succeed. Fictional data only.
+function writeGuardedOuter(db: Db): Db {
+  return new Proxy(db, {
+    get(target, prop) {
+      if (prop === "insert" || prop === "update" || prop === "delete") {
+        return () => {
+          throw new Error(`outer handle used for ${String(prop)} inside withCustomFieldWrite`);
+        };
+      }
+      if (prop === "transaction") {
+        return <R,>(fn: (tx: Db) => R) => target.transaction(() => fn(target));
+      }
+      const value = Reflect.get(target, prop, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+describe("withCustomFieldWrite writes custom values through the transaction handle", () => {
+  it("custom values are written via tx, never the outer handle (M7c)", () => {
+    const { db, lead } = setup();
+    const outer = writeGuardedOuter(db);
+    const form = new FormData();
+    form.set(customFieldInputName("Subscribed__c"), "on");
+    form.set(customFieldInputName("Notes__c"), "via tx");
+    const record = withCustomFieldWrite(outer, LOCAL_ACTOR, "lead", form, () => lead);
+    expect(record.id).toBe(lead.id);
+    expect(raw(db, lead.id)).toEqual({ Subscribed__c: "true", Notes__c: "via tx" });
   });
 });
