@@ -110,6 +110,13 @@ migration; add a new one. Migrations must upgrade an existing DB (add a test lik
 - PR body: what changed, what was run with exit codes, gitleaks result, mutation table, open items.
 - Every review verdict names the exact head SHA it covers. A new head (any push, rebase or
   amend) voids earlier verdicts and needs a re-review before merge.
+- Any change under `.github/` (PR template, workflows, CODEOWNERS or any other file there)
+  needs all three reviewer verdicts (code, security, mutation) at the current head
+  SHA before merge. It never takes the docs-only fast lane, even when every changed file is
+  `.md`. The same holds for any change to `package.json` or a lockfile (`package-lock.json`,
+  `npm-shrinkwrap.json`, `yarn.lock`, `pnpm-lock.yaml`): all three verdicts, never the fast lane.
+- The PR template as of #44 (`.github/pull_request_template.md`, including #39's and #44's
+  edits) still needs its full three-review pass; until then treat it as unreviewed.
 - Never push to `main`; only Rex Approver / the architect merges (squash). Never merge red.
 
 ## 8. Data

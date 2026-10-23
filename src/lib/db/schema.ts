@@ -719,6 +719,51 @@ export const opportunityLineItems = sqliteTable(
   ],
 );
 
+export const quotes = sqliteTable(
+  "quotes",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    opportunityId: text("opportunity_id")
+      .notNull()
+      .references(() => opportunities.id),
+    name: text("name").notNull(),
+    status: text("status").notNull(),
+    expirationDate: text("expiration_date"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+  },
+  (table) => [
+    index("quotes_org_idx").on(table.orgId),
+    index("quotes_opportunity_idx").on(table.opportunityId),
+  ],
+);
+
+export const quoteLineItems = sqliteTable(
+  "quote_line_items",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    quoteId: text("quote_id")
+      .notNull()
+      .references(() => quotes.id),
+    productId: text("product_id").references(() => products.id),
+    description: text("description").notNull(),
+    quantity: integer("quantity").notNull(),
+    unitPriceCents: integer("unit_price_cents").notNull(),
+    discountBasisPoints: integer("discount_basis_points").notNull().default(0),
+    sortOrder: integer("sort_order").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("quote_line_items_org_idx").on(table.orgId),
+    index("quote_line_items_quote_idx").on(table.quoteId),
+  ],
+);
+
 export const approvalRequests = sqliteTable(
   "approval_requests",
   {
@@ -914,5 +959,57 @@ export const campaignMembers = sqliteTable(
     uniqueIndex("campaign_members_contact_uidx")
       .on(table.orgId, table.campaignId, table.contactId)
       .where(sql`contact_id is not null`),
+  ],
+);
+
+/** Field history for a record. Writes go through `recordAudit` only. */
+export const auditEvents = sqliteTable(
+  "audit_events",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    actorId: text("actor_id")
+      .notNull()
+      .references(() => users.id),
+    objectKey: text("object_key").notNull(),
+    recordId: text("record_id").notNull(),
+    action: text("action").notNull(),
+    changesJson: text("changes_json").notNull(),
+    at: integer("at").notNull(),
+  },
+  (table) => [
+    index("audit_events_org_record_idx").on(
+      table.orgId,
+      table.objectKey,
+      table.recordId,
+      table.at,
+    ),
+  ],
+);
+
+/**
+ * One stored response per organization, user, and Idempotency-Key.
+ * Inserts go through `apiWrites.ts` only. A retry reads this row.
+ */
+export const apiIdempotencyKeys = sqliteTable(
+  "api_idempotency_keys",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    actorId: text("actor_id")
+      .notNull()
+      .references(() => users.id),
+    idempotencyKey: text("idempotency_key").notNull(),
+    requestHash: text("request_hash").notNull(),
+    statusCode: integer("status_code").notNull(),
+    responseJson: text("response_json").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("api_idempotency_org_actor_key_uidx").on(
+      table.orgId,
+      table.actorId,
+      table.idempotencyKey,
+    ),
   ],
 );

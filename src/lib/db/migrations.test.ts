@@ -355,4 +355,120 @@ describe("drizzle journal", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("adds audit_events to a database that stopped at 0054 and keeps its account", () => {
+    const journal = readJournal();
+    const stop = journal.entries.findIndex((entry) => entry.tag === "0054_quotes");
+    expect(stop).toBeGreaterThan(0);
+    const prior = journal.entries.slice(0, stop + 1);
+    expect(prior.at(-1)?.tag).toBe("0054_quotes");
+    expect(journal.entries.some((entry) => entry.tag === "0055_audit_events")).toBe(true);
+    const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-0054-"));
+    const sqlite = new Database(path.join(dir, "rex.sqlite"));
+    try {
+      sqlite.pragma("foreign_keys = ON");
+      applyEntries(sqlite, prior);
+      sqlite
+        .prepare("INSERT INTO users (id, name, email, username) VALUES (?, ?, ?, ?)")
+        .run("usr_mig", "Migration User", "mig@example.com", "mig");
+      sqlite
+        .prepare(
+          `INSERT INTO accounts (
+            id, name, owner_id, created_at, updated_at, created_by, updated_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run("001MIGRATE", "Existing Account", "usr_mig", 1, 1, "usr_mig", "usr_mig");
+      const tableExists = () =>
+        sqlite
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'audit_events'",
+          )
+          .get();
+      expect(tableExists()).toBeUndefined();
+      migrate(drizzle(sqlite), { migrationsFolder });
+      expect(tableExists()).toBeDefined();
+      const columns = sqlite.prepare("PRAGMA table_info(audit_events)").all() as { name: string }[];
+      expect(columns.map((column) => column.name)).toEqual(
+        expect.arrayContaining([
+          "org_id",
+          "actor_id",
+          "object_key",
+          "record_id",
+          "action",
+          "changes_json",
+          "at",
+        ]),
+      );
+      const account = sqlite
+        .prepare("SELECT name FROM accounts WHERE id = ?")
+        .get("001MIGRATE") as { name: string };
+      expect(account.name).toBe("Existing Account");
+    } finally {
+      sqlite.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("adds api_idempotency_keys to a database that stopped at 0055 and keeps its account", () => {
+    const journal = readJournal();
+    const stop = journal.entries.findIndex((entry) => entry.tag === "0055_audit_events");
+    expect(stop).toBeGreaterThan(0);
+    const prior = journal.entries.slice(0, stop + 1);
+    expect(prior.at(-1)?.tag).toBe("0055_audit_events");
+    expect(journal.entries.some((entry) => entry.tag === "0056_api_idempotency")).toBe(true);
+    const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-0055-"));
+    const sqlite = new Database(path.join(dir, "rex.sqlite"));
+    try {
+      sqlite.pragma("foreign_keys = ON");
+      applyEntries(sqlite, prior);
+      sqlite
+        .prepare("INSERT INTO users (id, name, email, username) VALUES (?, ?, ?, ?)")
+        .run("usr_mig", "Migration User", "mig@example.com", "mig");
+      sqlite
+        .prepare(
+          `INSERT INTO accounts (
+            id, name, owner_id, created_at, updated_at, created_by, updated_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run("001MIGRATE", "Existing Account", "usr_mig", 1, 1, "usr_mig", "usr_mig");
+      const tableExists = () =>
+        sqlite
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'api_idempotency_keys'",
+          )
+          .get();
+      expect(tableExists()).toBeUndefined();
+      migrate(drizzle(sqlite), { migrationsFolder });
+      expect(tableExists()).toBeDefined();
+      const columns = sqlite.prepare("PRAGMA table_info(api_idempotency_keys)").all() as {
+        name: string;
+      }[];
+      expect(columns.map((column) => column.name)).toEqual(
+        expect.arrayContaining([
+          "org_id",
+          "actor_id",
+          "idempotency_key",
+          "request_hash",
+          "status_code",
+          "response_json",
+        ]),
+      );
+      const indexes = sqlite.prepare("PRAGMA index_list(api_idempotency_keys)").all() as {
+        name: string;
+        unique: number;
+      }[];
+      expect(indexes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "api_idempotency_org_actor_key_uidx", unique: 1 }),
+        ]),
+      );
+      const account = sqlite
+        .prepare("SELECT name FROM accounts WHERE id = ?")
+        .get("001MIGRATE") as { name: string };
+      expect(account.name).toBe("Existing Account");
+    } finally {
+      sqlite.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

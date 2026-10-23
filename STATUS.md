@@ -691,7 +691,7 @@ The header Edit and Delete links are still shown for both.
   when grant hierarchy is on, or with modify-all. Modify-all is
   `users.role === "admin"` and an admin membership. A membership
   admin whose user role is `user` does not get it. Public Read/Write
-  lets a member who already has the object permission edit and delete.
+  lets a member who already has the object permission edit, not delete.
   A sharing rule's Read/Write does not grant delete.
 - Private hides another user's record from get, list, count, list
   views, search, reports, the recycle bin, and recently viewed.
@@ -2135,3 +2135,245 @@ fresh verification evidence for each slice.
 
 ### Orphan fix: reviewer mutants (Oct 12)
 - 3 new kill tests are in tasks.orphans.test.ts. All 7 mutants are killed and the suite has 610 tests. Branch rex/s007-1012-orphan-tasks; the PR has not been created yet (the create_pull_request call only showed a form).
+
+## 2026-10-13 — s018b quote domain (PR #26, not merged)
+
+- WORKS (verified 2026-10-13, `npm run verify` exit 0, 1169/1169 tests across 99 files, after merging main 216574c): quote
+  header CRUD with integer-cent totals. A quote is visible only when its
+  opportunity is readable; writes need opportunity edit. Quote and line
+  reads/writes are org-scoped, including forged cross-org rows.
+- The row helpers `rawQuote` and `rawLines` are no longer exported.
+  `touch` was removed: `updateQuote` writes directly with an id + org
+  WHERE and server time. `editableQuote` is the only gate for update and
+  delete (the duplicate `assertActor` in `deleteQuote` is gone).
+- Not done: quote pages UI (#28).
+
+## 2026-10-13 — s018b2 quote line mutators (PR #27, not merged)
+
+- WORKS (verified 2026-10-13, `npm run verify` exit 0, 1193/1193 tests
+  across 101 files, after merging main ac47ae8): add, update and delete
+  quote lines with product defaults (description, standard price), line
+  cap of 200, overflow-safe integer-cent totals. Every line write goes
+  through `editableQuote` (actor, org-scoped row, opportunity edit) and
+  refuses closed quotes; line and parent-quote writes are id + org scoped
+  and run in one transaction.
+- Not done: quote pages UI (#28).
+
+## 2026-10-13 — s018c quote pages (PR #28, not merged)
+
+- WORKS (verified 2026-10-13, `npm run verify` exit 0, 1200/1200 tests
+  across 102 files, after merging main a79c06f): `/quotes` list and
+  `/quotes/[id]` detail pages. Read-only; they call only the gated
+  `listQuotes`/`getQuote` (opportunity read + org filter); an unreadable or
+  other-org quote is a 404.
+
+## 2026-10-16 — opportunity products on the deal page (lane B)
+
+- WORKS (verified 2026-10-16 19:13 EDT, `npm run verify` exit 0 on Node
+  22.23.3, 1225/1225 tests across 108 files, Next.js 16.3.5 build):
+  the opportunity page lists products and adds or removes a line when
+  the actor can edit the opportunity. Sales price and line total are
+  omitted when the actor cannot read `standardPriceCents`. A posted
+  price is `FORBIDDEN` when that field is not editable, and a line
+  with no posted price still stores the catalog price. Inactive
+  products are not in the picker and the action refuses them.
+  `renderToStaticMarkup` covered the page. No browser pass. Chrome
+  DevTools did not connect.
+- Not done: line items do not roll into Opportunity Amount. No edit
+  of an existing line.
+
+## 2026-10-16 — lane A, standard object registry
+
+- WORKS (verified 2026-10-16 19:15 EDT, `npm run verify` exit 0, 108 files, 1223 tests, Next.js 16.3.5 build): one registry for the five standard objects. Labels, paths, id prefixes, and tables for sharing, list views, and report columns come from it. Adding a per-object `case` outside the frozen query switches fails `registry.test.ts`. No user-visible change. The shell node was v24.2.0; `.nvmrc` is 22.
+- Still separate query switches, frozen by that test: report from-clause and detail rows, change-owner load and write, recently viewed names, and task related-record lookup.
+
+## 2026-10-16 — product picker when Active is hidden (lane B)
+
+- WORKS (verified 2026-10-16 19:31 EDT, `npm run verify` exit 0, this
+  shell's `node -v` is v24.2.0, 1239/1239 tests across 108 files,
+  Next.js 16.3.5 build): the opportunity product picker uses the stored
+  Active flag. An editor who cannot read Active still sees Add product
+  and the live product, and does not see an inactive product. A hidden
+  product name is blank. Another org's product, a deleted product, and
+  a product with no standard price are omitted. The read writes
+  nothing. `renderToStaticMarkup` covered the page, including the QE
+  case. No browser pass. Chrome DevTools did not connect.
+- Not done: line items do not roll into Opportunity Amount. No edit of
+  an existing line. `opportunityLineTotalCents` still returns the raw
+  sum to an actor who cannot read the sale price; the page does not
+  call it.
+
+## 2026-10-16 — sales price must be a dollar amount (lane B)
+
+- WORKS (verified 2026-10-16 19:56 EDT, `npm run verify` exit 0 on Node
+  22.23.3, 1261/1261 tests across 108 files, Next.js 16.3.5 build):
+  a posted line sales price of `$`, `,`, `1.999`, or `0x10` redirects
+  with a notice and writes no row. The action tests cover that. Blank
+  still stores the catalog price. `$0.00` still stores 0. `$19.99`
+  still stores 1999 cents. `parseUsdToCents` refuses those strings for
+  every money field that calls it. No browser or curl pass this session.
+  Chrome DevTools did not connect.
+- Not done: line items do not roll into Opportunity Amount. No edit of
+  an existing line. `opportunityLineTotalCents` still returns the raw
+  sum to an actor who cannot read the sale price; the page does not
+  call it.
+
+## 2026-10-16 — quantity text and a hidden line total (lane B)
+
+- WORKS (verified 2026-10-16 20:22 EDT, `npm run verify` exit 0 on Node
+  22.23.3, 1272/1272 tests across 108 files, Next.js 16.3.5 build):
+  a posted quantity of `0x10`, `1e2`, `1e6`, `0b10`, or `0o10` redirects
+  with a quantity notice and writes no row. `1000001` still refuses.
+  `opportunityLineTotalCents` throws `FORBIDDEN` for an actor who cannot
+  read the sale price, including when that field can still be edited.
+  The message does not contain the cent amount. The same call returns
+  the total when the actor can read the price and cannot edit it. The
+  QE tests are kept. No browser or curl pass. Chrome DevTools did not
+  connect.
+- Not done: line items do not roll into Opportunity Amount. No edit of
+  an existing line. The opportunity page does not call
+  `opportunityLineTotalCents`.
+
+## 2026-10-16 — merged origin/main into the line-item branch (lane B)
+
+- WORKS (verified 2026-10-16 20:58 EDT, `npm run verify` exit 0 on Node
+  22.23.3, 1340/1340 tests across 110 files, Next.js 16.3.5 build):
+  this branch now contains `origin/main` at `f728fbd` (object registry
+  and `docs/SPRINTS.md`) and the opportunity product lines. The log
+  files keep both lanes' entries. The line-item QE tests still pass
+  in that suite. No product behavior was changed in this merge. No
+  browser or curl pass. Chrome DevTools did not connect.
+- Not done: line items do not roll into Opportunity Amount. No edit of
+  an existing line. No dashboard pages yet.
+
+## 2026-10-16 — lane A, account audit log
+
+- WORKS (verified 2026-10-16 20:00 EDT, `npm run verify` exit 0, 111 files, 1242 tests, Next.js 16.3.5 build): `audit_events` is written only from `recordAudit`. Account create, update, and delete record old values, new values, actor, and time in the same transaction as the row write. A validation failure, a permission refusal, a delete blocked by a contact, and a blank name write nothing. Org B cannot read org A's events, including a forged row that reuses the record id. A private account and a hidden phone are omitted from the history the actor receives. The account page shows a History list. The shell node was v24.2.0; `.nvmrc` is 22 and no Node 22 binary was on this machine.
+- Not audited yet: contacts, leads, opportunities, tasks, change owner, restore, purge, and setup. No browser pass. The page check is `renderToStaticMarkup`. Chrome DevTools did not connect.
+
+## 2026-10-16 — lane A, delete audit rolls related rows back
+
+- WORKS (verified 2026-10-16 20:31 EDT, `npm run verify` exit 0, 111 files, 1252 tests, Next.js 16.3.5 build): account delete now soft-deletes related tasks and removes custom values inside the same transaction as the account row and the audit insert. Forcing the delete audit insert to fail leaves the account live, the task live, and the custom value stored. Forcing the create insert to fail writes no account. Forcing the update insert to fail leaves the previous phone. The shell node was v24.2.0; `.nvmrc` is 22.
+- Probes, both reverted: cleanup left outside the transaction failed the delete test (account still live, task deleted, custom value gone). The update transaction removed failed the update test (phone changed, no update audit row).
+- No UI change. No browser pass.
+
+## 2026-10-16 — lane A, Node 22 re-check
+
+- WORKS (verified 2026-10-16 20:54 EDT, Node v22.23.3, `npm run verify` exit 0, 111 files, 1252 tests, Next.js 16.3.5 build): same delete-audit rollback as the 20:31 entry. Replacing the update and delete `db.transaction` wrappers with direct `db` calls failed the audit-insert tests (phone stuck at 555-0199; account and task soft-deleted and the custom value removed). Wrappers restored before verify. No UI change. No browser pass.
+
+## 2026-10-16 — merged origin/main account audit into the line-item branch (lane B)
+
+- WORKS (verified 2026-10-16 21:21 EDT, `npm run verify` exit 0 on Node
+  22.23.3, 1369/1369 tests across 112 files, Next.js 16.3.5 build):
+  this branch now contains `origin/main` at `ec5cf55` (account field
+  history, migration `0055_audit_events`) and the opportunity product
+  lines. The log files keep both lanes' entries. No product behavior
+  was changed in this merge. The suite includes the line-item tests
+  and the account audit tests. No browser or curl pass. Chrome
+  DevTools did not connect.
+- Not done: line items do not roll into Opportunity Amount. No edit of
+  an existing line. No dashboard pages yet.
+
+## 2026-10-16 — lane A, read-only API v0
+
+- WORKS (verified 2026-10-16 21:34 EDT, Node v22.23.3, `npm run verify` exit 0, 114 files, 1273 tests, Next.js 16.3.5 build): `GET /api/v1/objects/{apiName}/records` and `GET /api/v1/objects/{apiName}/records/{id}` for Account, Contact, Lead, Opportunity, and Task. The session cookie selects the actor. List and get call the existing domain functions, so profile read, field security, and sharing apply. A field the profile cannot read is omitted. A readable empty field stays null. `annualRevenueCents` and `amountCents` are `{ amount, currency: "USD" }` in integer cents. Timestamps are ISO-8601 UTC. A missing, blank, or unknown session is one 401 body, `Sign in required`. An `/api/` path with no cookie gets that body and is not redirected to login. A forged other-org id, a soft-deleted id, a private id, an id the profile cannot read, and a missing id return the same 404 body, `Record not found`, with no id and no name in it. Org A's list does not include org B's account. Pages are id order, `limit` 1 to 200, opaque `cursor`. The contract is `docs/api/CONVENTIONS.md`.
+- Mutation, each restored before that verify: skipping the field-read check left `phone: null` on the hidden account. Leaving task `relatedName` in the payload included "Parent Quarry". Returning raw cents failed the 1999 and 250050 assertions. Appending the requested id to the error message put the foreign id in the 404 body. Dropping the id sort returned 2 of the 3 accounts.
+- Not in this slice: writes, custom field values, products, bearer tokens. No browser pass. No dev server. The route checks call the GET handlers on a memory database.
+
+## 2026-10-16 — re-checked the origin/main merge (lane B)
+
+- WORKS (verified 2026-10-16 21:45 EDT, `npm run verify` exit 0 on Node
+  v22.23.3, 1374/1374 tests across 112 files, Next.js 16.3.5 build):
+  `git merge origin/main` was already up to date. This branch already
+  contains `ec5cf55` (account field history and `0055_audit_events`)
+  plus the opportunity product lines. No product code changed in this
+  pass. No browser pass. Chrome DevTools did not connect.
+- Not done: line items do not roll into Opportunity Amount. No edit of
+  an existing line. No dashboard pages yet.
+
+## 2026-10-16 — lane A, contact audit log
+
+- WORKS (verified 2026-10-16 22:13 EDT, Node v22.23.3, `npm run verify` exit 0, 116 files, 1297 tests, Next.js 16.3.5 build): contact create, update, and delete write `audit_events` from `recordAudit` in the same transaction as the row write, with old values, new values, actor, and time. A validation failure, a blank last name, a permission refusal, and a delete blocked by a direct report the owner cannot edit write nothing. Org B cannot read org A's events, including a forged row that reuses the record id. An account event on the same record id is not contact history. A private contact, a hidden phone, an unreadable account, and an unreadable manager are omitted. Forcing the delete audit insert to fail leaves the contact live, its task live, its opportunity role and custom value stored, and Reports To unchanged. Forcing the update insert to fail leaves the previous phone. The contact page shows a History list. No migration.
+- Mutation, each restored before that verify: dropping the object-key filter showed "Account Leak". Skipping the field-read check showed the hidden phone. Cleanup left outside the delete transaction left the contact live, the task deleted, the role and custom value gone, and Reports To cleared. Removing the update transaction set the phone to 555-0199.
+- Not audited yet: leads, opportunities, tasks, change owner, restore, and purge. Clearing Reports To during a contact delete is not its own history row. No browser pass. The page check is `renderToStaticMarkup`. Chrome DevTools did not connect.
+
+## 2026-10-16 — merged origin/main read API into the line-item branch (lane B)
+
+- WORKS (verified 2026-10-16 22:19 EDT, `npm run verify` exit 0 on Node
+  v22.23.3, 1408/1408 tests across 115 files, Next.js 16.3.5 build):
+  this branch now contains `origin/main` at `23ccfde` (read-only
+  `GET /api/v1/objects/{apiName}/records` and
+  `docs/api/CONVENTIONS.md`) and the opportunity product lines.
+  Conflicts were only in `STATUS.md` and `REX-LOG.md`. Both lanes'
+  entries are kept. No product behavior was changed in this merge.
+  `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome
+  DevTools did not connect.
+- Not done: line items do not roll into Opportunity Amount. No edit of
+  an existing line. No dashboard pages yet.
+
+## 2026-10-16 — lane A, lead audit log
+
+- WORKS (verified 2026-10-16 22:46 EDT, Node v22.23.3, `npm run verify` exit 0, 118 files, 1323 tests, Next.js 16.3.5 build): lead create, update, and delete write `audit_events` from `recordAudit` in the same transaction as the row write, with old values, new values, actor, and time. A blank last name, a validation failure, a duplicate company, a permission refusal, a converted lead, and a delete blocked by a hidden task write nothing. Org B cannot read org A's events, including a forged row that reuses the record id. An account event on the same record id is not lead history. A private lead and a hidden phone are omitted. The stored event still has the phone. Forcing the delete audit insert to fail leaves the lead live, its task live, and its custom value stored. Forcing the update insert to fail leaves the previous phone. Forcing the create insert to fail writes no lead. The lead page shows a History list. No migration.
+- Mutation, each restored before that verify: skipping the field-read check showed 555-0144. Skipping the lead-read check showed the private lead. Cleanup left outside the delete transaction left the lead live, the task deleted, and the custom value gone. Removing the update transaction set the phone to 555-0199. Removing the create transaction left the new lead. Auditing the caller rating stored Cold instead of Hot. Dropping the object-key filter showed "Account Leak".
+- Not audited yet: opportunities, tasks, convert, change owner, restore, and purge. Convert still writes history for the account and contact it creates. No browser pass. The page check is `renderToStaticMarkup`. Chrome DevTools did not connect.
+
+## 2026-10-16 — merged origin/main contact and lead audit into the line-item branch (lane B)
+
+- WORKS (verified 2026-10-16 23:16 EDT, `npm run verify` exit 0 on Node v22.23.3, 1472/1472 tests across 119 files, Next.js 16.3.5 build): this branch now contains `origin/main` at `66eb03f` (contact and lead field history) and the opportunity product lines. Conflicts were only in `STATUS.md` and `REX-LOG.md`. Both lanes' entries are kept. No product behavior was changed in this merge. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
+- Not done: line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages yet.
+
+## 2026-10-16 — lane A, opportunity audit log
+
+- WORKS (verified 2026-10-16 23:22 EDT, Node v22.23.3, `npm run verify` exit 0, 120 files, 1349 tests, Next.js 16.3.5 build): opportunity create, update, and delete write `audit_events` from `recordAudit` in the same transaction as the row write, with old values, new values, actor, and time. A blank name, a validation failure, a permission refusal, another org's account, and a delete blocked by a hidden task write nothing. Org B cannot read org A's events, including a forged row that reuses the record id. An account event on the same record id is not opportunity history. A private opportunity, a hidden amount, and an unreadable account are omitted. The stored event still has the amount and the account id. Amounts in the history list are dollars, and probability 0 stays 0. Forcing the delete audit insert to fail leaves the opportunity live, its task live, its contact role stored, and its custom value stored. Forcing the update insert to fail leaves the previous amount. Forcing the create insert to fail writes no opportunity. The opportunity page shows a History list. No migration.
+- Mutation, each restored before that verify: skipping the opportunity-read check showed Quiet Deal. Skipping the field-read check showed $19.99. Returning the account id showed that id. Dropping the org filter showed "Leaked From B". Dropping the object-key filter showed "Account Leak". Removing the create transaction left Ghost Deal. Removing the update transaction set the amount to 250000. Cleanup left outside the delete transaction left the opportunity live, the task deleted, the role gone, and the custom value gone. Treating 0 as empty stored a null probability. Returning raw cents stored 1999.
+- Not audited yet: tasks, change owner, restore, and purge. Converting a lead writes the new deal's create row and does not write a lead update. No browser pass. The page check is `renderToStaticMarkup`. Chrome DevTools did not connect.
+
+## 2026-10-16 — lane A, task audit log
+
+- WORKS (verified 2026-10-16 23:57 EDT, Node v22.23.3, `npm run verify` exit 0, 122 files, 1371 tests, Next.js 16.3.5 build): task create, update, and delete write `audit_events` from `recordAudit` in the same transaction as the row write, with old values, new values, actor, and time. Complete and reopen write an update. A second complete writes nothing. A blank subject, a validation failure, a permission refusal, and another org's account write nothing. Org B cannot read org A's events, including a forged row that reuses the record id. An account event on the same record id is not task history. A private task, a hidden description, an unreadable account, and a hidden account name are omitted. The stored event still has the description and the account id. The history list shows the account name, not the id, and a completed time as UTC. Forcing the delete audit insert to fail leaves the task live and its custom value stored. Forcing the update insert to fail leaves the previous priority. Forcing the create insert to fail writes no task. The task page shows a History list. No migration.
+- Mutation, each restored before that verify: skipping the task-read check showed a deleted task. Skipping the field-read check showed Quiet note. Returning the related id showed that id, including for an unreadable account and a hidden account name. Returning the raw completedAt failed the UTC check. Auditing the caller priority stored Low instead of High. Removing the create transaction left Ghost Call. Removing the update transaction set the priority to High. Cleanup left outside the delete transaction removed the custom value.
+- Not audited: change owner, restore, purge, and a task soft-deleted because its parent account was deleted. No browser pass. The page check is `renderToStaticMarkup`. Chrome DevTools did not connect.
+
+## 2026-10-17 — lane A, opportunity products on the record
+
+- WORKS (verified 2026-10-17 00:45 EDT, Node v22.23.3, `npm run verify` exit 0, 123 files, 1384 tests, Next.js 16.3.5 build): the opportunity page lists products with quantity, unit price, and line total. Add and Remove render only when the actor can edit the opportunity. A delete-not-edit owner sees the line and the denial. An edit-not-delete owner sees Add and Remove and no price override, because that profile cannot update products. A hidden standard price is an em dash, and the override input is absent. A hidden product name is absent. A product the profile cannot read, and a product in another org, are absent. Posting a unit price the profile cannot edit writes nothing. Omitting the price stores the standard price book cents even when that field is hidden. The opportunity Amount stays null. No migration.
+- Mutation, each restored before that verify: dropping the price-edit check let the override through. Defaulting from the redacted product price threw "Enter a unit price for this product" and did not store 19999 cents. Showing the add form for every viewer put Add product on Riley's page and dropped the denial. Always rendering Remove put Remove on Riley's page. Passing delete instead of edit put Add product and Remove on the delete-not-edit owner.
+- Not in this slice: line totals do not roll up into Amount. No browser pass. The page check is `renderToStaticMarkup`. Chrome DevTools did not connect.
+
+## 2026-10-17 — lane A, posted line price requires product update
+
+- WORKS (verified 2026-10-17 01:08 EDT, Node v22.23.3, `npm run verify` exit 0, 123 files, 1395 tests, Next.js 16.3.5 build): posting a unit price on an opportunity line requires product update as well as field edit, via `canEditField` on `standardPriceCents`. A profile that can edit the opportunity and only read products, with no field-permission row, is refused and no line is written. A price of 0 is refused the same way. Omitting the price still stores the standard price. A field row that denies the price is still refused. No migration.
+- Mutation, restored after that verify: removing the check stored `unitPriceCents` 500 and failed the QE action test, the field-deny action test, and both domain refusal tests. The check was put back. Those 30 tests passed again.
+- Not in this slice: line totals do not roll up into Amount. `parseUsdToCents` still turns `$` or `,` into 0 cents when the profile is allowed to edit the price. No browser pass.
+
+## 2026-10-17 — lane A, line price marks and hidden product activity
+
+- WORKS (verified 2026-10-17 01:32 EDT, Node v22.23.3, `npm run verify` exit 0, 123 files, 1410 tests, Next.js 16.3.5 build): a unit price of `$` or `,` is refused and writes no line. `$0` is still 0 cents and `$1,234.50` is still 123450 cents. Adding a line reads the stored product `isActive`, so a profile that cannot read that field can add an active product and still cannot add an inactive one. The opportunity add list uses the same stored flag: the active product stays in the select and the inactive product stays out. No migration.
+- Mutation, each restored before that verify: dropping the empty-after-strip check stored `unit_price_cents` 0 for `$`. Using the redacted `isActive` refused the active product and the page said "No active products to add." Treating only `false` as inactive stored a line for the inactive product. Treating a hidden flag as active put Retired Anvil in the select.
+- Not in this slice: line totals do not roll up into Amount. `parseUsdToCents` still uses `Math.round`, so `1.005` can land on the wrong cent. A soft-deleted product still disappears from the related list while the line row remains. No browser pass. The page check is `renderToStaticMarkup`. Chrome DevTools did not connect.
+
+## 2026-10-17 — lane A, refuse a third decimal on unit price
+
+- WORKS (verified 2026-10-17 01:55 EDT, Node v22.23.3, `npm run verify` exit 0, 123 files, 1423 tests, Next.js 16.3.5 build): a unit price with more than two decimal places is refused and writes no line. `1.005` and `0.001` redirect with `Amount must be a dollar amount with at most two decimal places`. Plain amounts (`12.50`, `19.99`, `$1,234.56`) become exact cents from the digits. `$0` is still 0 cents. `-0.01` is still "Amount cannot be negative". No migration.
+- Mutation, restored after that verify: dropping the fraction-length check stored `1.005` as 105 cents and `0.001` as 1 cent, with no notice. That failed the QE action test and the money parser test (2 failed, 22 passed in those two files). The check was put back. Those 24 tests passed again.
+- Not in this slice: line totals do not roll up into Amount. `parseUsdToCents` still accepts `1e2` and `0x10` on the non-plain fallback. A soft-deleted product still disappears from the related list while the line row remains. No browser pass. Chrome DevTools did not connect. The action test drives the server action.
+
+## 2026-10-17 — split: this PR is the opportunity product list only (lane B)
+
+- WORKS (verified 2026-10-17 00:31 EDT, Node v22.23.3, `npm run verify` exit 0, 119 files, 1458 tests, Next.js 16.3.5 build): the opportunity page lists lines and adds or removes them when the actor can edit the deal. Sales price stays hidden without field read. A posted price is refused without field edit. Inactive products and invalid quantities are refused. `parseUsdToCents` still rejects `$`, `,`, `1.999`, and `0x10`. The build route list has no `/dashboards` page.
+- The branch had also grown a read-API lookup concealment and dashboard list/view/create pages. Those are not in this change. `apiRecords.ts`, `docs/api/CONVENTIONS.md`, `dashboards.ts`, and the dashboard routes match `origin/main`.
+- Not done: line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages. The read API still returns a lookup id when the related record is unreadable. No browser pass. Chrome DevTools did not connect.
+
+## 2026-10-17 — merged origin/main opportunity and task audit into the product-list branch (lane B)
+
+- WORKS (verified 2026-10-17 01:13 EDT, `npm run verify` exit 0, `node` on PATH v24.2.0, 1508/1508 tests across 123 files, Next.js 16.3.5 build): this branch now contains `origin/main` at `13b9040` (opportunity and task field history) and the opportunity product lines. The opportunity page shows Products and, under Tasks, History. Conflicts were only in `STATUS.md` and `REX-LOG.md`. Both lanes' entries are kept. No product behavior was changed in this merge. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
+- Not done: line items do not roll into Opportunity Amount. No edit of an existing line. No dashboard pages. `SALESFORCE-PARITY.md` still says tasks have no history, which is the sentence main shipped.
+
+## 2026-10-17 — lane A, write API v0
+
+- WORKS (verified 2026-10-17 02:43, `npm run verify` exit 0, `node` on PATH v24.2.0, 1523/1523 tests across 124 files, Next.js 16.3.5 build): `POST`, `PATCH`, and `DELETE /api/v1/objects/{apiName}/records` for Account, Contact, Lead, Opportunity, and Task. Writes call the existing domain functions. A successful write stores `Idempotency-Key` in the same transaction, scoped to the organization and the user. A rejected save stores no key. `PATCH` requires `If-Match`. A missing id, another org's id, a private id, and a forged id return one 404 body, `Record not found`. No bearer token. No browser pass. `NO_COLOR`/`FORCE_COLOR` warnings only. No Node 22 binary was on this machine.
+
+## 2026-10-17 — merged origin/main write API into the product-page branch (lane A)
+
+- WORKS (verified 2026-10-17 03:26 EDT, `npm run verify` exit 0 on Node v22.23.3, 1552/1552 tests across 125 files, Next.js 16.3.5 build): this branch contains `origin/main` at `f6c0b69` (write API v0, migration 0056, and the opportunity product list) and this branch's posted-price rule. The page renders `OpportunityLineItems`. A posted unit price requires product update via `canEditField`, so a product reader cannot store an override and the price box stays hidden. Omitting the price stores the standard price. A hidden product name stays off the page and the picker still offers the product. `parseUsdToCents` refuses `$`, `,`, a third decimal, `1e2`, and `0x10`. `NO_COLOR`/`FORCE_COLOR` warnings only. No browser pass. Chrome DevTools did not connect.
+- Not done: line items do not roll into Opportunity Amount. No edit of an existing line. No bearer token. The read API still returns a lookup id when the related record is unreadable.

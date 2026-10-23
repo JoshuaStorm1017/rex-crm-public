@@ -6,16 +6,25 @@ import type { Actor } from "./actor";
 import { assertActor } from "./actor";
 import { createContact } from "./contacts";
 import {
+  listAuditEvents,
+  parseAuditChanges,
+  recordAudit,
+  type AuditFieldMap,
+  type AuditValue,
+} from "./audit";
+import {
   assertCanAccessRecord,
   assertCanPerform,
   assertEditableFields,
   canPerform,
+  canReadField,
   fieldAccess,
   presentRecord,
   touchedFields,
 } from "./permissions";
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
+import { ownerLabel } from "./users";
 import { createOpportunity } from "./opportunities";
 import { persistOpportunityContactRoleCreate } from "./opportunityContactRoles";
 import { deleteCustomValuesForRecord } from "./customFields";
@@ -33,6 +42,77 @@ import { canReadRecord, readRestrictionSql } from "./sharing";
 import { mergeDefined } from "./validationRules";
 
 export type Lead = typeof leads.$inferSelect;
+
+const LEAD_AUDIT_FIELDS = [
+  "name",
+  "ownerId",
+  "firstName",
+  "lastName",
+  "company",
+  "email",
+  "phone",
+  "title",
+  "status",
+  "source",
+  "rating",
+  "street",
+  "city",
+  "state",
+  "postalCode",
+  "country",
+  "description",
+] as const satisfies readonly (keyof Lead)[];
+
+const LEAD_HISTORY_LABELS: Record<(typeof LEAD_AUDIT_FIELDS)[number], string> = {
+  name: "Name",
+  ownerId: "Owner",
+  firstName: "First Name",
+  lastName: "Last Name",
+  company: "Company",
+  email: "Email",
+  phone: "Phone",
+  title: "Title",
+  status: "Status",
+  source: "Source",
+  rating: "Rating",
+  street: "Street",
+  city: "City",
+  state: "State",
+  postalCode: "Postal Code",
+  country: "Country",
+  description: "Description",
+};
+
+export type LeadHistoryChange = {
+  field: string;
+  label: string;
+  before: string | null;
+  after: string | null;
+};
+
+export type LeadHistoryEntry = {
+  id: string;
+  action: "create" | "update" | "delete";
+  actorId: string;
+  actorName: string;
+  at: number;
+  changes: LeadHistoryChange[];
+};
+
+function leadAuditValues(row: Lead): AuditFieldMap {
+  const values: AuditFieldMap = {};
+  for (const field of LEAD_AUDIT_FIELDS) {
+    const value = row[field];
+    values[field] = value == null ? null : value;
+  }
+  return values;
+}
+
+function historyText(db: Db, field: string, value: AuditValue | undefined): string | null {
+  if (value == null || value === "") return null;
+  if (field === "ownerId" && typeof value === "string") return ownerLabel(db, value);
+  return String(value);
+}
 
 export type ConvertLeadResult = {
   accountId: string;
@@ -81,6 +161,49 @@ export function getLead(db: Db, actor: Actor, id: string): Lead | undefined {
   if (!canPerform(db, actor, "lead", "read")) return undefined;
   const row = loadLead(db, actor, id);
   return row ? presentRecord(db, actor, "lead", row) : undefined;
+}
+
+/**
+ * History for a lead this actor can read. Hidden fields are omitted.
+ * Another org's events are not returned. A deleted lead is not readable,
+ * so its history is empty even though the delete event stays stored.
+ */
+export function listLeadHistory(
+  db: Db,
+  actor: Actor,
+  leadId: string,
+): LeadHistoryEntry[] {
+  if (!getLead(db, actor, leadId)) return [];
+  return listAuditEvents(db, actor, "lead", leadId).map((event) => {
+    const changes = parseAuditChanges(event.changesJson);
+    const visible: LeadHistoryChange[] = [];
+    for (const field of LEAD_AUDIT_FIELDS) {
+      const inOld = changes.old ? Object.prototype.hasOwnProperty.call(changes.old, field) : false;
+      const inNew = changes.new ? Object.prototype.hasOwnProperty.call(changes.new, field) : false;
+      if (event.action === "create" && !inNew) continue;
+      if (event.action === "delete" && !inOld) continue;
+      if (event.action === "update" && !inOld && !inNew) continue;
+      if (!canReadField(db, actor, "lead", field)) continue;
+      const before = historyText(db, field, changes.old?.[field]);
+      const after = historyText(db, field, changes.new?.[field]);
+      if (event.action === "create" && after == null) continue;
+      if (event.action === "delete" && before == null) continue;
+      visible.push({
+        field,
+        label: LEAD_HISTORY_LABELS[field],
+        before,
+        after,
+      });
+    }
+    return {
+      id: event.id,
+      action: event.action === "create" || event.action === "delete" ? event.action : "update",
+      actorId: event.actorId,
+      actorName: ownerLabel(db, event.actorId),
+      at: event.at,
+      changes: visible,
+    };
+  });
 }
 
 export function listLeads(db: Db, actor: Actor): Lead[] {
@@ -143,11 +266,22 @@ export function createLead(
     updatedBy: actor.userId,
   };
   const prepared = prepareWrite(db, actor, "lead", row, "create");
-  db.insert(leads).values(prepared).run();
-  const created = storedLead(db, actor, id);
-  if (!created) {
-    throw new DomainError("WRITE_FAILED", "Lead was not persisted");
-  }
+  const created = db.transaction((tx) => {
+    tx.insert(leads).values(prepared).run();
+    const stored = storedLead(tx, actor, id);
+    if (!stored) {
+      throw new DomainError("WRITE_FAILED", "Lead was not persisted");
+    }
+    recordAudit(tx, actor, {
+      objectKey: "lead",
+      recordId: stored.id,
+      action: "create",
+      before: null,
+      after: leadAuditValues(stored),
+      at: stored.createdAt,
+    });
+    return stored;
+  });
   return presentRecord(db, actor, "lead", created);
 }
 
@@ -178,14 +312,25 @@ export function updateLead(
     updatedBy: actor.userId,
   });
   const prepared = prepareWrite(db, actor, "lead", next, "update") as Lead;
-  db.update(leads)
-    .set(withoutId(prepared))
-    .where(and(eq(leads.id, id), eq(leads.orgId, actor.orgId)))
-    .run();
-  const updated = storedLead(db, actor, id);
-  if (!updated) {
-    throw new DomainError("WRITE_FAILED", "Lead update did not persist");
-  }
+  const updated = db.transaction((tx) => {
+    tx.update(leads)
+      .set(withoutId(prepared))
+      .where(and(eq(leads.id, id), eq(leads.orgId, actor.orgId)))
+      .run();
+    const stored = storedLead(tx, actor, id);
+    if (!stored) {
+      throw new DomainError("WRITE_FAILED", "Lead update did not persist");
+    }
+    recordAudit(tx, actor, {
+      objectKey: "lead",
+      recordId: stored.id,
+      action: "update",
+      before: leadAuditValues(existing),
+      after: leadAuditValues(stored),
+      at: stored.updatedAt,
+    });
+    return stored;
+  });
   return presentRecord(db, actor, "lead", updated);
 }
 
@@ -199,12 +344,26 @@ export function deleteLead(db: Db, actor: Actor, id: string): void {
     throw new DomainError("FROZEN", "Converted leads cannot be deleted");
   }
   assertCanAccessRecord(db, actor, "lead", "delete", existing);
-  deleteTasksForRecord(db, actor, id);
-  deleteCustomValuesForRecord(db, id);
-  db.update(leads)
-    .set({ deletedAt: now(), updatedAt: now() })
-    .where(and(eq(leads.id, id), eq(leads.orgId, actor.orgId)))
-    .run();
+  // Task and custom-value cleanup share this transaction with the
+  // soft-delete and the audit insert. A failed audit insert must leave
+  // every one of those rows unchanged.
+  db.transaction((tx) => {
+    deleteTasksForRecord(tx, actor, id);
+    deleteCustomValuesForRecord(tx, id);
+    const ts = now();
+    tx.update(leads)
+      .set({ deletedAt: ts, updatedAt: ts })
+      .where(and(eq(leads.id, id), eq(leads.orgId, actor.orgId)))
+      .run();
+    recordAudit(tx, actor, {
+      objectKey: "lead",
+      recordId: existing.id,
+      action: "delete",
+      before: leadAuditValues(existing),
+      after: null,
+      at: ts,
+    });
+  });
 }
 
 function existingAccount(db: Db, actor: Actor, accountId: string) {

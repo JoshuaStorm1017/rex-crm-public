@@ -7,6 +7,8 @@ export const ID_PREFIX = {
   opportunity: "006",
   opportunityContactRole: "00K",
   opportunityLineItem: "00k",
+  quote: "0Q0",
+  quoteLineItem: "0QL",
   product: "01t",
   priceBook: "01s",
   priceBookEntry: "01u",
@@ -38,6 +40,8 @@ export const ID_PREFIX = {
   case: "500",
   campaign: "701",
   campaignMember: "00v",
+  auditEvent: "0ae",
+  idempotency: "0ik",
 } as const;
 
 export type IdPrefix = (typeof ID_PREFIX)[keyof typeof ID_PREFIX];

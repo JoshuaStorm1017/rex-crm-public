@@ -245,7 +245,7 @@ describe("organization-wide defaults, roles, and sharing rules", () => {
     expect(getAccount(db, riley, account.id)).toBeUndefined();
   });
 
-  it("public read/write lets a member edit another account but not delete it", () => {
+  it("public read/write lets a member edit but not delete another's account", () => {
     const db = memory();
     const account = createAccount(db, LOCAL_ACTOR, { name: "Open Books" });
     setOrgWideDefault(db, LOCAL_ACTOR, "account", "public_read_write", true);

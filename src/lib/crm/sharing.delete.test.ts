@@ -128,24 +128,11 @@ function expectDeleteAndRestore(spec: ObjectCase, db: Db, actor: Actor, id: stri
   expect(spec.get(db, actor, id)).toMatchObject({ id });
 }
 
-describe("Public Read/Write deletion stays with ownership and hierarchy", () => {
-  it.each(objects)("allows the owner to delete and restore $objectType", (spec) => {
-    const { db, owner, id } = fixture(spec);
-    expectDeleteAndRestore(spec, db, owner, id);
-  });
-
-  it.each(objects)("refuses unrelated delete of $objectType without writes", (spec) => {
-    const { db, unrelated, id } = fixture(spec);
-    expectRefusal(db, id, () => spec.remove(db, unrelated, id));
-  });
-
-  it.each(objects)("refuses unrelated restore of $objectType without writes", (spec) => {
-    const { db, owner, unrelated, id } = fixture(spec);
-    spec.remove(db, owner, id);
-    expectRefusal(db, id, () => undeleteRecord(db, unrelated, spec.objectType, id));
-    expect(listDeletedRecords(db, unrelated).some((row) => row.id === id)).toBe(false);
-  });
-
+// Owner, unrelated-member, and role-superior delete/restore under Public
+// Read/Write are covered by sharing.publicRwDelete.test.ts (#43). These cases
+// add what #43 does not: turning hierarchy grants off, and delete/edit
+// permission split on the owner's profile.
+describe("Public Read/Write deletion: hierarchy switch and delete/edit split", () => {
   it.each(objects)("allows an ancestor role to delete and restore $objectType", (spec) => {
     const { db, owner, unrelated: manager, id } = fixture(spec);
     const parent = createRole(db, LOCAL_ACTOR, { name: "Manager" });

@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { UNAUTHENTICATED_BODY } from "@/lib/crm/apiError";
 import { SESSION_COOKIE_NAME } from "@/lib/crm/constants";
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const hasSession = request.cookies.has(SESSION_COOKIE_NAME);
+  if (!hasSession && pathname.startsWith("/api/")) {
+    return NextResponse.json(UNAUTHENTICATED_BODY, {
+      status: 401,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
   if (!hasSession && pathname !== "/login") {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
