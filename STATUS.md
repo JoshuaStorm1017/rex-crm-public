@@ -2399,3 +2399,10 @@ fresh verification evidence for each slice.
   - Viewing, running, changing or deleting a dashboard is refused (FORBIDDEN) for a disabled user or a member of a suspended org, including a board with no components.
   - Adding a component updates the dashboard's Last Modified.
 - Not done: dashboard detail page and components UI (slice 3, held). Signed-out handling in the dashboard actions.
+
+## 2026-10-23 — P0-5, custom field read permission
+
+- WORKS (verified 2026-10-23 11:18 EDT, `npm run verify` exit 0 on `4ef4925`, 1580/1580 tests across 128 files, Next.js build): `getCustomValues` drops any custom field the viewer's profile marks not readable, so the lead, account, contact, opportunity and task detail pages (and the edit form, and the value `setCustomValues` returns) no longer show it. Admins still see every field. `deleteCustomValuesForRecord` deletes only rows in the actor's org. No browser pass.
+- WORKS (other readers, older code, now tested): list views do render custom values; `redactCustomCells` blanks a column the viewer cannot read on all five objects while the admin sees it (`customFields.readFls.listViews.test.ts`). Reports can group, aggregate and filter on custom fields and are guarded by `canReadField`. The read API and setup/data export do not emit custom values. `deleteCustomValuesForRecords` (task cascade on lead/account delete) leaves another org's rows alone.
+- WORKS (with #60 merged in from main `aed5639`): a member's write of a different value (or a blank) to a custom field they cannot read is refused with `FORBIDDEN` and the stored value is unchanged; saving only the editable fields keeps it. Hidden-field clearing on member save is P0-4, fixed by #60, now on main.
+- Not done: no browser pass. Since #60, a required custom field the user cannot edit is skipped, so "required" is not enforced for that user.

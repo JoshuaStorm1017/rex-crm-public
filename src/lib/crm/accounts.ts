@@ -501,7 +501,7 @@ export function deleteAccount(db: Db, actor: Actor, id: string): void {
   // insert must leave the account, its tasks, and its values unchanged.
   db.transaction((tx) => {
     deleteTasksForRecord(tx, actor, id);
-    deleteCustomValuesForRecord(tx, id);
+    deleteCustomValuesForRecord(tx, actor, id);
     const ts = now();
     tx.update(accounts)
       .set({ deletedAt: ts, updatedAt: ts })

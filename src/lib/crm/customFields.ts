@@ -637,7 +637,11 @@ export function getCustomValues(
 ): CustomFieldRead[] {
   assertActor(db, actor);
   assertLiveRecord(db, actor, objectType, recordId, false);
-  const fields = listCustomFields(db, actor, objectType);
+  // P0-5: custom fields follow the field-level read rule, like standard fields.
+  const access = fieldAccess(db, actor, objectType);
+  const fields = listCustomFields(db, actor, objectType).filter((field) =>
+    access.canRead(field.apiName),
+  );
   return fields.map((field) => {
     const row = valueRow(db, field.id, recordId);
     const raw = row?.value ?? null;
@@ -764,17 +768,27 @@ export function withCustomFieldWrite<T extends { id: string }>(
   });
 }
 
-export function deleteCustomValuesForRecord(db: Db, recordId: string): void {
+export function deleteCustomValuesForRecord(
+  db: Db,
+  actor: Actor,
+  recordId: string,
+): void {
   db.delete(customFieldValues)
-    .where(eq(customFieldValues.recordId, recordId))
+    .where(
+      and(
+        eq(customFieldValues.recordId, recordId),
+        eq(customFieldValues.orgId, actor.orgId),
+      ),
+    )
     .run();
 }
 
 export function deleteCustomValuesForRecords(
   db: Db,
+  actor: Actor,
   recordIds: string[],
 ): void {
   for (const recordId of recordIds) {
-    deleteCustomValuesForRecord(db, recordId);
+    deleteCustomValuesForRecord(db, actor, recordId);
   }
 }

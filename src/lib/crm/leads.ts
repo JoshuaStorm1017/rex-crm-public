@@ -364,7 +364,7 @@ export function deleteLead(db: Db, actor: Actor, id: string): void {
   // every one of those rows unchanged.
   db.transaction((tx) => {
     deleteTasksForRecord(tx, actor, id);
-    deleteCustomValuesForRecord(tx, id);
+    deleteCustomValuesForRecord(tx, actor, id);
     const ts = now();
     tx.update(leads)
       .set({ deletedAt: ts, updatedAt: ts })
