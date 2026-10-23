@@ -1,5 +1,28 @@
 # Rex log
 
+## 2026-10-23 15:00 EDT
+
+Test-only follow-up on main cce424c, branch `rex/test-n3-system-fields-not-editable`.
+Kills Rex Reviewer's security mutant N3 from the #63 mutation pass
+(`readFieldAccess().canEdit` returning true for SYSTEM_FIELDS), which
+survived the full suite because no test ever asked whether a system column
+was editable. New `profiles.systemFieldsNeverEditable.test.ts` (9 tests)
+gives a fictional profile canRead=true + canEdit=true rows for all eight
+system fields on lead, account and contact (inserted straight through
+drizzle, and separately through `setFieldPermission`), and checks
+`readFieldAccess`/`fieldAccess`, `canEditField` and `assertEditableFields`
+refuse them for that member and for the admin; plus `createLead`,
+`updateLead` and `updateAccount` with a forged id/orgId/ownerId/createdBy.
+New `leads/actions.systemFieldsForged.test.ts` (2 tests) posts the same
+forged fields through `createLeadAction`/`updateLeadAction`.
+Production already does this: the create/update schemas strip unknown keys,
+so forged system values are ignored (not an error) and stored orgId, ownerId
+and createdBy never change. No bug found; no production code changed.
+Mutation: with N3 applied, 5 of the 11 new tests fail (the 5 helper tests);
+the 6 forged-input tests still pass under N3 because the schema strip, not
+FLS, drops those keys, so they are regression guards, not N3 killers.
+Reverted: 11/11 pass. Evidence in n3-mut.log.
+
 ## 2026-10-23 14:15 EDT
 
 Test-only follow-up on main 3c5fa1d, branch `rex/test-m6-fls-canedit-requires-read`.
