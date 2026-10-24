@@ -2,6 +2,7 @@ import Link from "next/link";
 import { listAssignmentRules } from "@/lib/crm/assignmentRules";
 import { listAutomationRules } from "@/lib/crm/automationRules";
 import { requireActor } from "@/lib/crm/currentUser";
+import { listCustomObjects } from "@/lib/crm/customObjects";
 import { listCustomFields } from "@/lib/crm/customFields";
 import { listDuplicateRules } from "@/lib/crm/duplicateRules";
 import { listDeletedRecords } from "@/lib/crm/recycle";
@@ -12,6 +13,7 @@ import { getDb } from "@/lib/db/client";
 export default async function SetupPage() {
   const actor = await requireActor();
   const db = getDb();
+  const objects = listCustomObjects(db, actor);
   const fields = listCustomFields(db, actor);
   const rules = listValidationRules(db, actor);
   const assignment = listAssignmentRules(db, actor);
@@ -26,10 +28,11 @@ export default async function SetupPage() {
         <h1 className="text-2xl font-semibold">Setup</h1>
         <p className="mt-1 text-sm text-[#5c564c]">
           Rules are data. Sharing defaults, roles, and criteria rules are
-          data too. This is not Object Manager, profiles, or Flow.
+          data too. Custom Objects are a thin Object Manager slice. Not profiles or Flow.
         </p>
       </div>
       <div className="grid gap-3">
+        <SetupCard href="/setup/objects" title="Custom Objects" body={`${objects.length} object${objects.length === 1 ? "" : "s"}. Admin-defined types with name + description records.`} />
         <SetupCard href="/setup/fields" title="Custom Fields" body={`${fields.length} field${fields.length === 1 ? "" : "s"} on the five standard objects.`} />
         <SetupCard href="/setup/rules" title="Validation Rules" body={`${rules.length} rule${rules.length === 1 ? "" : "s"}. A match rejects the save.`} />
         <SetupCard href="/setup/assignment" title="Assignment Rules" body={`${assignment.length} rule${assignment.length === 1 ? "" : "s"}. Lead create only.`} />
