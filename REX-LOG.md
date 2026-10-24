@@ -1,5 +1,12 @@
 # Rex log
 
+## 2026-10-24 15:12 EDT — QE-2: Record History shows UTC with a zone label
+
+- **What:** `AuditHistory` `when()` now formats like the rest of the CRM detail stamps: `YYYY-MM-DD HH:MM:SS UTC` instead of a bare `toISOString().slice(0, 16)` wall clock with no zone. A 09:28 EDT edit shows as `13:28:00 UTC`, not unlabeled `13:28`.
+- **Tests:** `src/components/AuditHistory.test.ts` (1) proves the EDT→UTC stamp carries `UTC`; `history.page.test.ts` expectation updated.
+- **Not done:** no local-zone display; no change to audit value formatting elsewhere.
+- **Next:** S2-7 custom objects (registry-driven admin define + list/detail/edit).
+
 ## 2026-10-23 22:49 EDT — P0-2: Read API nulls unreadable lookup ids (Rex Grok Coder)
 
 Branch `rex/p0-2-lookup-id-leak` off main `a1b7150` (#69 already merged). PR #70.

@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-23, P0-2 Read API nulls unreadable lookup ids (PR #70).
+Last updated: 2026-10-24, QE-2 AuditHistory UTC zone label.
 
 The sections dated 2026-10-11 describe the tree verified that day.
 Contact delete no longer clears every junction row or every Reports To
@@ -38,6 +38,11 @@ sharing rules.
 ---
 
 ## WORKS
+
+### Record History UTC zone label (2026-10-24, QE-2)
+
+`AuditHistory` stamps use `YYYY-MM-DD HH:MM:SS UTC` (same pattern as account/lead/task detail pages). Bare `toISOString` minute stamps without a zone label are gone. Vitest: `AuditHistory.test.ts` + history page test.
+
 
 Things actually run, with evidence.
 
