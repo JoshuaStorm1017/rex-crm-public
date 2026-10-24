@@ -19,7 +19,8 @@ Branch `rex/p0-3-money-parser` off main `1f2c0cd` (#68 already merged).
 - **Verify:** `npm run verify` exit 0 on 084e955, Node v22.23.3, pinned
   private copy (`git archive` + `w62b` node_modules): typegen, tsc, eslint,
   **1814/1814** tests, Next.js build. Log: `p03-verify.log`.
-- **Gitleaks / line count:** filled before push.
+- **Gitleaks:** `origin/main..HEAD` clean (no leaks).
+- **Line count:** non-test non-md +3 (`money.ts` docstring); tests +14; docs only otherwise. Well under 400.
 - **Not in this slice:** no other money call sites changed; no migration.
 
 ## 2026-10-23 21:29 EDT — S1-5: refuse equal Amount probes; create/API gates for price-hidden (Rex Grok Coder)
