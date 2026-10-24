@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-23, S1-5 equal-Amount probe refuse + create/API gates for price-hidden (PR #68).
+Last updated: 2026-10-23, P0-3 money parser refuses exponent and hex (PR pending).
 
 The sections dated 2026-10-11 describe the tree verified that day.
 Contact delete no longer clears every junction row or every Reports To
@@ -40,6 +40,14 @@ sharing rules.
 ## WORKS
 
 Things actually run, with evidence.
+
+### Money parser refuses exponent and hex (2026-10-23, P0-3)
+
+`parseUsdToCents` accepts only plain decimal dollars (optional `$` and
+thousands commas, at most two fractional digits). `1e2`, `0x10`, and the
+same forms with other case or `1e+2` throw `INVALID_MONEY`. Valid inputs
+such as `10` and `$19.99` still become integer cents. Dedicated Vitest
+case plus existing refuse table. No `Number()` on the raw posted string.
 
 ### Line items roll up into Opportunity Amount (2026-10-23, S1-5, PR #68)
 

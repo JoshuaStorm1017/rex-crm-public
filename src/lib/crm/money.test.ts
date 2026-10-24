@@ -40,6 +40,20 @@ describe("parseUsdToCents", () => {
     },
   );
 
+  // P0-3: pin the backlog acceptance with named cases (mutants that re-allow
+  // Number() coercion of 1e2 / 0x10 must fail these).
+  it("P0-3: refuses scientific notation and hex; keeps plain decimal", () => {
+    expect(() => parseUsdToCents("1e2")).toThrow(DomainError);
+    expect(() => parseUsdToCents("1e2")).toThrow(/number/);
+    expect(() => parseUsdToCents("0x10")).toThrow(DomainError);
+    expect(() => parseUsdToCents("0x10")).toThrow(/number/);
+    expect(() => parseUsdToCents("1E2")).toThrow(DomainError);
+    expect(() => parseUsdToCents("0X10")).toThrow(DomainError);
+    expect(() => parseUsdToCents("1e+2")).toThrow(DomainError);
+    expect(parseUsdToCents("10")).toBe(1000);
+    expect(parseUsdToCents("$19.99")).toBe(1999);
+  });
+
   it("refuses a third decimal without putting the amount in the message", () => {
     for (const raw of ["1.005", "0.001", "$1.005", "19.999", "0.105", "$1,234.567", "1.230", "  1.005  "]) {
       expect(() => parseUsdToCents(raw)).toThrow(DomainError);
