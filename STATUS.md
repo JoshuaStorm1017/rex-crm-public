@@ -37,6 +37,11 @@ sharing rules.
 
 ---
 
+
+## 2026-10-24 15:57 EDT — S2-7 Slice A (in flight)
+
+- PARTIAL: custom object metadata + shared records + resolve + deny-default + owner-or-admin domain tests (PR pending). UI/API still open for demo.
+
 ## WORKS
 
 ### Record History UTC zone label (2026-10-24, QE-2)

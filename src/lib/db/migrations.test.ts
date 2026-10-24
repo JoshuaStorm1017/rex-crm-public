@@ -187,7 +187,7 @@ describe("drizzle journal", () => {
       const applied = () => (sqlite.prepare("SELECT count(*) AS n FROM __drizzle_migrations").get() as { n: number }).n;
       expect(applied()).toBe(prior.length);
       migrate(drizzle(sqlite), { migrationsFolder });
-      // The newest (0058) is a data backfill, so count applied migrations, not tables.
+      // The newest (0059) creates custom object tables; prior newest was a data backfill, so count applied migrations, not tables.
       expect(applied()).toBe(journal.entries.length);
       const account = sqlite.prepare("SELECT org_id FROM accounts WHERE id = ?").get("001MIGRATE") as { org_id: string };
       expect(account.org_id).toBe("00D000000000LOCALORG0001");

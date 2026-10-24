@@ -225,6 +225,13 @@
       "when": 1792799315770,
       "tag": "0058_amount_rollup_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1792871491000,
+      "tag": "0059_custom_objects",
+      "breakpoints": true
     }
   ]
 }

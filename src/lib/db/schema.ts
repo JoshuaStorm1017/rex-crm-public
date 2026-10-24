@@ -1035,3 +1035,57 @@ export const apiIdempotencyKeys = sqliteTable(
     ),
   ],
 );
+
+/** Admin-defined custom object metadata (PLAT-META-003 Slice A). */
+export const customObjects = sqliteTable(
+  "custom_objects",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    apiName: text("api_name").notNull(),
+    label: text("label").notNull(),
+    labelPlural: text("label_plural").notNull(),
+    description: text("description"),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    deletedAt: integer("deleted_at"),
+  },
+  (table) => [
+    uniqueIndex("custom_objects_org_api_uidx").on(table.orgId, table.apiName),
+    index("custom_objects_org_idx").on(table.orgId),
+  ],
+);
+
+/**
+ * Shared row store for every custom object. Slice A: name + optional
+ * description only. Visibility is owner-or-admin (no sharing.ts).
+ */
+export const customObjectRecords = sqliteTable(
+  "custom_object_records",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    objectId: text("object_id")
+      .notNull()
+      .references(() => customObjects.id),
+    name: text("name").notNull(),
+    description: text("description"),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    deletedAt: integer("deleted_at"),
+  },
+  (table) => [
+    index("custom_object_records_org_object_idx").on(table.orgId, table.objectId),
+    index("custom_object_records_owner_idx").on(table.ownerId),
+  ],
+);

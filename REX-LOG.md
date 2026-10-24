@@ -1,5 +1,17 @@
 # Rex log
 
+## 2026-10-24 15:57 EDT — S2-7 Slice A: custom objects domain (Rex Grok Coder)
+
+Branch `rex/s2-7-custom-objects-a` off main `127ec99` (#71).
+
+- **Authored-by:** Rex Grok Coder (Grok Bot).
+- **What:** Migration `0059_custom_objects` adds `custom_objects` + shared `custom_object_records` (name + optional description). Domain `customObjects.ts`: admin-only `createCustomObject`, deny-default profile flags keyed by apiName (System Administrator gets full CRUD on create), owner-or-admin record visibility (no sharing.ts). `resolve.ts` resolves standard or org-scoped custom apiNames. Ids `01I` / `a00`.
+- **Why:** Locked swarm headline S2-7 Vehicle__c demo; Slice A is schema + domain + org/admin tests before Setup UI (B) and REST (C).
+- **Tests:** `customObjects.test.ts` (7): define Vehicle__c + CRUD; bad names/duplicates; Riley cannot define; Read Only deny-default; owner-or-admin hides peer rows; cross-org isolation; migration tables present.
+- **Verify / gitleaks:** pending this commit.
+- **Not done:** Setup UI, list/detail/edit pages, `/api/v1/objects/{apiName}` for custom, custom fields on custom objects, sharing.
+
+
 ## 2026-10-24 15:12 EDT — QE-2: Record History shows UTC with a zone label
 
 - **What:** `AuditHistory` `when()` now formats like the rest of the CRM detail stamps: `YYYY-MM-DD HH:MM:SS UTC` instead of a bare `toISOString().slice(0, 16)` wall clock with no zone. A 09:28 EDT edit shows as `13:28:00 UTC`, not unlabeled `13:28`.
