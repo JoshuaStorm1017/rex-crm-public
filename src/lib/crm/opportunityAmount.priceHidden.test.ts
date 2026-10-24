@@ -1,5 +1,7 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
+import { orgMemberships } from "../db/schema";
 import { actorFor, LOCAL_ACTOR, type Actor } from "./actor";
 import { createAccount } from "./accounts";
 import { getApiRecord, listApiRecords } from "./apiRecords";
@@ -129,6 +131,21 @@ describe("Amount for a profile that cannot read Sales Price", () => {
     const { tabular, summary, csv } = reportsFor(s, s.noProduct);
     expect(leaked([tabular, summary, csv, queryOpportunities(s.db, s.noProduct, getListView(s.db, s.noProduct, s.view.id)!)])).toEqual([]);
     expect(tabular.total.values).toEqual({});
+  });
+
+  it("still honours the opportunity's own Amount and Expected Revenue field rules", () => {
+    const s = setup();
+    const amountRow = member(s.db, "amountrowhidden", true);
+    const expectedRow = member(s.db, "expectedrowhidden", true);
+    const profileOf = (actor: Actor) =>
+      s.db.select({ id: orgMemberships.profileId }).from(orgMemberships).where(eq(orgMemberships.userId, actor.userId)).get()!.id!;
+    setFieldPermission(s.db, LOCAL_ACTOR, profileOf(amountRow), "opportunity", "amountCents", { canRead: false, canEdit: false });
+    setFieldPermission(s.db, LOCAL_ACTOR, profileOf(expectedRow), "opportunity", "expectedRevenueCents", { canRead: false, canEdit: false });
+    expect(canReadField(s.db, amountRow, "product", "standardPriceCents")).toBe(true);
+    expect(canReadField(s.db, amountRow, "opportunity", "amountCents")).toBe(false);
+    expect(canReadField(s.db, amountRow, "opportunity", "expectedRevenueCents")).toBe(false);
+    expect(canReadField(s.db, expectedRow, "opportunity", "amountCents")).toBe(true);
+    expect(canReadField(s.db, expectedRow, "opportunity", "expectedRevenueCents")).toBe(false);
   });
 
   it("gives report rows, totals, averages, group values and CSV no Amount", () => {
