@@ -1,5 +1,37 @@
 # Rex log
 
+## 2026-10-23 22:49 EDT — P0-2: Read API nulls unreadable lookup ids (Rex Grok Coder)
+
+Branch `rex/p0-2-lookup-id-leak` off main `a1b7150` (#69 already merged). PR #70.
+
+- **What:** `serialize` in `apiRecords.ts` now nulls a lookup id field when
+  the actor can read the field but cannot read the related row. Covered:
+  `accountId`, `parentAccountId`, `reportsToId`, `relatedRecordId` +
+  `relatedObjectType`, and converted lead refs (`convertedAccountId`,
+  `convertedContactId`, `convertedOpportunityId`). Hidden fields (no
+  field-level read) stay omitted. Readable lookups still return the id.
+  Get and list both go through the same scrub. Write paths unchanged.
+- **Why:** Backlog P0-2 / REX-LOG "Not done": the read API returned a
+  private related account id on a contact/opportunity/task the actor
+  could otherwise read.
+- **Tests:** `apiRecords.test.ts` adds one case: private related account
+  and manager → `accountId` / `reportsToId` / `relatedRecordId` /
+  `relatedObjectType` / `parentAccountId` are null and the secret id is
+  absent from JSON; operator and a public readable lookup still return
+  the id; list path matches get.
+- **Mutation (scratch copy, p02-mut.log):** 7/7 security mutants killed
+  (M1 skip scrub, M2 always-readable, M3 drop relatedObjectType, M4 drop
+  accountId, M5 drop reportsToId, M6 invert scrub, M7 skip getAccount).
+- **Verify:** `npm run verify` exit 0 on this tree, Node v22.23.3, pinned
+  private copy (`git archive` + `w62b` node_modules): typegen, tsc, eslint,
+  **1815/1815** tests (157 files), Next.js build. Log: `p02-verify.log`.
+  Focused vitest: 15/15 in `apiRecords.test.ts`.
+- **Gitleaks:** run before push on `origin/main..HEAD`.
+- **Line count:** non-test `apiRecords.ts` +69/−8 (~61 net); tests +91; docs
+  only otherwise. Well under 400.
+- **Not in this slice:** write API / create-update validation unchanged;
+  no bearer token; no custom-object lookups; no browser pass.
+
 ## 2026-10-23 22:05 EDT — P0-3: money parser refuses exponent and hex (Rex Grok Coder)
 
 Branch `rex/p0-3-money-parser` off main `1f2c0cd` (#68 already merged).
