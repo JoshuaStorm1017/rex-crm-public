@@ -186,6 +186,8 @@ describe("dashboards", () => {
     const s = setup();
     addDashboardComponent(s.db, LOCAL_ACTOR, s.dash.id, s.report.id, "Pipeline");
     const profileId = createProfile(s.db, LOCAL_ACTOR, "No Stage");
+    // S1-5: Amount follows the Sales Price rule, which needs product read.
+    setObjectPermission(s.db, LOCAL_ACTOR, profileId, "product", { canCreate: false, canRead: true, canUpdate: false, canDelete: false });
     setObjectPermission(s.db, LOCAL_ACTOR, profileId, "opportunity", {
       canCreate: false,
       canRead: true,

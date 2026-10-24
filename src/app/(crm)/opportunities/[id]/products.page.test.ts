@@ -139,7 +139,8 @@ describe("opportunity products related list", () => {
     expect(asOwner).toContain(`value="${product.id}"`);
     expect(asOwner).not.toContain("Retired Anvil");
     expect(asOwner).not.toContain(CHANGE_DENIED);
-    expect(getOpportunity(db, LOCAL_ACTOR, opportunity.id)?.amountCents ?? null).toBeNull();
+    // Amount is the roll-up of the one line: 4 x $19.99.
+    expect(getOpportunity(db, LOCAL_ACTOR, opportunity.id)?.amountCents).toBe(7996);
 
     signIn(riley);
     const asReader = await renderOpportunity(opportunity.id);

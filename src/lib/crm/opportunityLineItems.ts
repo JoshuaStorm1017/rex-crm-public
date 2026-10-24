@@ -1,6 +1,6 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { opportunityLineItems, priceBookEntries, products } from "../db/schema";
+import { opportunities, opportunityLineItems, priceBookEntries, products } from "../db/schema";
 import { assertActor, type Actor } from "./actor";
 import { recordAudit, type AuditFieldMap } from "./audit";
 import { DomainError } from "./errors";
@@ -214,6 +214,54 @@ export function opportunityLineTotalCents(
 /** The line's price field as the opportunity page labels it. */
 export const SALES_PRICE_LABEL = "Sales Price";
 
+/**
+ * Server-side Amount: the sum of every stored line on the opportunity, in
+ * integer cents. Not filtered by product or price visibility, so the stored
+ * Amount is the same whoever made the change.
+ */
+export function rolledUpAmountCents(db: Db, orgId: string, opportunityId: string): number {
+  return db
+    .select({ quantity: opportunityLineItems.quantity, unitPriceCents: opportunityLineItems.unitPriceCents })
+    .from(opportunityLineItems)
+    .where(
+      and(eq(opportunityLineItems.orgId, orgId), eq(opportunityLineItems.opportunityId, opportunityId)),
+    )
+    .all()
+    .reduce((sum, line) => lineTotal(1, sum + lineTotal(line.quantity, line.unitPriceCents)), 0);
+}
+
+/**
+ * Call inside the line write's transaction, after the line change. Stores
+ * the rolled-up Amount on the opportunity and writes one opportunity update
+ * audit row (actor = the editor) with the line values and the Amount change.
+ * Any throw here rolls back the line change too.
+ */
+function syncAmountAndAudit(
+  tx: Db,
+  actor: Actor,
+  opportunityId: string,
+  at: number,
+  before: AuditFieldMap,
+  after: AuditFieldMap,
+): void {
+  const where = and(eq(opportunities.id, opportunityId), eq(opportunities.orgId, actor.orgId));
+  const stored = tx.select({ amountCents: opportunities.amountCents }).from(opportunities).where(where).get();
+  if (!stored) throw new DomainError("NOT_FOUND", "Opportunity not found");
+  const amountCents = rolledUpAmountCents(tx, actor.orgId, opportunityId);
+  tx.update(opportunities)
+    .set({ amountCents, updatedAt: at, updatedBy: actor.userId })
+    .where(where)
+    .run();
+  recordAudit(tx, actor, {
+    objectKey: "opportunity",
+    recordId: opportunityId,
+    action: "update",
+    before: { ...before, amountCents: stored.amountCents },
+    after: { ...after, amountCents },
+    at,
+  });
+}
+
 export function addLineItem(db: Db, actor: Actor, input: AddLineItemInput): LineItemView {
   assertActor(db, actor);
   const opp = requireOpportunity(db, actor, input.opportunityId, "edit");
@@ -252,7 +300,10 @@ export function addLineItem(db: Db, actor: Actor, input: AddLineItemInput): Line
     createdBy: actor.userId,
     updatedBy: actor.userId,
   };
-  db.insert(opportunityLineItems).values(row).run();
+  db.transaction((tx) => {
+    tx.insert(opportunityLineItems).values(row).run();
+    syncAmountAndAudit(tx, actor, opp.id, ts, {}, lineAuditValues(row));
+  });
   return toLineView(db, actor, { row, productName: product.name || "" });
 }
 
@@ -267,9 +318,12 @@ export function deleteLineItem(db: Db, actor: Actor, id: string): void {
   const opp = readOpportunity(db, actor, row.opportunityId);
   if (!opp) throw new DomainError("NOT_FOUND", "Line item not found");
   assertCanAccessRecord(db, actor, "opportunity", "edit", opp);
-  db.delete(opportunityLineItems)
-    .where(and(eq(opportunityLineItems.id, id), eq(opportunityLineItems.orgId, actor.orgId)))
-    .run();
+  db.transaction((tx) => {
+    tx.delete(opportunityLineItems)
+      .where(and(eq(opportunityLineItems.id, id), eq(opportunityLineItems.orgId, actor.orgId)))
+      .run();
+    syncAmountAndAudit(tx, actor, opp.id, Date.now(), lineAuditValues(row), {});
+  });
 }
 
 export type UpdateLineItemInput = {
@@ -353,14 +407,7 @@ export function updateLineItem(
       })
       .where(and(eq(opportunityLineItems.id, row.id), eq(opportunityLineItems.orgId, actor.orgId)))
       .run();
-    recordAudit(tx, actor, {
-      objectKey: "opportunity",
-      recordId: opp.id,
-      action: "update",
-      before: lineAuditValues(row),
-      after: lineAuditValues(next),
-      at: next.updatedAt,
-    });
+    syncAmountAndAudit(tx, actor, opp.id, next.updatedAt, lineAuditValues(row), lineAuditValues(next));
   });
   return toLineView(db, actor, { row: next, productName: product.name || "" });
 }

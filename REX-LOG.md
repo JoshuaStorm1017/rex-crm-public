@@ -1,5 +1,106 @@
 # Rex log
 
+## 2026-10-23 21:29 EDT — S1-5: refuse equal Amount probes; create/API gates for price-hidden (Rex Grok Coder)
+
+PR #68 on `rex/s1-5-amount-rollup` (code head efe166e). Reviewer early
+read on 07b92c7: a price-hidden profile must not probe Amount by posting
+the stored value.
+
+1. **Equal-to-stored is FORBIDDEN.** `createOpportunity` and
+   `updateOpportunity` refuse any defined `amountCents` when
+   `!canReadField(..., "amountCents")` with `You cannot edit Amount`
+   before `assertEditableFields`. Equal values are not stripped as
+   no-change. The form update action keeps the same rule (null/empty →
+   omit; any other value refused). Nothing is written (no field, audit,
+   or updatedAt).
+2. **Create path.** `opportunities/new/page.tsx` omits Amount unless the
+   actor can read it. Create action and core create refuse a posted
+   Amount; missing/empty is fine (Amount stays null).
+3. **API.** `createApiRecord` / `updateApiRecord` go through the same
+   core gates. Patching equal cents with If-Match is refused.
+
+- **Tests:** `edit.amount.page.test.ts` (equal `42.00` for 4200 cents),
+  `new.amount.page.test.ts` (omit input; create without Amount; refuse
+  `99.00`), `opportunityAmount.priceHidden.test.ts` (core equal update,
+  create with/without Amount, API create refuse, API patch equal).
+- **Mutants:** run 5 in scratch copy (`s15-mut.log`): EQ1 (strip equal
+  before core gate) KILLED 3 fail / 1810 pass; EQ2 (action clears
+  amount instead of throw) KILLED; C1 (create form puts Amount back)
+  KILLED. Prior B4 remains equivalent.
+- **Verify:** `npm run verify` exit 0 on efe166e, Node v22.23.3, pinned
+  private copy (`git archive` + real `node_modules` from w62b): typegen,
+  tsc, eslint, 157 files, **1813/1813** tests, Next.js build. Log:
+  `s15-verify-eq.log`. No browser pass. Docs commit follows.
+- **Gitleaks:** `origin/main..HEAD`, no leaks.
+- **Not blocking (unchanged):** `syncAmountAndAudit` skips validation/
+  automation; backfill writes Amount with no audit.
+
+## 2026-10-23 20:35 EDT — S1-5 review follow-up: Amount closed for price-hidden profiles, backfill, edit-form hide (Rex Grok Coder)
+
+PR #68 on `rex/s1-5-amount-rollup` (main still 898cf21). Reviewer blocking
+gaps from aed0eac plus QE browser blocker:
+
+1. **Amount and Expected Revenue follow Sales Price.** `permissions.ts`
+   `fieldAccess` keys Amount read/edit off the same
+   `canReadField(db, actor, "product", "standardPriceCents")` call Sales
+   Price uses; Expected Revenue follows Amount. Profiles without product
+   read lose both. The earlier profiles.ts row-only check is gone.
+2. **Reports / CSV / dashboards / list / API / forecast.** Every path goes
+   through `canReadField`, so Amount and Expected Revenue are omitted or
+   nulled; report warning "Hidden by field security: …"; sort falls back
+   to name. Covered by `opportunityAmount.priceHidden.test.ts` and
+   `amountHidden.page.test.ts` (seeded Pipeline by Stage, export route,
+   DashboardPage).
+3. **Backfill.** Idempotent data migration `0058_amount_rollup_backfill`
+   recomputes Amount for every opportunity with lines (org-scoped,
+   integer cents, safe-integer guard). No schema change, no drizzle
+   snapshot. Tests in `migrations.amountBackfill.test.ts`.
+4. **Edit form hide + empty Amount save (QE).** The Amount input is not
+   rendered when the profile cannot read Amount. On save, only a missing
+   or empty `amount` from such a profile is treated as no change; any
+   non-empty value (e.g. forged amount=5000) is refused with
+   `You cannot edit Amount` and writes nothing (no field change, no
+   audit, no updatedAt). Read-only Amount while lines exist is kept.
+5. **Known follow-ups (not blocking):** `syncAmountAndAudit` bypasses
+   opportunity validation and automation rules; a price-hidden user's
+   forecast counts their Amount as 0.
+
+Verify on d77f038: exit 0, 1807/1807 tests, 156 files, Next build (s15-verify.log). Mutation: run 3 (gates +
+backfill + read-only) and run 4 (own-field-row + QE hide/save/label);
+N5–N7 and H1–H4 killed; B4 equivalent (SQLite TOTAL of INTEGER is
+INTEGER). Residual: one-bit oracle from validation/automation messages
+about amount; sharing criteria on amount; backfill writes no audit and
+leaves over-range sums untouched; no drizzle snapshot for 0058;
+custom profiles without product read now lose Amount/Expected Revenue.
+
+
+## 2026-10-23 19:45 EDT — S1-5 Amount roll-up from line items (Rex Grok Coder)
+
+Branch `rex/s1-5-amount-rollup` off main 898cf21. Adding, editing or
+deleting a product line recomputes the opportunity Amount as the
+integer-cent sum of the opportunity's line totals (this org's lines only,
+safe-integer checked, INVALID_MONEY past the range) inside the same
+`db.transaction` as the line write, and writes one opportunity update
+audit row (line values + Amount old/new) with the editor as actor and
+`updatedBy`. A failing audit rolls back the line and the Amount together
+(tested for add, edit and delete). While lines exist, `updateOpportunity`
+refuses a posted Amount that differs from the stored one
+(AMOUNT_ROLLED_UP); an unchanged one passes; with no lines a manual
+Amount still works. Deleting the last line sets Amount to 0. A profile
+that cannot read product Sales Price also cannot read or edit Amount
+(profiles.ts `readFieldAccess`), because Amount / quantity would reveal
+the price; this applies to every opportunity for that profile, stricter
+than before. Add/delete line actions now `unstable_rethrow` so a
+signed-out user goes to /login. Existing line-item tests that asserted
+"Amount untouched" were updated to the new behaviour.
+Verify on 8bfee59: exit 0, 1789/1789 tests, 152 files, Next build
+(s15-verify.log). Mutation: 22 mutants, 21 killed; M6 (sync update
+`where` without org) survives and is equivalent: opportunities.id is the
+primary key and the org check runs first (s15-mut.log). Not done: the
+edit form's Amount input is not read-only (the server refuses a change);
+report SQL aggregates of Amount were not re-audited for the new
+Sales-Price rule; no browser QE.
+
 ## 2026-10-23 18:45 EDT — S1-4 review follow-up (Rex Grok Coder)
 
 PR #67 changes requested by Rex Reviewer; main 98d721e (#66) merged in with

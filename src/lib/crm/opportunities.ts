@@ -1,6 +1,6 @@
 import { and, count, eq, isNull } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { opportunities } from "../db/schema";
+import { opportunities, opportunityLineItems } from "../db/schema";
 import { getAccount } from "./accounts";
 import type { Actor } from "./actor";
 import { assertActor } from "./actor";
@@ -159,6 +159,22 @@ function storedOpportunity(
     .get();
 }
 
+/** True when the opportunity has a product line in the actor's org. */
+export function hasLineItems(db: Db, actor: Actor, opportunityId: string): boolean {
+  const row = db
+    .select({ id: opportunityLineItems.id })
+    .from(opportunityLineItems)
+    .where(
+      and(
+        eq(opportunityLineItems.orgId, actor.orgId),
+        eq(opportunityLineItems.opportunityId, opportunityId),
+      ),
+    )
+    .limit(1)
+    .get();
+  return row !== undefined;
+}
+
 function loadOpportunity(
   db: Db,
   actor: Actor,
@@ -284,6 +300,14 @@ export function createOpportunity(
   assertActor(db, actor);
   assertCanPerform(db, actor, "opportunity", "create");
   const parsed = opportunityCreateSchema.parse(input);
+  // S1-5: any posted Amount from a profile that cannot read it is refused
+  // (create has no "equal to stored" case; missing/empty is simply absent).
+  if (
+    parsed.amountCents !== undefined &&
+    !canReadField(db, actor, "opportunity", "amountCents")
+  ) {
+    throw new DomainError("FORBIDDEN", "You cannot edit Amount");
+  }
   assertEditableFields(db, actor, "opportunity", touchedFields(parsed));
   assertAccount(db, actor, parsed.accountId);
   const id = newId(ID_PREFIX.opportunity);
@@ -338,7 +362,28 @@ export function updateOpportunity(
   }
   assertCanAccessRecord(db, actor, "opportunity", "edit", existing);
   const parsed = opportunityUpdateSchema.parse(input);
+  // S1-5: any posted Amount from a profile that cannot read it is an edit
+  // attempt — including when it equals the stored Amount (probe/guess).
+  // Do not drop equal values from touched fields before this check.
+  if (
+    parsed.amountCents !== undefined &&
+    !canReadField(db, actor, "opportunity", "amountCents")
+  ) {
+    throw new DomainError("FORBIDDEN", "You cannot edit Amount");
+  }
   assertEditableFields(db, actor, "opportunity", touchedFields(parsed));
+  // With line items, Amount is their server-side sum. A posted Amount that
+  // differs from the stored one is refused; an unchanged one passes.
+  if (
+    parsed.amountCents !== undefined &&
+    parsed.amountCents !== existing.amountCents &&
+    hasLineItems(db, actor, id)
+  ) {
+    throw new DomainError(
+      "AMOUNT_ROLLED_UP",
+      "Amount is the sum of the products and cannot be edited while the opportunity has products",
+    );
+  }
   if (parsed.accountId) {
     assertAccount(db, actor, parsed.accountId);
   }

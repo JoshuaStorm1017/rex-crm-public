@@ -38,6 +38,8 @@ import {
   parseLineQuantity,
   updateLineItem,
 } from "@/lib/crm/opportunityLineItems";
+import { DomainError } from "@/lib/crm/errors";
+import { canReadField } from "@/lib/crm/permissions";
 import { parseOpportunityUpdateFormData } from "@/lib/crm/recordFormData";
 import { getDb } from "@/lib/db/client";
 
@@ -102,7 +104,19 @@ export async function createOpportunityAction(
       actor,
       "opportunity",
       formData,
-      (tx) => createOpportunity(tx, actor, opportunityFields(formData)),
+      (tx) => {
+        const input = opportunityFields(formData);
+        // S1-5: missing/empty Amount is fine; any posted Amount from a
+        // price-hidden profile is refused (same rule as update).
+        if (!canReadField(tx, actor, "opportunity", "amountCents")) {
+          if (input.amountCents === undefined) {
+            /* ok */
+          } else {
+            throw new DomainError("FORBIDDEN", "You cannot edit Amount");
+          }
+        }
+        return createOpportunity(tx, actor, input);
+      },
     );
     accountId = opportunity.accountId;
     destination = opportunityDestination(actor, opportunity.id);
@@ -129,8 +143,21 @@ export async function updateOpportunityAction(
       actor,
       "opportunity",
       formData,
-      (tx) =>
-        updateOpportunity(tx, actor, id, parseOpportunityUpdateFormData(formData)),
+      (tx) => {
+        const input = parseOpportunityUpdateFormData(formData);
+        // S1-5: the form omits Amount for a profile that cannot read it.
+        // Only a missing or empty amount is no change. Any non-empty value
+        // (including one equal to the stored Amount) is an edit attempt and
+        // must be refused — otherwise the profile can probe/guess Amount.
+        if (!canReadField(tx, actor, "opportunity", "amountCents")) {
+          if (input.amountCents === null) {
+            input.amountCents = undefined;
+          } else if (input.amountCents !== undefined) {
+            throw new DomainError("FORBIDDEN", "You cannot edit Amount");
+          }
+        }
+        return updateOpportunity(tx, actor, id, input);
+      },
     );
     accountId = opportunity.accountId;
     destination = opportunityDestination(actor, opportunity.id);
@@ -245,6 +272,7 @@ export async function addOpportunityLineItemAction(
     });
     revalidatePath(`/opportunities/${opportunityId}`);
   } catch (error) {
+    unstable_rethrow(error);
     redirect(
       `/opportunities/${opportunityId}?notice=${encodeURIComponent(formatError(error))}`,
     );
@@ -261,6 +289,7 @@ export async function deleteOpportunityLineItemAction(
     deleteLineItem(getDb(), actor, lineItemId);
     revalidatePath(`/opportunities/${opportunityId}`);
   } catch (error) {
+    unstable_rethrow(error);
     redirect(
       `/opportunities/${opportunityId}?notice=${encodeURIComponent(formatError(error))}`,
     );

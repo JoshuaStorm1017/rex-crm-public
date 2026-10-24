@@ -85,8 +85,14 @@ function stored(s: Setup, id: string) {
 }
 
 function lineUpdates(db: Db, actor: Actor, opportunityId: string) {
+  // Line edits only. The setup's add row also writes an update (Amount
+  // roll-up), but its old line values are all null.
   return listAuditEvents(db, actor, "opportunity", opportunityId).filter(
-    (event) => event.action === "update",
+    (event) =>
+      event.action === "update" &&
+      Object.entries(parseAuditChanges(event.changesJson).old ?? {}).some(
+        ([key, value]) => key.startsWith("lineItem.") && value !== null,
+      ),
   );
 }
 
@@ -163,8 +169,8 @@ describe("updateLineItem", () => {
     expect(event).toMatchObject({ orgId: LOCAL_ORG_ID, actorId: LOCAL_ACTOR.userId, objectKey: "opportunity" });
     expect(event?.at).toBe(stored(s, s.line.id)?.updatedAt);
     expect(parseAuditChanges(event?.changesJson ?? "")).toEqual({
-      old: { [`lineItem.${s.line.id}.quantity`]: 2, [`lineItem.${s.line.id}.unitPriceCents`]: 2_500 },
-      new: { [`lineItem.${s.line.id}.quantity`]: 7, [`lineItem.${s.line.id}.unitPriceCents`]: 900 },
+      old: { [`lineItem.${s.line.id}.quantity`]: 2, [`lineItem.${s.line.id}.unitPriceCents`]: 2_500, amountCents: 5_000 },
+      new: { [`lineItem.${s.line.id}.quantity`]: 7, [`lineItem.${s.line.id}.unitPriceCents`]: 900, amountCents: 6_300 },
     });
   });
 
@@ -373,9 +379,9 @@ describe("updateLineItem", () => {
   });
 
   it.each([
-    ["quantity", { quantity: 3 }, { quantity: 3, unitPriceCents: 2_500 }],
-    ["unitPriceCents", { quantity: 2, unitPriceCents: 2_400 }, { quantity: 2, unitPriceCents: 2_400 }],
-  ] as const)("audits a change of %s alone", (field, input, after) => {
+    ["quantity", { quantity: 3 }, { quantity: 3, unitPriceCents: 2_500 }, 7_500],
+    ["unitPriceCents", { quantity: 2, unitPriceCents: 2_400 }, { quantity: 2, unitPriceCents: 2_400 }, 4_800],
+  ] as const)("audits a change of %s alone", (field, input, after, amountCents) => {
     const s = setup();
     const was = stored(s, s.line.id)!;
     edit(s, LOCAL_ACTOR, s.line.id, input);
@@ -385,6 +391,7 @@ describe("updateLineItem", () => {
     expect(events).toHaveLength(1);
     expect(parseAuditChanges(events[0]?.changesJson ?? "").new).toEqual({
       [`lineItem.${s.line.id}.${field}`]: after[field],
+      amountCents,
     });
   });
 

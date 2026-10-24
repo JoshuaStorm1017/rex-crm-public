@@ -5,14 +5,14 @@ import { updateOpportunityAction } from "../../actions";
 import { EditDenied } from "@/components/EditDenied";
 import { RecordForm } from "@/components/RecordForm";
 import { getAccount } from "@/lib/crm/accounts";
-import { getOpportunity } from "@/lib/crm/opportunities";
+import { getOpportunity, hasLineItems } from "@/lib/crm/opportunities";
 import {
   OPPORTUNITY_STAGES,
   OPPORTUNITY_TYPES,
 } from "@/lib/crm/constants";
 import { withCustomFormFields } from "@/lib/crm/customFieldForm";
 import { centsToInput } from "@/lib/crm/money";
-import { canAccessRecord } from "@/lib/crm/permissions";
+import { canAccessRecord, canReadField } from "@/lib/crm/permissions";
 import { getDb } from "@/lib/db/client";
 
 export default async function EditOpportunityPage({
@@ -36,6 +36,9 @@ export default async function EditOpportunityPage({
   }
   const action = updateOpportunityAction.bind(null, opportunity.id);
   const account = getAccount(db, actor, opportunity.accountId);
+  const rolledUp = hasLineItems(db, actor, opportunity.id);
+  // S1-5: a profile that cannot read Amount gets no Amount input at all.
+  const amountVisible = canReadField(db, actor, "opportunity", "amountCents");
 
   return (
     <div className="space-y-4">
@@ -75,11 +78,15 @@ export default async function EditOpportunityPage({
               required: true,
               defaultValue: opportunity.closeDate,
             },
-            {
+            ...(amountVisible ? [{
               name: "amount",
               label: "Amount (USD)",
               defaultValue: centsToInput(opportunity.amountCents),
-            },
+              readOnly: rolledUp,
+              helpText: rolledUp
+                ? "Rolled up from the products on this opportunity. Edit the products to change it."
+                : undefined,
+            }] : []),
             {
               name: "probability",
               label: "Probability (0–100)",

@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("next/navigation", () => ({
-  redirect: vi.fn((to: string) => {
-    throw new Error(`REDIRECT ${to}`);
-  }),
-}));
+vi.mock("next/navigation", async () => {
+  const actual = await vi.importActual<typeof import("next/navigation")>("next/navigation");
+  return {
+    unstable_rethrow: actual.unstable_rethrow,
+    redirect: vi.fn((to: string) => {
+      throw new Error(`REDIRECT ${to}`);
+    }),
+  };
+});
 vi.mock("@/lib/crm/currentUser", () => ({ requireActor: vi.fn() }));
 vi.mock("@/lib/db/client", async () => {
   const actual = await vi.importActual<typeof import("@/lib/db/client")>(
@@ -15,6 +19,7 @@ vi.mock("@/lib/db/client", async () => {
 });
 
 import { eq } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 import { actorFor, LOCAL_ACTOR } from "@/lib/crm/actor";
 import { createAccount } from "@/lib/crm/accounts";
 import { LOCAL_ORG_ID, LOCAL_USER_ID, RILEY_USER_ID } from "@/lib/crm/constants";
@@ -27,7 +32,7 @@ import { createProfile, setFieldPermission, setObjectPermission } from "@/lib/cr
 import { setOrgWideDefault } from "@/lib/crm/sharing";
 import { createUser } from "@/lib/crm/users";
 import { getDb, openMemoryDb, type Db } from "@/lib/db/client";
-import { opportunities, opportunityLineItems, priceBookEntries, users } from "@/lib/db/schema";
+import { auditEvents, opportunities, opportunityLineItems, priceBookEntries, users } from "@/lib/db/schema";
 import {
   addOpportunityLineItemAction,
   deleteOpportunityLineItemAction,
@@ -44,7 +49,14 @@ function setup() {
   });
   const product = createProduct(db, LOCAL_ACTOR, { name: "Anvil Mk II", standardPriceCents: 2500 });
   vi.mocked(getDb).mockReturnValue(db);
-  return { db, opp, product, snapshot: () => JSON.stringify(db.select().from(opportunityLineItems).all()) };
+  return { db, opp, product, snapshot: () =>
+      JSON.stringify({
+        lines: db.select().from(opportunityLineItems).all(),
+        // A refused line write must leave the rolled-up Amount and audit alone too.
+        opportunities: db.select().from(opportunities).all(),
+        audit: db.select().from(auditEvents).all(),
+      }),
+  };
 }
 
 function form(entries: Record<string, string>) {
@@ -54,7 +66,38 @@ function form(entries: Record<string, string>) {
 }
 
 describe("opportunity line item actions", () => {
-  beforeEach(() => vi.mocked(requireActor).mockResolvedValue(LOCAL_ACTOR as never));
+  // Block body: a returned mock would be run by Vitest as teardown.
+  beforeEach(() => {
+    vi.mocked(requireActor).mockReset();
+    vi.mocked(requireActor).mockResolvedValue(LOCAL_ACTOR as never);
+  });
+
+  it.each(["add", "delete"] as const)(
+    "sends a signed-out user to /login from %s, not a notice, and writes nothing",
+    async (step) => {
+      const s = setup();
+      const line = addLineItem(s.db, LOCAL_ACTOR, { opportunityId: s.opp.id, productId: s.product.id, quantity: 1 });
+      const { redirect: realRedirect } =
+        await vi.importActual<typeof import("next/navigation")>("next/navigation");
+      vi.mocked(requireActor).mockImplementation(async () => realRedirect("/login"));
+      vi.mocked(revalidatePath).mockClear();
+      const before = s.snapshot();
+      let caught: (Error & { digest?: string }) | undefined;
+      try {
+        if (step === "add") {
+          await addOpportunityLineItemAction(s.opp.id, form({ productId: s.product.id, quantity: "2" }));
+        } else {
+          await deleteOpportunityLineItemAction(s.opp.id, line.id);
+        }
+      } catch (error) {
+        caught = error as Error & { digest?: string };
+      }
+      expect(caught?.digest).toContain("/login");
+      expect(caught?.message ?? "").not.toContain("notice=");
+      expect(s.snapshot()).toBe(before);
+      expect(revalidatePath).not.toHaveBeenCalled();
+    },
+  );
 
   it("adds a line from the form with a dollar unit price", async () => {
     const s = setup();
@@ -501,7 +544,10 @@ describe("opportunity line item actions", () => {
       totalCents: 370_368,
     });
     expect(JSON.stringify(s.db.select().from(priceBookEntries).all())).toBe(beforeEntries);
-    expect(JSON.stringify(s.db.select().from(opportunities).all())).toBe(beforeOpps);
+    // Only Amount (the line sum) and the update stamp change on the opportunity.
+    const [opp] = JSON.parse(beforeOpps) as Record<string, unknown>[];
+    const after = s.db.select().from(opportunities).all();
+    expect(after).toEqual([{ ...opp, amountCents: 370_368, updatedAt: after[0]?.updatedAt }]);
   });
 
   it("lets modify-all post a line on a private deal and refuses a half-admin", async () => {
@@ -526,7 +572,7 @@ describe("opportunity line item actions", () => {
     expect(
       s.db.select({ amountCents: opportunities.amountCents }).from(opportunities).where(eq(opportunities.id, s.opp.id)).get()
         ?.amountCents,
-    ).toBe(5_000_000);
+    ).toBe(3998);
 
     const half = actionAdmin(s.db, {
       name: "Action Half",
@@ -645,7 +691,7 @@ describe("opportunity line item actions", () => {
     expect(listLineItems(s.db, actor, opp.id).map((line) => line.totalCents)).toEqual([3750, 1250]);
     expect(s.db.select().from(priceBookEntries).all()).toEqual(catalog);
     const amount = s.db.select().from(opportunities).where(eq(opportunities.id, opp.id)).get();
-    expect(amount?.amountCents ?? null).toBeNull();
+    expect(amount?.amountCents).toBe(5000);
   });
 
   it("refuses a posted price when the price field is locked even if the profile can update products", async () => {
@@ -679,7 +725,7 @@ describe("opportunity line item actions", () => {
       expect(message).not.toMatch(/2500|19\.99/);
     }
     const amount = s.db.select().from(opportunities).where(eq(opportunities.id, opp.id)).get();
-    expect(amount?.amountCents ?? null).toBeNull();
+    expect(amount?.amountCents).toBe(5000);
     expect(s.db.select().from(priceBookEntries).all().map((row) => row.unitPriceCents)).toEqual([2500]);
   });
 });

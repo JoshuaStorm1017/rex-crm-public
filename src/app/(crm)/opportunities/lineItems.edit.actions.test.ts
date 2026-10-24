@@ -90,7 +90,8 @@ describe("updateOpportunityLineItemAction", () => {
       { id: s.line.id, quantity: 4, unitPriceCents: 1999, totalCents: 7996 },
     ]);
     expect(revalidatePath).toHaveBeenCalledWith(`/opportunities/${s.opp.id}`);
-    expect(s.db.select().from(auditEvents).all().filter((e) => e.action === "update")).toHaveLength(1);
+    // One update row from the setup's add, one from this edit (both roll Amount up).
+    expect(s.db.select().from(auditEvents).all().filter((e) => e.action === "update")).toHaveLength(2);
   });
 
   it("keeps the stored price when the price box is blank", async () => {

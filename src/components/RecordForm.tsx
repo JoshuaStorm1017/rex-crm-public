@@ -21,6 +21,8 @@ type Field = {
   required?: boolean;
   placeholder?: string;
   helpText?: string | null;
+  /** Shown and submitted unchanged, but not editable. Text inputs only. */
+  readOnly?: boolean;
 };
 
 export function RecordForm({
@@ -112,12 +114,14 @@ export function RecordForm({
                 type={field.type ?? "text"}
                 required={field.required}
                 placeholder={field.placeholder}
+                readOnly={field.readOnly}
+                aria-readonly={field.readOnly || undefined}
                 defaultValue={
                   typeof field.defaultValue === "boolean"
                     ? ""
                     : (field.defaultValue ?? "")
                 }
-                className="w-full rounded border border-[#cfc6b6] bg-white px-3 py-2 text-sm"
+                className={`w-full rounded border border-[#cfc6b6] px-3 py-2 text-sm ${field.readOnly ? "bg-[#f4efe6] text-[#6b6458]" : "bg-white"}`}
               />
             )}
             {field.helpText ? (

@@ -92,7 +92,7 @@ describe("opportunity line items", () => {
     expect(opportunityLineTotalCents(s.db, LOCAL_ACTOR, s.opp.id)).toBe(59_997);
   });
 
-  it("leaves the opportunity amount untouched when a line is added or removed", () => {
+  it("rolls a manual Amount up to the line sum on add and back to zero on delete", () => {
     const s = setup();
     s.db.update(opportunities).set({ amountCents: 5000 }).where(eq(opportunities.id, s.opp.id)).run();
     const line = addLineItem(s.db, LOCAL_ACTOR, {
@@ -103,10 +103,10 @@ describe("opportunity line items", () => {
     const amount = () =>
       s.db.select({ amountCents: opportunities.amountCents }).from(opportunities).where(eq(opportunities.id, s.opp.id)).get()
         ?.amountCents;
-    expect(amount()).toBe(5000);
+    expect(amount()).toBe(59_997);
     expect(opportunityLineTotalCents(s.db, LOCAL_ACTOR, s.opp.id)).toBe(59_997);
     deleteLineItem(s.db, LOCAL_ACTOR, line.id);
-    expect(amount()).toBe(5000);
+    expect(amount()).toBe(0);
     expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id)).toEqual([]);
   });
 
@@ -661,11 +661,12 @@ describe("opportunity line items", () => {
     expect(listLineItems(s.db, LOCAL_ACTOR, other.id).map((line) => line.id)).toEqual([second.id]);
     const amounts = [s.opp.id, other.id].map((id) => {
       const row = s.db.select().from(opportunities).where(eq(opportunities.id, id)).get();
-      return { id, amountCents: row?.amountCents, updatedAt: row?.updatedAt };
+      return { id, amountCents: row?.amountCents };
     });
+    // Each Amount is its own lines' sum: first deal back to 0, second 5 x 199.99.
     expect(amounts).toEqual([
-      { id: s.opp.id, amountCents: 880_000, updatedAt: 1_700_000_000_000 },
-      { id: other.id, amountCents: 5_000_000, updatedAt: other.updatedAt },
+      { id: s.opp.id, amountCents: 0 },
+      { id: other.id, amountCents: 99_995 },
     ]);
   });
 
@@ -1047,12 +1048,14 @@ describe("opportunity line items", () => {
       quantity,
       unitPriceCents,
     });
-    const second = addLineItem(s.db, LOCAL_ACTOR, {
-      opportunityId: s.opp.id,
-      productId: s.product.id,
-      quantity,
-      unitPriceCents,
-    });
+    // The roll-up refuses a second line whose sum is not a safe integer, so
+    // plant it directly to check the read path still refuses the total.
+    const second = { id: newId(ID_PREFIX.opportunityLineItem) };
+    s.db.insert(opportunityLineItems).values({
+      id: second.id, orgId: first.orgId, opportunityId: s.opp.id, productId: s.product.id,
+      quantity, unitPriceCents, createdAt: first.createdAt + 1, updatedAt: first.createdAt + 1,
+      createdBy: first.createdBy, updatedBy: first.updatedBy,
+    }).run();
     expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id).map((line) => line.totalCents)).toEqual([
       lineTotalCents,
       lineTotalCents,
@@ -1413,10 +1416,10 @@ describe("opportunity line items", () => {
       unitPriceCents: 500,
       totalCents: 500,
     });
-    expect(amount()).toBe(5000);
+    expect(amount()).toBe(40_498);
     deleteLineItem(s.db, admin, line.id);
     expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id).map((row) => row.id)).toEqual([added.id]);
-    expect(amount()).toBe(5000);
+    expect(amount()).toBe(500);
 
     const globalOnly = enrollAdmin(s.db, {
       name: "Global Only",
@@ -1445,7 +1448,7 @@ describe("opportunity line items", () => {
       refused(s, () => opportunityLineTotalCents(s.db, actor, s.opp.id), "NOT_FOUND");
     }
     expect(listLineItems(s.db, LOCAL_ACTOR, s.opp.id).map((row) => row.id)).toEqual([added.id]);
-    expect(amount()).toBe(5000);
+    expect(amount()).toBe(500);
 
     const noUpdate = enrollAdmin(s.db, {
       name: "Admin No Update",
