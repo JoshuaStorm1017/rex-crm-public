@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-23, S1-5 review follow-up: Amount closed for price-hidden profiles, backfill, edit-form hide (PR #68).
+Last updated: 2026-10-23, S1-5 equal-Amount probe refuse + create/API gates for price-hidden (PR #68).
 
 The sections dated 2026-10-11 describe the tree verified that day.
 Contact delete no longer clears every junction row or every Reports To
@@ -51,13 +51,16 @@ lines exist (AMOUNT_ROLLED_UP); the edit form Amount is read-only with
 a roll-up note while lines exist. Amount (and Expected Revenue) follow
 the Sales Price `canReadField` rule: a price-hidden or no-product
 profile sees neither in reports, CSV, dashboards, lists, API or
-forecast, and the edit form omits the Amount input; an empty Amount
-from them is no change, a forged value is refused as "You cannot edit
-Amount" with nothing written. Idempotent backfill migration 0058
-recomputes Amount for lined opportunities. Known follow-ups:
-syncAmountAndAudit bypasses validation/automation; price-hidden
-forecast counts Amount as 0. Verify exit 0 on d77f038, 1807/1807; mutants run 3+4 killed (B4 equivalent).
-See REX-LOG 2026-10-23 20:35 EDT.
+forecast; create and edit forms omit Amount; missing/empty Amount from
+them is no change; any non-empty value — including equal to the stored
+Amount — is refused as "You cannot edit Amount" on the form actions and
+on `createOpportunity` / `updateOpportunity` / API, with nothing written.
+Idempotent backfill migration 0058 recomputes Amount for lined
+opportunities. Known follow-ups: syncAmountAndAudit bypasses
+validation/automation; backfill writes Amount with no audit;
+price-hidden forecast counts Amount as 0. Verify exit 0 on efe166e,
+1813/1813; mutants run 3+4+5 killed (B4 equivalent; EQ1 equal-strip
+killed). See REX-LOG 2026-10-23 21:29 EDT.
 
 ### System fields are never editable through field security (2026-10-23)
 

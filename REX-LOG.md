@@ -1,5 +1,40 @@
 # Rex log
 
+## 2026-10-23 21:29 EDT — S1-5: refuse equal Amount probes; create/API gates for price-hidden (Rex Grok Coder)
+
+PR #68 on `rex/s1-5-amount-rollup` (code head efe166e). Reviewer early
+read on 07b92c7: a price-hidden profile must not probe Amount by posting
+the stored value.
+
+1. **Equal-to-stored is FORBIDDEN.** `createOpportunity` and
+   `updateOpportunity` refuse any defined `amountCents` when
+   `!canReadField(..., "amountCents")` with `You cannot edit Amount`
+   before `assertEditableFields`. Equal values are not stripped as
+   no-change. The form update action keeps the same rule (null/empty →
+   omit; any other value refused). Nothing is written (no field, audit,
+   or updatedAt).
+2. **Create path.** `opportunities/new/page.tsx` omits Amount unless the
+   actor can read it. Create action and core create refuse a posted
+   Amount; missing/empty is fine (Amount stays null).
+3. **API.** `createApiRecord` / `updateApiRecord` go through the same
+   core gates. Patching equal cents with If-Match is refused.
+
+- **Tests:** `edit.amount.page.test.ts` (equal `42.00` for 4200 cents),
+  `new.amount.page.test.ts` (omit input; create without Amount; refuse
+  `99.00`), `opportunityAmount.priceHidden.test.ts` (core equal update,
+  create with/without Amount, API create refuse, API patch equal).
+- **Mutants:** run 5 in scratch copy (`s15-mut.log`): EQ1 (strip equal
+  before core gate) KILLED 3 fail / 1810 pass; EQ2 (action clears
+  amount instead of throw) KILLED; C1 (create form puts Amount back)
+  KILLED. Prior B4 remains equivalent.
+- **Verify:** `npm run verify` exit 0 on efe166e, Node v22.23.3, pinned
+  private copy (`git archive` + real `node_modules` from w62b): typegen,
+  tsc, eslint, 157 files, **1813/1813** tests, Next.js build. Log:
+  `s15-verify-eq.log`. No browser pass. Docs commit follows.
+- **Gitleaks:** `origin/main..HEAD`, no leaks.
+- **Not blocking (unchanged):** `syncAmountAndAudit` skips validation/
+  automation; backfill writes Amount with no audit.
+
 ## 2026-10-23 20:35 EDT — S1-5 review follow-up: Amount closed for price-hidden profiles, backfill, edit-form hide (Rex Grok Coder)
 
 PR #68 on `rex/s1-5-amount-rollup` (main still 898cf21). Reviewer blocking
