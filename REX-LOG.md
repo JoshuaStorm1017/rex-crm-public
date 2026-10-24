@@ -1,5 +1,44 @@
 # Rex log
 
+## 2026-10-23 20:35 EDT — S1-5 review follow-up: Amount closed for price-hidden profiles, backfill, edit-form hide (Rex Grok Coder)
+
+PR #68 on `rex/s1-5-amount-rollup` (main still 898cf21). Reviewer blocking
+gaps from aed0eac plus QE browser blocker:
+
+1. **Amount and Expected Revenue follow Sales Price.** `permissions.ts`
+   `fieldAccess` keys Amount read/edit off the same
+   `canReadField(db, actor, "product", "standardPriceCents")` call Sales
+   Price uses; Expected Revenue follows Amount. Profiles without product
+   read lose both. The earlier profiles.ts row-only check is gone.
+2. **Reports / CSV / dashboards / list / API / forecast.** Every path goes
+   through `canReadField`, so Amount and Expected Revenue are omitted or
+   nulled; report warning "Hidden by field security: …"; sort falls back
+   to name. Covered by `opportunityAmount.priceHidden.test.ts` and
+   `amountHidden.page.test.ts` (seeded Pipeline by Stage, export route,
+   DashboardPage).
+3. **Backfill.** Idempotent data migration `0058_amount_rollup_backfill`
+   recomputes Amount for every opportunity with lines (org-scoped,
+   integer cents, safe-integer guard). No schema change, no drizzle
+   snapshot. Tests in `migrations.amountBackfill.test.ts`.
+4. **Edit form hide + empty Amount save (QE).** The Amount input is not
+   rendered when the profile cannot read Amount. On save, only a missing
+   or empty `amount` from such a profile is treated as no change; any
+   non-empty value (e.g. forged amount=5000) is refused with
+   `You cannot edit Amount` and writes nothing (no field change, no
+   audit, no updatedAt). Read-only Amount while lines exist is kept.
+5. **Known follow-ups (not blocking):** `syncAmountAndAudit` bypasses
+   opportunity validation and automation rules; a price-hidden user's
+   forecast counts their Amount as 0.
+
+Verify on d77f038: exit 0, 1807/1807 tests, 156 files, Next build (s15-verify.log). Mutation: run 3 (gates +
+backfill + read-only) and run 4 (own-field-row + QE hide/save/label);
+N5–N7 and H1–H4 killed; B4 equivalent (SQLite TOTAL of INTEGER is
+INTEGER). Residual: one-bit oracle from validation/automation messages
+about amount; sharing criteria on amount; backfill writes no audit and
+leaves over-range sums untouched; no drizzle snapshot for 0058;
+custom profiles without product read now lose Amount/Expected Revenue.
+
+
 ## 2026-10-23 19:45 EDT — S1-5 Amount roll-up from line items (Rex Grok Coder)
 
 Branch `rex/s1-5-amount-rollup` off main 898cf21. Adding, editing or

@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-23, S1-5: line items roll up into Opportunity Amount in the same transaction (verify exit 0 on 8bfee59, 1789 tests).
+Last updated: 2026-10-23, S1-5 review follow-up: Amount closed for price-hidden profiles, backfill, edit-form hide (PR #68).
 
 The sections dated 2026-10-11 describe the tree verified that day.
 Contact delete no longer clears every junction row or every Reports To
@@ -41,18 +41,23 @@ sharing rules.
 
 Things actually run, with evidence.
 
-### Line items roll up into Opportunity Amount (2026-10-23, S1-5, PR open)
+### Line items roll up into Opportunity Amount (2026-10-23, S1-5, PR #68)
 
 Add, edit and delete of a line set Amount to the integer-cent sum of the
 opportunity's lines (own org only) in the same transaction, with one
 audit row (editor as actor, Amount old/new). Rollback on audit failure
-leaves line and Amount unchanged (tested for all three). A changed Amount
-is refused while lines exist (AMOUNT_ROLLED_UP); manual Amount works with
-no lines. A profile without Sales Price read loses Amount read/edit.
-Covered by `opportunityLineItems.rollup.test.ts` (13 tests) plus updated
-line-item tests. Verify exit 0 on 8bfee59, 1789/1789; mutants 21/22
-killed, M6 equivalent. Not done: Amount input not read-only in the edit
-form; report aggregates not re-audited for the Sales Price rule.
+leaves line and Amount unchanged. A changed Amount is refused while
+lines exist (AMOUNT_ROLLED_UP); the edit form Amount is read-only with
+a roll-up note while lines exist. Amount (and Expected Revenue) follow
+the Sales Price `canReadField` rule: a price-hidden or no-product
+profile sees neither in reports, CSV, dashboards, lists, API or
+forecast, and the edit form omits the Amount input; an empty Amount
+from them is no change, a forged value is refused as "You cannot edit
+Amount" with nothing written. Idempotent backfill migration 0058
+recomputes Amount for lined opportunities. Known follow-ups:
+syncAmountAndAudit bypasses validation/automation; price-hidden
+forecast counts Amount as 0. Verify exit 0 on d77f038, 1807/1807; mutants run 3+4 killed (B4 equivalent).
+See REX-LOG 2026-10-23 20:35 EDT.
 
 ### System fields are never editable through field security (2026-10-23)
 
