@@ -8,6 +8,7 @@ import {
   OPPORTUNITY_TYPES,
 } from "@/lib/crm/constants";
 import { withCustomFormFields } from "@/lib/crm/customFieldForm";
+import { canReadField } from "@/lib/crm/permissions";
 import { getDb } from "@/lib/db/client";
 
 export default async function NewOpportunityPage({
@@ -63,11 +64,10 @@ export default async function NewOpportunityPage({
               type: "date" as const,
               required: true,
             },
-            {
-              name: "amount",
-              label: "Amount (USD)",
-              placeholder: "50000",
-            },
+            // S1-5: omit Amount when the profile cannot read it (same as edit).
+            ...(canReadField(getDb(), actor, "opportunity", "amountCents")
+              ? [{ name: "amount", label: "Amount (USD)", placeholder: "50000" }]
+              : []),
             {
               name: "probability",
               label: "Probability (0–100)",

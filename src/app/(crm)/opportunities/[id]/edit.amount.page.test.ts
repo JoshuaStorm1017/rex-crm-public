@@ -112,6 +112,25 @@ describe("opportunity edit form Amount", () => {
       expect(audits()).toBe(2);
     });
 
+    it("refuses a non-empty amount equal to the stored Amount and writes nothing", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        vi.setSystemTime(new Date("2026-10-01T12:00:00Z"));
+        const { db, opp, form, audits } = await hiddenSetup();
+        const before = getOpportunity(db, LOCAL_ACTOR, opp.id)!;
+        expect(before.amountCents).toBe(4_200);
+        vi.setSystemTime(new Date("2026-10-02T12:00:00Z"));
+        // 42.00 USD == 4200 cents — equal to stored; must still be refused
+        // so the profile cannot probe Amount by guessing.
+        const result = await updateOpportunityAction(opp.id, null, form({ amount: "42.00" }));
+        expect(result?.error).toBe("You cannot edit Amount");
+        expect(getOpportunity(db, LOCAL_ACTOR, opp.id)).toEqual(before);
+        expect(audits()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("refuses a forged amount=5000 with the Amount label and writes nothing", async () => {
       vi.useFakeTimers({ toFake: ["Date"] });
       try {

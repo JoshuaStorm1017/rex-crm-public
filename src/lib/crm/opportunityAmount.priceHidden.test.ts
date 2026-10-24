@@ -1,15 +1,16 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { openMemoryDb, type Db } from "../db/client";
-import { orgMemberships } from "../db/schema";
+import { auditEvents, orgMemberships } from "../db/schema";
 import { actorFor, LOCAL_ACTOR, type Actor } from "./actor";
 import { createAccount } from "./accounts";
 import { getApiRecord, listApiRecords } from "./apiRecords";
+import { createApiRecord, updateApiRecord } from "./apiWrites";
 import { LOCAL_ORG_ID } from "./constants";
 import { addDashboardComponent, createDashboard, runDashboard } from "./dashboards";
 import { buildForecast } from "./forecasts";
 import { createListView, getListView, queryOpportunities } from "./listViews";
-import { createOpportunity, listOpportunitiesForAccount } from "./opportunities";
+import { createOpportunity, getOpportunity, listOpportunitiesForAccount, updateOpportunity } from "./opportunities";
 import { addLineItem } from "./opportunityLineItems";
 import { addMember } from "./orgs";
 import { canEditField, canReadField } from "./permissions";
@@ -212,4 +213,68 @@ describe("Amount for a profile that cannot read Sales Price", () => {
     expect(listOpportunitiesForAccount(s.db, s.sighted, s.account.id).map((o) => o.amountCents).sort()).toEqual([BETA, ALPHA]);
     expect(buildForecast(s.db, s.sighted).totals.total).toBe(SUM);
   });
+
+  it("refuses updateOpportunity when Amount equals the stored value (core path)", () => {
+    const s = setup();
+    const row = getOpportunity(s.db, LOCAL_ACTOR, s.beta.id)!;
+    expect(row.amountCents).toBe(BETA);
+    const auditsBefore = s.db.select().from(auditEvents)
+      .where(and(eq(auditEvents.recordId, s.beta.id), eq(auditEvents.action, "update"))).all().length;
+    expect(() => updateOpportunity(s.db, s.blind, s.beta.id, { amountCents: BETA })).toThrow(/You cannot edit Amount/);
+    const after = getOpportunity(s.db, LOCAL_ACTOR, s.beta.id)!;
+    expect(after.amountCents).toBe(BETA);
+    expect(after.updatedAt).toBe(row.updatedAt);
+    expect(after.name).toBe(row.name);
+    expect(s.db.select().from(auditEvents)
+      .where(and(eq(auditEvents.recordId, s.beta.id), eq(auditEvents.action, "update"))).all().length).toBe(auditsBefore);
+  });
+
+  it("refuses createOpportunity with a posted Amount; allows create without Amount", () => {
+    const s = setup();
+    expect(() =>
+      createOpportunity(s.db, s.blind, {
+        accountId: s.account.id, name: "Blind Create", stage: "Prospecting",
+        closeDate: "2026-12-01", amountCents: 9_900,
+      }),
+    ).toThrow(/You cannot edit Amount/);
+    const made = createOpportunity(s.db, s.blind, {
+      accountId: s.account.id, name: "Blind Create Ok", stage: "Prospecting",
+      closeDate: "2026-12-01",
+    });
+    expect(made.name).toBe("Blind Create Ok");
+    expect(canReadField(s.db, s.blind, "opportunity", "amountCents")).toBe(false);
+  });
+
+  it("refuses API create/patch Amount for a price-hidden profile, including equal-to-stored", () => {
+    const s = setup();
+    expect(() =>
+      createApiRecord(s.db, s.blind, "Opportunity", "idem-blind-create-1", {
+        fields: {
+          name: "API Blind", accountId: s.account.id, stage: "Prospecting",
+          closeDate: "2026-12-01", amountCents: { amount: 5_000, currency: "USD" },
+        },
+      }),
+    ).toThrow(/You cannot edit Amount/);
+
+    const ok = createApiRecord(s.db, s.blind, "Opportunity", "idem-blind-create-2", {
+      fields: {
+        name: "API Blind Ok", accountId: s.account.id, stage: "Prospecting",
+        closeDate: "2026-12-01",
+      },
+    });
+    expect(ok.status).toBe(201);
+    const record = (ok.body as { record: { id: string } }).record;
+    updateOpportunity(s.db, LOCAL_ACTOR, record.id, { amountCents: BETA });
+    const before = getOpportunity(s.db, LOCAL_ACTOR, record.id)!;
+    const ifMatch = String(getApiRecord(s.db, s.blind, "Opportunity", record.id).fields.updatedAt);
+    expect(() =>
+      updateApiRecord(
+        s.db, s.blind, "Opportunity", record.id, "idem-blind-patch-eq", ifMatch,
+        { fields: { amountCents: { amount: BETA, currency: "USD" } } },
+      ),
+    ).toThrow(/You cannot edit Amount/);
+    expect(getOpportunity(s.db, LOCAL_ACTOR, record.id)!.amountCents).toBe(BETA);
+    expect(getOpportunity(s.db, LOCAL_ACTOR, record.id)!.updatedAt).toBe(before.updatedAt);
+  });
+
 });
