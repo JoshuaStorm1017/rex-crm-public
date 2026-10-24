@@ -2,7 +2,7 @@
 
 ## 2026-10-23 22:49 EDT — P0-2: Read API nulls unreadable lookup ids (Rex Grok Coder)
 
-Branch `rex/p0-2-lookup-id-leak` off main `a1b7150` (#69 already merged).
+Branch `rex/p0-2-lookup-id-leak` off main `a1b7150` (#69 already merged). PR #70.
 
 - **What:** `serialize` in `apiRecords.ts` now nulls a lookup id field when
   the actor can read the field but cannot read the related row. Covered:

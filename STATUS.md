@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-23, P0-2 Read API nulls unreadable lookup ids (PR pending).
+Last updated: 2026-10-23, P0-2 Read API nulls unreadable lookup ids (PR #70).
 
 The sections dated 2026-10-11 describe the tree verified that day.
 Contact delete no longer clears every junction row or every Reports To
@@ -41,7 +41,7 @@ sharing rules.
 
 Things actually run, with evidence.
 
-### Read API nulls unreadable lookup ids (2026-10-23, P0-2, PR pending)
+### Read API nulls unreadable lookup ids (2026-10-23, P0-2, PR #70)
 
 `getApiRecord` / `listApiRecords` serialize a lookup id as `null` when the
 actor can read the lookup field but cannot read the related record
