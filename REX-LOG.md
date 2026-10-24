@@ -13,10 +13,13 @@ Branch `rex/p0-3-money-parser` off main `1f2c0cd` (#68 already merged).
 - **Why:** Backlog P0-3 still said the parser accepts those forms (stale
   2026-10-17 note). Acceptance is met; this PR is the evidence pin plus
   mutant audit.
-- **Mutation (scratch):** M1 replace body with `Number(text)*100` (re-allows
-  `1e2`→10000 and `0x10`→1600) KILLED; M2 drop the digit regex (same)
-  KILLED. Money mutants must die.
-- **Verify / gitleaks / line count:** filled after verify on the PR head.
+- **Mutation (scratch copy, p03-mut.log):** M1 `Number(text)` coerce
+  (re-allows `1e2`→10000, `0x10`→1600) KILLED; M2 drop digit regex
+  KILLED. Money mutants 2/2 killed. Baseline money.test green after restore.
+- **Verify:** `npm run verify` exit 0 on 084e955, Node v22.23.3, pinned
+  private copy (`git archive` + `w62b` node_modules): typegen, tsc, eslint,
+  **1814/1814** tests, Next.js build. Log: `p03-verify.log`.
+- **Gitleaks / line count:** filled before push.
 - **Not in this slice:** no other money call sites changed; no migration.
 
 ## 2026-10-23 21:29 EDT — S1-5: refuse equal Amount probes; create/API gates for price-hidden (Rex Grok Coder)
