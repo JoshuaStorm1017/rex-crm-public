@@ -12,7 +12,16 @@ vi.mock("@/lib/db/client", async () => {
   return { ...actual, getDb: vi.fn() };
 });
 
+import { and, eq } from "drizzle-orm";
 import { requireActor } from "@/lib/crm/currentUser";
+import { actorFor } from "@/lib/crm/actor";
+import { addMember } from "@/lib/crm/orgs";
+import { getOpportunity } from "@/lib/crm/opportunities";
+import { createProfile, setFieldPermission, setObjectPermission } from "@/lib/crm/profiles";
+import { setOrgWideDefault } from "@/lib/crm/sharing";
+import { createUser } from "@/lib/crm/users";
+import { auditEvents } from "@/lib/db/schema";
+import { updateOpportunityAction } from "../actions";
 import { LOCAL_ACTOR } from "@/lib/crm/actor";
 import { createAccount } from "@/lib/crm/accounts";
 import { LOCAL_ORG_ID, LOCAL_USER_ID } from "@/lib/crm/constants";
@@ -57,5 +66,66 @@ describe("opportunity edit form Amount", () => {
     expect(input).toContain('value="42.00"');
     expect(input).not.toMatch(/readOnly|aria-readonly/i);
     expect(html).not.toContain(NOTE);
+  });
+
+  describe("for a profile that cannot read Sales Price", () => {
+    const FULL = { canCreate: true, canRead: true, canUpdate: true, canDelete: true } as const;
+
+    async function hiddenSetup() {
+      const db = openMemoryDb().db;
+      vi.mocked(getDb).mockReturnValue(db);
+      setOrgWideDefault(db, LOCAL_ACTOR, "opportunity", "public_read_write", false);
+      const user = createUser(db, { name: "Blind Editor", email: "blindeditor@example.com", username: "blindeditor", password: "long-enough" });
+      const profileId = createProfile(db, LOCAL_ACTOR, "Blind Editor");
+      for (const object of ["account", "opportunity", "product"] as const) {
+        setObjectPermission(db, LOCAL_ACTOR, profileId, object, FULL);
+      }
+      setFieldPermission(db, LOCAL_ACTOR, profileId, "product", "standardPriceCents", { canRead: false, canEdit: false });
+      addMember(db, LOCAL_ORG_ID, user.id, "member", profileId);
+      const actor = actorFor(user.id);
+      vi.mocked(requireActor).mockResolvedValue({ ...actor, user: getUser(db, user.id)! });
+      const opp = createOpportunity(db, LOCAL_ACTOR, {
+        accountId: createAccount(db, LOCAL_ACTOR, { name: "Blind Co" }).id,
+        name: "Blind Deal", stage: "Prospecting", closeDate: "2026-11-01", amountCents: 4_200,
+      });
+      const form = (extra: Record<string, string>) => {
+        const fd = new FormData();
+        const fields = { name: "Blind Deal Renamed", accountId: opp.accountId, stage: "Prospecting", closeDate: "2026-11-01", probability: "10", type: "", description: "", ...extra };
+        for (const [k, v] of Object.entries(fields)) fd.set(k, v);
+        return fd;
+      };
+      const audits = () => db.select().from(auditEvents)
+        .where(and(eq(auditEvents.recordId, opp.id), eq(auditEvents.action, "update"))).all().length;
+      return { db, opp, form, audits };
+    }
+
+    it("omits the Amount input and saves a name-only edit with Amount unchanged", async () => {
+      const { db, opp, form, audits } = await hiddenSetup();
+      const html = renderToStaticMarkup(await EditOpportunityPage({ params: Promise.resolve({ id: opp.id }) }));
+      expect(html).toContain('name="name"');
+      expect(html).not.toMatch(/name="amount"/);
+      await expect(updateOpportunityAction(opp.id, {}, form({}))).rejects.toThrow("REDIRECT");
+      await expect(updateOpportunityAction(opp.id, {}, form({ amount: "" }))).rejects.toThrow("REDIRECT");
+      const saved = getOpportunity(db, LOCAL_ACTOR, opp.id)!;
+      expect(saved.name).toBe("Blind Deal Renamed");
+      expect(saved.amountCents).toBe(4_200);
+      expect(audits()).toBe(2);
+    });
+
+    it("refuses a forged amount=5000 with the Amount label and writes nothing", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        vi.setSystemTime(new Date("2026-10-01T12:00:00Z"));
+        const { db, opp, form, audits } = await hiddenSetup();
+        const before = getOpportunity(db, LOCAL_ACTOR, opp.id)!;
+        vi.setSystemTime(new Date("2026-10-02T12:00:00Z"));
+        const result = await updateOpportunityAction(opp.id, {}, form({ amount: "5000" }));
+        expect(result.error).toBe("You cannot edit Amount");
+        expect(getOpportunity(db, LOCAL_ACTOR, opp.id)).toEqual(before);
+        expect(audits()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

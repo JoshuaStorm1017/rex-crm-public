@@ -215,7 +215,8 @@ export function assertEditableFields(
   const access = fieldAccess(db, actor, object);
   for (const field of fields) {
     if (access.canEdit(field)) continue;
-    throw new DomainError("FORBIDDEN", `You cannot edit ${field}`);
+    const label = object === "opportunity" && field === "amountCents" ? "Amount" : field;
+    throw new DomainError("FORBIDDEN", `You cannot edit ${label}`);
   }
 }
 

@@ -38,6 +38,7 @@ import {
   parseLineQuantity,
   updateLineItem,
 } from "@/lib/crm/opportunityLineItems";
+import { canReadField } from "@/lib/crm/permissions";
 import { parseOpportunityUpdateFormData } from "@/lib/crm/recordFormData";
 import { getDb } from "@/lib/db/client";
 
@@ -129,8 +130,15 @@ export async function updateOpportunityAction(
       actor,
       "opportunity",
       formData,
-      (tx) =>
-        updateOpportunity(tx, actor, id, parseOpportunityUpdateFormData(formData)),
+      (tx) => {
+        const input = parseOpportunityUpdateFormData(formData);
+        // S1-5: the form omits Amount for a profile that cannot read it, so
+        // an empty Amount from them is no change; any value is still refused.
+        if (input.amountCents === null && !canReadField(tx, actor, "opportunity", "amountCents")) {
+          input.amountCents = undefined;
+        }
+        return updateOpportunity(tx, actor, id, input);
+      },
     );
     accountId = opportunity.accountId;
     destination = opportunityDestination(actor, opportunity.id);
