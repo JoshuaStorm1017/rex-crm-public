@@ -104,8 +104,8 @@ describe("opportunity edit form Amount", () => {
       const html = renderToStaticMarkup(await EditOpportunityPage({ params: Promise.resolve({ id: opp.id }) }));
       expect(html).toContain('name="name"');
       expect(html).not.toMatch(/name="amount"/);
-      await expect(updateOpportunityAction(opp.id, {}, form({}))).rejects.toThrow("REDIRECT");
-      await expect(updateOpportunityAction(opp.id, {}, form({ amount: "" }))).rejects.toThrow("REDIRECT");
+      await expect(updateOpportunityAction(opp.id, null, form({}))).rejects.toThrow("REDIRECT");
+      await expect(updateOpportunityAction(opp.id, null, form({ amount: "" }))).rejects.toThrow("REDIRECT");
       const saved = getOpportunity(db, LOCAL_ACTOR, opp.id)!;
       expect(saved.name).toBe("Blind Deal Renamed");
       expect(saved.amountCents).toBe(4_200);
@@ -119,8 +119,8 @@ describe("opportunity edit form Amount", () => {
         const { db, opp, form, audits } = await hiddenSetup();
         const before = getOpportunity(db, LOCAL_ACTOR, opp.id)!;
         vi.setSystemTime(new Date("2026-10-02T12:00:00Z"));
-        const result = await updateOpportunityAction(opp.id, {}, form({ amount: "5000" }));
-        expect(result.error).toBe("You cannot edit Amount");
+        const result = await updateOpportunityAction(opp.id, null, form({ amount: "5000" }));
+        expect(result?.error).toBe("You cannot edit Amount");
         expect(getOpportunity(db, LOCAL_ACTOR, opp.id)).toEqual(before);
         expect(audits()).toBe(0);
       } finally {
