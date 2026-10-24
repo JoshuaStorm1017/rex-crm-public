@@ -1,5 +1,7 @@
 # Rex CRM — Status
 
+- **S2-7 Slice B (in progress, no PR):** Setup Custom Objects UI + `/objects/[apiName]` CRUD on branch `rex/s2-7-custom-objects-b` (stacked on #72).
+
 > **Publication note.** This repository began as a scrubbed snapshot of a private
 > working repository, published as one commit of code with personal details removed.
 > It is now the working repository. Commit hashes and branch names in this ledger

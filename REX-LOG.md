@@ -1,5 +1,13 @@
 # Rex log
 
+## 2026-10-24 — S2-7 Slice B (local): Setup + record UI
+
+- Branch `rex/s2-7-custom-objects-b` stacked on #72 (`b164e90`).
+- Setup → Custom Objects list/new (admin-only create).
+- Generic `/objects/[apiName]` list, new, detail, edit (name + description).
+- Action tests: admin create object, Riley denied; record CRUD + Riley deny-default.
+- No PR yet — waiting on #72 three-gate APPROVE before opening Slice B.
+
 ## 2026-10-24 15:57 EDT — S2-7 Slice A: custom objects domain (Rex Grok Coder)
 
 Branch `rex/s2-7-custom-objects-a` off main `127ec99` (#71).

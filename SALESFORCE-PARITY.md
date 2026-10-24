@@ -114,11 +114,11 @@ tracks the gap. It does not block other rows.
 - **Source:** Platform metadata framework (architect doc): objects are metadata, not a deploy.
 - **Expected:** An admin creates an object with a name, label, and name field. Records of that object CRUD through the same list/detail/API path as standard objects. No code deploy.
 - **Dependencies:** PLAT-ORG-001, PLAT-META-002.
-- **Status:** PARTIAL (Slice A domain + schema). Setup UI, generic list/detail, and `/api/v1/objects/{apiName}` for custom are Slice B/C.
-- **Implementation:** `drizzle/0059_custom_objects.sql`, `src/lib/db/schema.ts` (`custom_objects`, `custom_object_records`), `src/lib/crm/customObjects.ts`, `src/lib/crm/resolve.ts`.
-- **Acceptance:** Domain tests create `Vehicle__c`, CRUD a fictional record, deny Read Only / non-owner readers, and hide cross-org. UI/API acceptance still open.
-- **Latest:** 2026-10-24 15:57 EDT Slice A tests in `customObjects.test.ts`.
-- **Gaps:** No Setup UI, no generic pages, no REST for custom apiNames, no custom fields on custom objects (S2-8), no sharing rules.
+- **Status:** PARTIAL (Slice A domain + schema; Slice B UI local on `rex/s2-7-custom-objects-b`). `/api/v1/objects/{apiName}` is Slice C.
+- **Implementation:** Slice A plus Setup `/setup/objects`, generic `/objects/[apiName]` list/detail/edit (name + description), `CustomObjectForm` / `CustomRecordForm`.
+- **Acceptance:** Domain tests create `Vehicle__c`, CRUD a fictional record, deny Read Only / non-owner readers, and hide cross-org. Setup + record UI action tests green locally (1829). REST acceptance still open.
+- **Latest:** 2026-10-24 16:11 EDT Slice B verify 1829/1829 on `rex/s2-7-custom-objects-b` (no PR until #72 merges).
+- **Gaps:** No PR for Slice B yet, no REST for custom apiNames, no custom fields on custom objects (S2-8), no sharing rules.
 
 ### PLAT-META-004 Relationships
 
