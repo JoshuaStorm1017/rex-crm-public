@@ -13,6 +13,12 @@ import {
 } from "./registry";
 import { getTask, listTasks } from "./tasks";
 
+/** Lookup id fields the Read API may return. Scrubbed when the related row is unreadable. */
+const ACCOUNT_LOOKUP_FIELDS = new Set(["accountId", "parentAccountId", "convertedAccountId"]);
+const CONTACT_LOOKUP_FIELDS = new Set(["reportsToId", "convertedContactId"]);
+const OPPORTUNITY_LOOKUP_FIELDS = new Set(["convertedOpportunityId"]);
+const TASK_RELATED_TYPES = new Set(["account", "contact", "lead", "opportunity"]);
+
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 
@@ -128,16 +134,72 @@ function encode(field: string, value: unknown): ApiFieldValue {
 }
 
 /**
- * Hidden fields are omitted. A readable empty field stays null. Null must
- * not mean "you are not allowed to see this".
+ * True when the related row is live and readable by this actor. Soft-deleted,
+ * private, and other-org ids are not.
  */
-function serialize(access: FieldAccess, apiName: string, row: Readable): ApiRecord {
+function canReadLookupTarget(
+  db: Db,
+  actor: Actor,
+  field: string,
+  id: string,
+  source: Record<string, unknown>,
+): boolean {
+  if (ACCOUNT_LOOKUP_FIELDS.has(field)) return getAccount(db, actor, id) != null;
+  if (CONTACT_LOOKUP_FIELDS.has(field)) return getContact(db, actor, id) != null;
+  if (OPPORTUNITY_LOOKUP_FIELDS.has(field)) return getOpportunity(db, actor, id) != null;
+  if (field === "relatedRecordId" || field === "relatedObjectType") {
+    const objectType =
+      field === "relatedObjectType" ? id : source.relatedObjectType;
+    const recordId =
+      field === "relatedRecordId" ? id : source.relatedRecordId;
+    if (typeof objectType !== "string" || typeof recordId !== "string") return false;
+    if (!TASK_RELATED_TYPES.has(objectType)) return false;
+    if (objectType === "account") return getAccount(db, actor, recordId) != null;
+    if (objectType === "contact") return getContact(db, actor, recordId) != null;
+    if (objectType === "lead") return getLead(db, actor, recordId) != null;
+    return getOpportunity(db, actor, recordId) != null;
+  }
+  return true;
+}
+
+function isLookupIdField(field: string): boolean {
+  return (
+    ACCOUNT_LOOKUP_FIELDS.has(field) ||
+    CONTACT_LOOKUP_FIELDS.has(field) ||
+    OPPORTUNITY_LOOKUP_FIELDS.has(field) ||
+    field === "relatedRecordId" ||
+    field === "relatedObjectType"
+  );
+}
+
+/**
+ * Hidden fields are omitted. A readable empty field stays null. Null must
+ * not mean "you are not allowed to see this field"; a lookup id the actor
+ * cannot read is returned as null while the field key stays present.
+ */
+function serialize(
+  db: Db,
+  actor: Actor,
+  access: FieldAccess,
+  apiName: string,
+  row: Readable,
+): ApiRecord {
   const source = row as unknown as Record<string, unknown>;
   const fields: Record<string, ApiFieldValue> = {};
   for (const key of Object.keys(source).sort()) {
     if (OMIT_FIELDS.has(key)) continue;
     if (!access.canRead(key)) continue;
-    fields[key] = encode(key, source[key]);
+    const raw = source[key];
+    if (
+      isLookupIdField(key) &&
+      typeof raw === "string" &&
+      raw.length > 0 &&
+      !canReadLookupTarget(db, actor, key, raw, source)
+    ) {
+      fields[key] = null;
+      continue;
+    }
+    fields[key] = encode(key, raw);
   }
   return { id: row.id, apiName, fields };
 }
@@ -150,7 +212,7 @@ export function toApiRecord(
   row: Readable,
 ): ApiRecord {
   const object = requireObject(apiName);
-  return serialize(fieldAccess(db, actor, object.key), object.apiName, row);
+  return serialize(db, actor, fieldAccess(db, actor, object.key), object.apiName, row);
 }
 
 export function getApiRecord(
@@ -162,7 +224,7 @@ export function getApiRecord(
   const object = requireObject(apiName);
   const row = READERS[object.key].get(db, actor, id);
   if (!row) throw new DomainError("NOT_FOUND", "Record not found");
-  return serialize(fieldAccess(db, actor, object.key), object.apiName, row);
+  return serialize(db, actor, fieldAccess(db, actor, object.key), object.apiName, row);
 }
 
 export function listApiRecords(
@@ -183,10 +245,9 @@ export function listApiRecords(
   const page = sorted.slice(sliceStart, sliceStart + limit);
   const last = page[page.length - 1];
   const more = sliceStart + page.length < sorted.length;
+  const access = fieldAccess(db, actor, object.key);
   return {
-    records: page.map((row) =>
-      serialize(fieldAccess(db, actor, object.key), object.apiName, row),
-    ),
+    records: page.map((row) => serialize(db, actor, access, object.apiName, row)),
     nextCursor: more && last ? encodeCursor(last.id) : null,
   };
 }

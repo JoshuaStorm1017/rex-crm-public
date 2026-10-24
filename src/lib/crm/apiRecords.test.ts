@@ -12,6 +12,7 @@ import { DomainError } from "./errors";
 import { createLead } from "./leads";
 import { createOpportunity } from "./opportunities";
 import { addMember, createOrganization } from "./orgs";
+import { changeOwner } from "./ownership";
 import { createProfile, setFieldPermission, setObjectPermission } from "./profiles";
 import { setOrgWideDefault } from "./sharing";
 import { completeTask, createTask } from "./tasks";
@@ -604,6 +605,96 @@ describe("read-only API records", () => {
 
     const emptyId = recordError(() => getApiRecord(db, LOCAL_ACTOR, "Account", ""));
     expect(emptyId.message).toBe(missing.message);
+  });
+
+  it("returns null for a lookup id when the related record is unreadable", () => {
+    const db = memory();
+    const secret = createAccount(db, LOCAL_ACTOR, { name: "Secret Quarry" });
+    const visible = createAccount(db, LOCAL_ACTOR, { name: "Visible Quarry" });
+    const manager = createContact(db, LOCAL_ACTOR, {
+      accountId: visible.id,
+      lastName: "Boss",
+      firstName: "Hidden",
+    });
+    const contact = createContact(db, LOCAL_ACTOR, {
+      accountId: secret.id,
+      lastName: "Quill",
+      firstName: "Ada",
+      reportsToId: manager.id,
+    });
+    const opportunity = createOpportunity(db, LOCAL_ACTOR, {
+      name: "Secret Deal",
+      accountId: secret.id,
+      stage: "Prospecting",
+      closeDate: "2026-12-31",
+      amountCents: 1000,
+    });
+    const task = createTask(db, LOCAL_ACTOR, {
+      name: "Follow up",
+      relatedObjectType: "account",
+      relatedRecordId: secret.id,
+      priority: "Normal",
+    });
+    const child = createAccount(db, LOCAL_ACTOR, {
+      name: "Child Co",
+      parentAccountId: secret.id,
+    });
+
+    // Riley can read the contact/opp/task/child (public OWD) but not the
+    // private related account or manager after ownership moves.
+    changeOwner(db, LOCAL_ACTOR, "contact", contact.id, { newOwnerId: RILEY_USER_ID });
+    changeOwner(db, LOCAL_ACTOR, "opportunity", opportunity.id, { newOwnerId: RILEY_USER_ID });
+    changeOwner(db, LOCAL_ACTOR, "task", task.id, { newOwnerId: RILEY_USER_ID });
+    changeOwner(db, LOCAL_ACTOR, "account", child.id, { newOwnerId: RILEY_USER_ID });
+    setOrgWideDefault(db, LOCAL_ACTOR, "account", "private", true);
+    setOrgWideDefault(db, LOCAL_ACTOR, "contact", "private", true);
+
+    const contactRecord = getApiRecord(db, riley, "Contact", contact.id);
+    expect(contactRecord.fields.accountId).toBeNull();
+    expect(contactRecord.fields.reportsToId).toBeNull();
+    expect(contactRecord.fields.lastName).toBe("Quill");
+    const contactText = JSON.stringify(contactRecord);
+    expect(contactText).not.toContain(secret.id);
+    expect(contactText).not.toContain(manager.id);
+    expect(contactText).not.toContain("Secret Quarry");
+
+    const deal = getApiRecord(db, riley, "Opportunity", opportunity.id);
+    expect(deal.fields.accountId).toBeNull();
+    expect(JSON.stringify(deal)).not.toContain(secret.id);
+
+    const taskRecord = getApiRecord(db, riley, "Task", task.id);
+    expect(taskRecord.fields.relatedRecordId).toBeNull();
+    expect(taskRecord.fields.relatedObjectType).toBeNull();
+    expect(JSON.stringify(taskRecord)).not.toContain(secret.id);
+
+    const childRecord = getApiRecord(db, riley, "Account", child.id);
+    expect(childRecord.fields.parentAccountId).toBeNull();
+    expect(JSON.stringify(childRecord)).not.toContain(secret.id);
+
+    // Readable lookups still return the id (operator can read secret).
+    const operatorContact = getApiRecord(db, LOCAL_ACTOR, "Contact", contact.id);
+    expect(operatorContact.fields.accountId).toBe(secret.id);
+    expect(operatorContact.fields.reportsToId).toBe(manager.id);
+    const operatorTask = getApiRecord(db, LOCAL_ACTOR, "Task", task.id);
+    expect(operatorTask.fields.relatedRecordId).toBe(secret.id);
+    expect(operatorTask.fields.relatedObjectType).toBe("account");
+
+    // Readable related account for Riley still returns the id.
+    setOrgWideDefault(db, LOCAL_ACTOR, "account", "public_read", true);
+    setOrgWideDefault(db, LOCAL_ACTOR, "contact", "public_read", true);
+    const openContact = createContact(db, riley, {
+      accountId: visible.id,
+      lastName: "Open",
+    });
+    expect(getApiRecord(db, riley, "Contact", openContact.id).fields.accountId).toBe(visible.id);
+
+    // List path uses the same scrub.
+    setOrgWideDefault(db, LOCAL_ACTOR, "account", "private", true);
+    setOrgWideDefault(db, LOCAL_ACTOR, "contact", "private", true);
+    const listed = page(db, riley, "Contact");
+    const listedContact = listed.records.find((row) => row.id === contact.id);
+    expect(listedContact?.fields.accountId).toBeNull();
+    expect(JSON.stringify(listed)).not.toContain(secret.id);
   });
 
   it("returns a completed timestamp and ignores filters, bad cursors, and the default page size", () => {

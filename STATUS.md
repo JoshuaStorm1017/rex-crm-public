@@ -10,7 +10,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-23, P0-3 money parser refuses exponent and hex (PR #69).
+Last updated: 2026-10-23, P0-2 Read API nulls unreadable lookup ids (PR pending).
 
 The sections dated 2026-10-11 describe the tree verified that day.
 Contact delete no longer clears every junction row or every Reports To
@@ -40,6 +40,17 @@ sharing rules.
 ## WORKS
 
 Things actually run, with evidence.
+
+### Read API nulls unreadable lookup ids (2026-10-23, P0-2, PR pending)
+
+`getApiRecord` / `listApiRecords` serialize a lookup id as `null` when the
+actor can read the lookup field but cannot read the related record
+(private OWD, soft-deleted, or other org). Readable lookups still return
+the id. Field-level hidden lookups stay omitted. Covers Contact/
+Opportunity `accountId`, Account `parentAccountId`, Contact `reportsToId`,
+Task `relatedRecordId` + `relatedObjectType`, and Lead converted refs.
+Verify exit 0, 1815/1815 tests, Node v22.23.3 (p02-verify.log). Mutants
+7/7 killed (p02-mut.log). See REX-LOG 2026-10-23 22:49 EDT.
 
 ### Money parser refuses exponent and hex (2026-10-23, P0-3, PR #69)
 
