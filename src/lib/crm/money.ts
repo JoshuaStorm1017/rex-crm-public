@@ -16,7 +16,9 @@ export function centsToInput(cents: number | null | undefined): string {
 /**
  * Dollar text to integer cents. Blank is omitted (`undefined`). `$` and
  * thousands separators are allowed. `Number()` is not used: it turns `$`
- * and `,` into 0, `0x10` into 16, and rounds `1.999` to 200.
+ * and `,` into 0, `0x10` into 16, `1e2` into 100, and rounds `1.999` to
+ * 200. Only plain decimal digits with at most two fractional places are
+ * accepted (P0-3: scientific notation and hex are refused).
  */
 export function parseUsdToCents(raw: string | undefined): number | undefined {
   if (raw == null) return undefined;

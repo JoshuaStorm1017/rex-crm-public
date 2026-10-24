@@ -1,5 +1,28 @@
 # Rex log
 
+## 2026-10-23 22:05 EDT — P0-3: money parser refuses exponent and hex (Rex Grok Coder)
+
+Branch `rex/p0-3-money-parser` off main `1f2c0cd` (#68 already merged).
+
+- **What:** `parseUsdToCents` already refused `1e2` and `0x10` via the
+  plain-decimal digit check (no `Number()` on the raw string). This slice
+  pins P0-3: docstring names scientific notation (`1e2`) next to hex, and
+  a dedicated Vitest case asserts refuse for `1e2` / `0x10` / `1E2` /
+  `0X10` / `1e+2` while `10` and `$19.99` still parse. Existing cents
+  tests unchanged.
+- **Why:** Backlog P0-3 still said the parser accepts those forms (stale
+  2026-10-17 note). Acceptance is met; this PR is the evidence pin plus
+  mutant audit.
+- **Mutation (scratch copy, p03-mut.log):** M1 `Number(text)` coerce
+  (re-allows `1e2`→10000, `0x10`→1600) KILLED; M2 drop digit regex
+  KILLED. Money mutants 2/2 killed. Baseline money.test green after restore.
+- **Verify:** `npm run verify` exit 0 on 084e955, Node v22.23.3, pinned
+  private copy (`git archive` + `w62b` node_modules): typegen, tsc, eslint,
+  **1814/1814** tests, Next.js build. Log: `p03-verify.log`.
+- **Gitleaks:** `origin/main..HEAD` clean (no leaks).
+- **Line count:** non-test non-md +3 (`money.ts` docstring); tests +14; docs only otherwise. Well under 400.
+- **Not in this slice:** no other money call sites changed; no migration.
+
 ## 2026-10-23 21:29 EDT — S1-5: refuse equal Amount probes; create/API gates for price-hidden (Rex Grok Coder)
 
 PR #68 on `rex/s1-5-amount-rollup` (code head efe166e). Reviewer early
