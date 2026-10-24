@@ -7,7 +7,13 @@ import { assertActor } from "./actor";
 import { getApiRecord, toApiRecord } from "./apiRecords";
 import { createAccount, deleteAccount, updateAccount } from "./accounts";
 import { createContact, deleteContact, updateContact } from "./contacts";
+import {
+  createCustomRecord,
+  deleteCustomRecord,
+  updateCustomRecord,
+} from "./customObjects";
 import { DomainError, isDomainError } from "./errors";
+import { resolve } from "./resolve";
 import { formatError } from "./form";
 import { ID_PREFIX, newId } from "./ids";
 import { createLead, deleteLead, updateLead } from "./leads";
@@ -89,7 +95,30 @@ export function createApiRecord(
   idempotencyKey: string | null,
   body: unknown,
 ): ApiWriteResult {
-  const object = objectFor(apiName);
+  const resolved = resolve(db, actor.orgId, apiName);
+  if (!resolved) throw new DomainError("NOT_FOUND", "Object not found");
+  if (resolved.kind === "custom") {
+    const fields = readCustomFields(readFields(body), "create");
+    const hash = requestHash({
+      method: "POST",
+      apiName: resolved.apiName,
+      id: "",
+      fields,
+    });
+    return runIdempotent(db, actor, requireKey(idempotencyKey), hash, (tx) => {
+      const row = attempt(() =>
+        createCustomRecord(tx, actor, resolved.apiName, {
+          name: String(fields.name ?? ""),
+          description:
+            fields.description === undefined
+              ? null
+              : (fields.description as string | null),
+        }),
+      );
+      return { status: 201, body: { record: toApiRecord(tx, actor, resolved.apiName, row) } };
+    });
+  }
+  const object = resolved.object;
   const fields = decodeFields(object.key, readFields(body), "create");
   const hash = requestHash({ method: "POST", apiName: object.apiName, id: "", fields });
   return runIdempotent(db, actor, requireKey(idempotencyKey), hash, (tx) => {
@@ -107,7 +136,37 @@ export function updateApiRecord(
   ifMatch: string | null,
   body: unknown,
 ): ApiWriteResult {
-  const object = objectFor(apiName);
+  const resolved = resolve(db, actor.orgId, apiName);
+  if (!resolved) throw new DomainError("NOT_FOUND", "Object not found");
+  if (resolved.kind === "custom") {
+    const match = requireMatch(ifMatch);
+    const fields = readCustomFields(readFields(body), "update");
+    const hash = requestHash({
+      method: "PATCH",
+      apiName: resolved.apiName,
+      id,
+      fields,
+      ifMatch: normalizeMatch(match),
+    });
+    return runIdempotent(db, actor, requireKey(idempotencyKey), hash, (tx) => {
+      assertMatch(tx, actor, resolved.apiName, id, match);
+      const row = attempt(() => {
+        const current = getApiRecord(tx, actor, resolved.apiName, id);
+        return updateCustomRecord(tx, actor, resolved.apiName, id, {
+          name:
+            fields.name === undefined
+              ? String(current.fields.name ?? "")
+              : String(fields.name),
+          description:
+            fields.description === undefined
+              ? ((current.fields.description as string | null | undefined) ?? null)
+              : (fields.description as string | null),
+        });
+      });
+      return { status: 200, body: { record: toApiRecord(tx, actor, resolved.apiName, row) } };
+    });
+  }
+  const object = resolved.object;
   const match = requireMatch(ifMatch);
   const fields = decodeFields(object.key, readFields(body), "update");
   const hash = requestHash({
@@ -131,7 +190,22 @@ export function deleteApiRecord(
   id: string,
   idempotencyKey: string | null,
 ): ApiWriteResult {
-  const object = objectFor(apiName);
+  const resolved = resolve(db, actor.orgId, apiName);
+  if (!resolved) throw new DomainError("NOT_FOUND", "Object not found");
+  if (resolved.kind === "custom") {
+    const hash = requestHash({
+      method: "DELETE",
+      apiName: resolved.apiName,
+      id,
+      fields: null,
+    });
+    return runIdempotent(db, actor, requireKey(idempotencyKey), hash, (tx) => {
+      getApiRecord(tx, actor, resolved.apiName, id);
+      attempt(() => deleteCustomRecord(tx, actor, resolved.apiName, id));
+      return { status: 204, body: null };
+    });
+  }
+  const object = resolved.object;
   const hash = requestHash({ method: "DELETE", apiName: object.apiName, id, fields: null });
   return runIdempotent(db, actor, requireKey(idempotencyKey), hash, (tx) => {
     // Same not-found body as GET. The domain message names the object.
@@ -139,6 +213,33 @@ export function deleteApiRecord(
     attempt(() => REMOVE[object.key](tx, actor, id));
     return { status: 204, body: null };
   });
+}
+
+
+const CUSTOM_FIELD_KEYS = new Set(["name", "description"]);
+
+function readCustomFields(
+  fields: Record<string, unknown>,
+  mode: "create" | "update",
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (!CUSTOM_FIELD_KEYS.has(key)) {
+      throw new DomainError("INVALID_INPUT", "Field is not valid");
+    }
+    if (value === undefined) continue;
+    if (value !== null && typeof value !== "string") {
+      throw new DomainError("INVALID_INPUT", "Field is not valid");
+    }
+    out[key] = value;
+  }
+  if (mode === "create" && (out.name == null || String(out.name).trim() === "")) {
+    throw new DomainError("INVALID_INPUT", "Name is required");
+  }
+  if (mode === "update" && Object.keys(out).length === 0) {
+    throw new DomainError("INVALID_INPUT", "Request is not valid");
+  }
+  return out;
 }
 
 function objectFor(apiName: string) {

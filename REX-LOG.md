@@ -1,5 +1,11 @@
 # Rex log
 
+## 2026-10-24 — S2-7 Slice C (local): custom objects on /api/v1/objects
+
+- Wired `resolve` into `apiRecords` / `apiWrites` so `Vehicle__c` CRUD uses the same record API.
+- Tests: `apiCustomObjects.test.ts` (CRUD + Riley FORBIDDEN + unknown NOT_FOUND).
+- Still on `rex/s2-7-custom-objects-b`; no PR until #72 APPROVE/merge.
+
 ## 2026-10-24 — S2-7 Slice B (local): Setup + record UI
 
 - Branch `rex/s2-7-custom-objects-b` stacked on #72 (`b164e90`).

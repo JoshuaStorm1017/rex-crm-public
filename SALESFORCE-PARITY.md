@@ -114,11 +114,11 @@ tracks the gap. It does not block other rows.
 - **Source:** Platform metadata framework (architect doc): objects are metadata, not a deploy.
 - **Expected:** An admin creates an object with a name, label, and name field. Records of that object CRUD through the same list/detail/API path as standard objects. No code deploy.
 - **Dependencies:** PLAT-ORG-001, PLAT-META-002.
-- **Status:** PARTIAL (Slice A domain + schema; Slice B UI local on `rex/s2-7-custom-objects-b`). `/api/v1/objects/{apiName}` is Slice C.
-- **Implementation:** Slice A plus Setup `/setup/objects`, generic `/objects/[apiName]` list/detail/edit (name + description), `CustomObjectForm` / `CustomRecordForm`.
-- **Acceptance:** Domain tests create `Vehicle__c`, CRUD a fictional record, deny Read Only / non-owner readers, and hide cross-org. Setup + record UI action tests green locally (1829). REST acceptance still open.
-- **Latest:** 2026-10-24 16:11 EDT Slice B verify 1829/1829 on `rex/s2-7-custom-objects-b` (no PR until #72 merges).
-- **Gaps:** No PR for Slice B yet, no REST for custom apiNames, no custom fields on custom objects (S2-8), no sharing rules.
+- **Status:** PARTIAL (Slice A–C local on `rex/s2-7-custom-objects-b`). Waiting on #72 merge before PR.
+- **Implementation:** Slice A domain; Setup `/setup/objects` + `/objects/[apiName]` UI; `/api/v1/objects/{apiName}` via `resolve` + `apiRecords`/`apiWrites` custom path (name + description).
+- **Acceptance:** Domain + UI action + API custom tests (`apiCustomObjects.test.ts`) cover Vehicle__c CRUD and Read Only Riley deny.
+- **Latest:** 2026-10-24 16:16 EDT Slice C API wired; holding PR for #72 gates.
+- **Gaps:** No PR yet for B/C, no custom fields on custom objects (S2-8), no sharing rules.
 
 ### PLAT-META-004 Relationships
 

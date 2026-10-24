@@ -2,13 +2,18 @@ import type { Db } from "../db/client";
 import type { Actor } from "./actor";
 import { getAccount, listAccounts } from "./accounts";
 import { getContact, listContacts } from "./contacts";
+import {
+  getCustomRecord,
+  listCustomRecords,
+  type CustomObjectRecord,
+} from "./customObjects";
 import { DomainError } from "./errors";
+import { resolve } from "./resolve";
 import { getLead, listLeads } from "./leads";
 import { getOpportunity, listOpportunities } from "./opportunities";
 import { fieldAccess, type FieldAccess } from "./permissions";
 import {
   STANDARD_OBJECTS,
-  type StandardObject,
   type StandardObjectKey,
 } from "./registry";
 import { getTask, listTasks } from "./tasks";
@@ -42,6 +47,9 @@ const OMIT_FIELDS = new Set([
   "relatedName",
   "relatedHref",
   "canEdit",
+  "objectId",
+  "createdBy",
+  "updatedBy",
 ]);
 
 export type ApiMoney = { amount: number; currency: "USD" };
@@ -79,11 +87,6 @@ const READERS = {
   }
 >;
 
-function requireObject(apiName: string): StandardObject {
-  const found = Object.values(STANDARD_OBJECTS).find((object) => object.apiName === apiName);
-  if (!found) throw new DomainError("NOT_FOUND", "Object not found");
-  return found;
-}
 
 function blankToNull(value: string | null): string | null {
   if (value == null) return null;
@@ -204,6 +207,24 @@ function serialize(
   return { id: row.id, apiName, fields };
 }
 
+
+function serializeCustom(apiName: string, row: CustomObjectRecord): ApiRecord {
+  const fields: Record<string, ApiFieldValue> = {
+    name: row.name,
+    description: row.description,
+    ownerId: row.ownerId,
+    createdAt: new Date(row.createdAt).toISOString(),
+    updatedAt: new Date(row.updatedAt).toISOString(),
+  };
+  return { id: row.id, apiName, fields };
+}
+
+function requireResolved(db: Db, actor: Actor, apiName: string) {
+  const resolved = resolve(db, actor.orgId, apiName);
+  if (!resolved) throw new DomainError("NOT_FOUND", "Object not found");
+  return resolved;
+}
+
 /** The same shape as a read, for a row a write just stored. */
 export function toApiRecord(
   db: Db,
@@ -211,8 +232,17 @@ export function toApiRecord(
   apiName: string,
   row: Readable,
 ): ApiRecord {
-  const object = requireObject(apiName);
-  return serialize(db, actor, fieldAccess(db, actor, object.key), object.apiName, row);
+  const resolved = requireResolved(db, actor, apiName);
+  if (resolved.kind === "custom") {
+    return serializeCustom(resolved.apiName, row as CustomObjectRecord);
+  }
+  return serialize(
+    db,
+    actor,
+    fieldAccess(db, actor, resolved.object.key),
+    resolved.apiName,
+    row,
+  );
 }
 
 export function getApiRecord(
@@ -221,7 +251,13 @@ export function getApiRecord(
   apiName: string,
   id: string,
 ): ApiRecord {
-  const object = requireObject(apiName);
+  const resolved = requireResolved(db, actor, apiName);
+  if (resolved.kind === "custom") {
+    const row = getCustomRecord(db, actor, resolved.apiName, id);
+    if (!row) throw new DomainError("NOT_FOUND", "Record not found");
+    return serializeCustom(resolved.apiName, row);
+  }
+  const object = resolved.object;
   const row = READERS[object.key].get(db, actor, id);
   if (!row) throw new DomainError("NOT_FOUND", "Record not found");
   return serialize(db, actor, fieldAccess(db, actor, object.key), object.apiName, row);
@@ -233,10 +269,25 @@ export function listApiRecords(
   apiName: string,
   query: URLSearchParams,
 ): ApiRecordPage {
-  const object = requireObject(apiName);
+  const resolved = requireResolved(db, actor, apiName);
   const limit = parseLimit(blankToNull(query.get("limit")));
   const cursor = blankToNull(query.get("cursor"));
   const after = cursor == null ? null : decodeCursor(cursor);
+  if (resolved.kind === "custom") {
+    const sorted = [...listCustomRecords(db, actor, resolved.apiName)].sort((a, b) =>
+      a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+    );
+    const start = after == null ? 0 : sorted.findIndex((row) => row.id > after);
+    const sliceStart = after == null ? 0 : start === -1 ? sorted.length : start;
+    const page = sorted.slice(sliceStart, sliceStart + limit);
+    const last = page[page.length - 1];
+    const more = sliceStart + page.length < sorted.length;
+    return {
+      records: page.map((row) => serializeCustom(resolved.apiName, row)),
+      nextCursor: more && last ? encodeCursor(last.id) : null,
+    };
+  }
+  const object = resolved.object;
   const sorted = [...READERS[object.key].list(db, actor)].sort((a, b) =>
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
