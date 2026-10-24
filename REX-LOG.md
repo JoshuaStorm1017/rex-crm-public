@@ -1,18 +1,11 @@
 # Rex log
 
-## 2026-10-24 — S2-7 Slice C (local): custom objects on /api/v1/objects
+## 2026-10-24 — S2-7 Slice B+C: Setup UI + /api/v1 custom objects
 
-- Wired `resolve` into `apiRecords` / `apiWrites` so `Vehicle__c` CRUD uses the same record API.
-- Tests: `apiCustomObjects.test.ts` (CRUD + Riley FORBIDDEN + unknown NOT_FOUND).
-- Still on `rex/s2-7-custom-objects-b`; no PR until #72 APPROVE/merge.
-
-## 2026-10-24 — S2-7 Slice B (local): Setup + record UI
-
-- Branch `rex/s2-7-custom-objects-b` stacked on #72 (`b164e90`).
-- Setup → Custom Objects list/new (admin-only create).
-- Generic `/objects/[apiName]` list, new, detail, edit (name + description).
-- Action tests: admin create object, Riley denied; record CRUD + Riley deny-default.
-- No PR yet — waiting on #72 three-gate APPROVE before opening Slice B.
+- Branch `rex/s2-7-custom-objects-b` after #72 merge (`e3aad09` on main).
+- Setup → Custom Objects list/new; `/objects/[apiName]` list/detail/edit (name + description).
+- API: `resolve` in `apiRecords`/`apiWrites` for Vehicle__c CRUD; Riley FORBIDDEN tests.
+- Opening PR for Reviewer 2.
 
 ## 2026-10-24 15:57 EDT — S2-7 Slice A: custom objects domain (Rex Grok Coder)
 
