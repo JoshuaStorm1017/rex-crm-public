@@ -25,7 +25,9 @@ type HistoryEntry = {
 };
 
 function when(ms: number): string {
-  return new Date(ms).toISOString().slice(0, 16).replace("T", " ");
+  // Match record detail stamps: UTC wall clock with an explicit zone label
+  // so a 09:28 EDT edit is not mistaken for local 13:28.
+  return new Date(ms).toISOString().replace("T", " ").slice(0, 19) + " UTC";
 }
 
 function changeText(action: HistoryAction, change: HistoryChange): string {

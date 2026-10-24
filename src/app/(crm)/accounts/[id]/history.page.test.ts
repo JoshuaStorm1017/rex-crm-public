@@ -215,7 +215,7 @@ describe("account history related list", () => {
     expect(deleted).toContain("Deleted");
     expect(deleted).toContain("Local Operator");
     expect(deleted).toContain("Name: Gone Co");
-    expect(deleted).toContain("2026-10-16 18:04");
+    expect(deleted).toContain("2026-10-16 18:04:00 UTC");
     expect(deleted).not.toContain("→");
 
     const hostile = renderToStaticMarkup(
