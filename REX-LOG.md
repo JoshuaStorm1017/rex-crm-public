@@ -10,6 +10,7 @@ Branch `rex/s2-9-write-api-bearer-idempotency`, follow-up on `d551ab8`.
 - **Tests:** `tokens/route.test.ts` adds one case. A session mint is 201. That bearer alone is 403 and stores no second row. The same bearer beside the session is 403. Bearer DELETE of that token is still 204.
 - **Mutation (scratch, restored):** drop the Authorization gate KILLED; mint through `actorForRequest` KILLED.
 - **Verify:** `npm run verify` exit 0, Node v22.23.4, vitest **1855/1855** (165 files). Same two pre-existing eslint warnings. No browser pass. The earlier curl did not cover this restriction.
+- **Gitleaks:** v8.28.0 `protect --staged` and `git --log-opts="origin/main..HEAD"` exit 0. No new secrets.
 - **Not done:** no token list. Product is still not writable. No new object types.
 
 ## 2026-10-25 — S2-9: write API bearer, idempotency, and If-Match (Rex Grok Coder)
