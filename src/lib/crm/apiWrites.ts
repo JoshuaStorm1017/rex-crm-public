@@ -301,7 +301,7 @@ function requireKey(raw: string | null): string {
 
 function requireMatch(raw: string | null): string {
   const value = raw?.trim() ?? "";
-  if (!value) throw new DomainError("INVALID_INPUT", "If-Match is not valid");
+  if (!value) throw new DomainError("PRECONDITION_REQUIRED", "If-Match is required");
   return value;
 }
 
@@ -313,7 +313,7 @@ function assertMatch(db: Db, actor: Actor, apiName: string, id: string, header: 
   const record = getApiRecord(db, actor, apiName, id);
   const stamp = record.fields.updatedAt;
   if (typeof stamp !== "string" || normalizeMatch(header) !== stamp) {
-    throw new DomainError("CONFLICT", "Record has changed");
+    throw new DomainError("PRECONDITION_FAILED", "Record has changed");
   }
 }
 

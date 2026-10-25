@@ -1036,6 +1036,30 @@ export const apiIdempotencyKeys = sqliteTable(
   ],
 );
 
+/**
+ * Bearer credentials for `/api/v1`. The secret is not stored. Inserts and
+ * reads go through `apiTokens.ts`. A token is one user in one organization.
+ */
+export const apiTokens = sqliteTable(
+  "api_tokens",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    createdAt: integer("created_at").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    revokedAt: integer("revoked_at"),
+  },
+  (table) => [
+    uniqueIndex("api_tokens_hash_uidx").on(table.tokenHash),
+    index("api_tokens_org_user_idx").on(table.orgId, table.userId),
+  ],
+);
+
 /** Admin-defined custom object metadata (PLAT-META-003 Slice A). */
 export const customObjects = sqliteTable(
   "custom_objects",

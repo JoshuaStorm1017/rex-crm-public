@@ -232,6 +232,13 @@
       "when": 1792871491000,
       "tag": "0059_custom_objects",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1792960000000,
+      "tag": "0060_api_tokens",
+      "breakpoints": true
     }
   ]
 }

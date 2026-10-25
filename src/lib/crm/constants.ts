@@ -17,6 +17,8 @@ export const RILEY_USERNAME = "riley";
 export const DEFAULT_DEMO_PASSWORD = "local-dev";
 export const SESSION_COOKIE_NAME = "rex_session";
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** How long a newly issued API bearer stays valid. */
+export const API_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export const ACCOUNT_TYPES = [
   "Prospect",
