@@ -1,5 +1,17 @@
 # Rex log
 
+## 2026-10-25 — S2-8: custom fields on custom objects (Rex Grok Coder)
+
+Branch `rex/s2-8-custom-fields-on-custom-objects` off main `f81cdd19` (#73).
+
+- **Authored-by:** Rex Grok Coder (Grok / Cursor cloud agent).
+- **Decision:** reuse `custom_fields` + `custom_field_values`. `object_type` is the custom object's API name. `record_id` is `custom_object_records.id`. `value` stays canonical text (plain number, real `YYYY-MM-DD`, picklist canonical spelling). No new table. Doc: `docs/proposals/S2-8-custom-field-storage.md`.
+- **What:** `customObjectFields.ts` defines and reads those four types. Setup → Custom Objects → Fields adds them. Create and edit forms post `cf__` values in the same transaction as the record. Detail shows them. Soft-delete removes that record's value rows. `listCustomFields` / `getCustomField` ignore non-standard object types so Setup → Fields does not throw.
+- **Tests:** `customObjectFields.test.ts` (8) plus action/render cases on the record form and the fields page. Refusal snapshots cover bad number/date/picklist, unknown keys, required rollback, Riley, read-without-update, cross-org, and a value row whose `org_id` was moved.
+- **Verify:** `npm run verify` exit 0, Node v22.23.4. typegen, tsc, eslint (0 errors; 2 pre-existing unused-var warnings in `apiRecords.ts` and `apiWrites.ts`, not this diff), vitest **1843/1843** (163 files), Next.js build. Log not committed.
+- **Mutation (author, `customObjectFields.test.ts`):** 8/8 killed — skip org check, accept any type, `Number()` only, skip required-on-create, drop the standard-list filter, skip value cleanup on delete, ignore unknown keys, skip the write flag.
+- **Not done:** no browser pass. No textarea/currency/checkbox/email/url, no FLS, no list views/reports/API, no field edit/delete, no sharing, no typed value columns.
+
 ## 2026-10-24 — S2-7 Slice B+C: Setup UI + /api/v1 custom objects
 
 - Branch `rex/s2-7-custom-objects-b` after #72 merge (`e3aad09` on main).

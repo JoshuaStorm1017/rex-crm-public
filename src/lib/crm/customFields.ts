@@ -183,7 +183,10 @@ export function getCustomField(
       ),
     )
     .get();
-  return row ? toCustomField(row) : undefined;
+  // Custom-object fields share this table (objectType is Vehicle__c, not
+  // account/contact/lead/opportunity/task). They are not standard fields.
+  if (!row || !isObjectType(row.objectType)) return undefined;
+  return toCustomField(row);
 }
 
 export function listCustomFields(
@@ -214,7 +217,9 @@ export function listCustomFields(
           ),
         )
         .all();
+  // Skip custom-object rows so Setup → Fields does not throw CORRUPT_FIELD.
   return rows
+    .filter((row) => isObjectType(row.objectType))
     .map(toCustomField)
     .sort((a, b) => {
       if (a.objectType !== b.objectType) {

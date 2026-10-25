@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { isCurrentOrgAdmin } from "@/lib/crm/actor";
 import {
   getCustomObjectByApiName,
   listCustomRecords,
@@ -35,14 +36,24 @@ export default async function CustomObjectListPage({
             <p className="mt-1 text-sm text-[#5c564c]">{object.description}</p>
           ) : null}
         </div>
-        {flags?.canCreate ? (
-          <Link
-            href={`/objects/${object.apiName}/new`}
-            className="rounded bg-[#c45c26] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#a4491b]"
-          >
-            New {object.label}
-          </Link>
-        ) : null}
+        <div className="flex flex-wrap gap-2">
+          {isCurrentOrgAdmin(db, actor) ? (
+            <Link
+              href={`/setup/objects/${object.apiName}/fields`}
+              className="rounded border border-[#cfc6b6] bg-white px-3 py-1.5 text-sm hover:bg-[#f3efe6]"
+            >
+              Fields
+            </Link>
+          ) : null}
+          {flags?.canCreate ? (
+            <Link
+              href={`/objects/${object.apiName}/new`}
+              className="rounded bg-[#c45c26] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#a4491b]"
+            >
+              New {object.label}
+            </Link>
+          ) : null}
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-[#d9d0c0] bg-white">

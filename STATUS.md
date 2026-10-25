@@ -1,6 +1,8 @@
 # Rex CRM — Status
 
-- **S2-7 Slice B (in progress, no PR):** Setup Custom Objects UI + `/objects/[apiName]` CRUD on branch `rex/s2-7-custom-objects-b` (stacked on #72).
+- **S2-8 (this branch):** text, number, date, and picklist values on custom objects, stored in the existing `custom_fields` / `custom_field_values` tables. Decision: `docs/proposals/S2-8-custom-field-storage.md`. Verify exit 0 on 2026-10-25, Node v22.23.4, 1843/1843 tests. No browser pass.
+
+- **S2-7 Slice B+C:** merged on main as `f81cdd19` (#73). The older "in progress, no PR" line referred to that work before the merge.
 
 > **Publication note.** This repository began as a scrubbed snapshot of a private
 > working repository, published as one commit of code with personal details removed.
@@ -12,7 +14,7 @@
 Honest ledger. If it is not in WORKS, it does not work.
 "Implemented" is not a status. "I ran it; here is what happened" is.
 
-Last updated: 2026-10-24, QE-2 AuditHistory UTC zone label.
+Last updated: 2026-10-25, S2-8 custom fields on custom objects.
 
 The sections dated 2026-10-11 describe the tree verified that day.
 Contact delete no longer clears every junction row or every Reports To
@@ -45,6 +47,10 @@ sharing rules.
 - PARTIAL: custom object metadata + shared records + resolve + deny-default + owner-or-admin domain tests (PR pending). UI/API still open for demo.
 
 ## WORKS
+
+### Custom fields on custom objects (2026-10-25, S2-8)
+
+Text, number, date, and picklist fields can be defined on a custom object and saved on its records. Values reuse `custom_fields` and `custom_field_values` (`object_type` is the API name, such as `Vehicle__c`). Standard Setup → Fields still lists only the five standard objects. Owner-or-admin visibility is unchanged. `npm run verify` exit 0, Node v22.23.4, 1843/1843 tests (163 files). Evidence is Vitest plus `renderToStaticMarkup` of the new-record form, the detail page, and the fields page. No browser pass. No new migration.
 
 ### Record History UTC zone label (2026-10-24, QE-2)
 

@@ -24,7 +24,8 @@ export default async function CustomObjectsSetupPage({
           </Link>
           <h1 className="mt-2 text-2xl font-semibold">Custom Objects</h1>
           <p className="mt-1 text-sm text-[#5c564c]">
-            Admin-defined objects. Records use a shared table (name + description).
+            Admin-defined objects. Name and description live on a shared table.
+            Text, number, date, and picklist values use the existing custom-field tables.
           </p>
         </div>
         {admin ? (
@@ -84,6 +85,17 @@ export default async function CustomObjectsSetupPage({
                     >
                       Open {object.labelPlural}
                     </Link>
+                    {admin ? (
+                      <>
+                        {" · "}
+                        <Link
+                          href={`/setup/objects/${object.apiName}/fields`}
+                          className="text-[#c45c26] hover:underline"
+                        >
+                          Fields
+                        </Link>
+                      </>
+                    ) : null}
                   </td>
                 </tr>
               ))

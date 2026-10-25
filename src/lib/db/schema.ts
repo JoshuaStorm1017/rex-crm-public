@@ -1062,8 +1062,10 @@ export const customObjects = sqliteTable(
 );
 
 /**
- * Shared row store for every custom object. Slice A: name + optional
- * description only. Visibility is owner-or-admin (no sharing.ts).
+ * Shared row store for every custom object. Name and an optional
+ * description live on the row. Text, number, date, and picklist values
+ * (S2-8) are rows in custom_field_values keyed by this id. Visibility
+ * is owner-or-admin (no sharing.ts).
  */
 export const customObjectRecords = sqliteTable(
   "custom_object_records",

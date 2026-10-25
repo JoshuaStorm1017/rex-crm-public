@@ -32,7 +32,7 @@ export default async function SetupPage() {
         </p>
       </div>
       <div className="grid gap-3">
-        <SetupCard href="/setup/objects" title="Custom Objects" body={`${objects.length} object${objects.length === 1 ? "" : "s"}. Admin-defined types with name + description records.`} />
+        <SetupCard href="/setup/objects" title="Custom Objects" body={`${objects.length} object${objects.length === 1 ? "" : "s"}. Name and description, plus text, number, date, and picklist fields.`} />
         <SetupCard href="/setup/fields" title="Custom Fields" body={`${fields.length} field${fields.length === 1 ? "" : "s"} on the five standard objects.`} />
         <SetupCard href="/setup/rules" title="Validation Rules" body={`${rules.length} rule${rules.length === 1 ? "" : "s"}. A match rejects the save.`} />
         <SetupCard href="/setup/assignment" title="Assignment Rules" body={`${assignment.length} rule${assignment.length === 1 ? "" : "s"}. Lead create only.`} />
