@@ -1,6 +1,7 @@
 /**
  * PLAT-META-003 Slice A: admin-defined custom objects and a shared
- * record table (name + optional description). Profile permissions are
+ * record table (name + optional description). Text, number, date, and
+ * picklist values live in custom_field_values (S2-8). Profile permissions are
  * deny-default (missing row = no access). Record visibility is
  * owner-or-admin; sharing.ts is not used tonight.
  */
@@ -20,6 +21,7 @@ import {
   isCurrentOrgAdmin,
 } from "./actor";
 import { isCustomFieldApiName } from "./constants";
+import { deleteCustomValuesForRecord } from "./customFields";
 import { DomainError } from "./errors";
 import { ID_PREFIX, newId } from "./ids";
 import {
@@ -500,12 +502,16 @@ export function deleteCustomRecord(
   if (!existing || !recordVisible(db, actor, existing)) {
     throw notFoundRecord();
   }
-  db.update(customObjectRecords)
-    .set({
-      deletedAt: now(),
-      updatedAt: now(),
-      updatedBy: actor.userId,
-    })
-    .where(eq(customObjectRecords.id, existing.id))
-    .run();
+  const ts = now();
+  db.transaction((tx) => {
+    deleteCustomValuesForRecord(tx, actor, existing.id);
+    tx.update(customObjectRecords)
+      .set({
+        deletedAt: ts,
+        updatedAt: ts,
+        updatedBy: actor.userId,
+      })
+      .where(eq(customObjectRecords.id, existing.id))
+      .run();
+  });
 }

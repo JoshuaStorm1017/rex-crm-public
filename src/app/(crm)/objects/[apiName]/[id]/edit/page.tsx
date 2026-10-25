@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CustomRecordForm } from "@/components/CustomRecordForm";
+import { customObjectFieldInputs } from "@/lib/crm/customObjectFields";
 import {
   getCustomObjectByApiName,
   getCustomRecord,
@@ -45,6 +46,7 @@ export default async function EditCustomRecordPage({
           submitLabel="Save"
           name={row.name}
           description={row.description}
+          fields={customObjectFieldInputs(db, actor, object.apiName, row.id)}
         />
       </div>
     </div>

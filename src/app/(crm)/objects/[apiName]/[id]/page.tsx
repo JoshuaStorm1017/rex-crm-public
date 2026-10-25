@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { getCustomObjectFieldValues } from "@/lib/crm/customObjectFields";
 import {
   getCustomObjectByApiName,
   getCustomRecord,
@@ -25,6 +26,7 @@ export default async function CustomRecordDetailPage({
   const row = getCustomRecord(db, actor, apiName, id);
   if (!row) notFound();
 
+  const reads = getCustomObjectFieldValues(db, actor, object.apiName, row.id);
   const canEdit = Boolean(flags?.canUpdate);
   const canDelete = Boolean(flags?.canDelete);
   const deleteAction = deleteCustomRecordAction.bind(null, object.apiName, row.id);
@@ -75,6 +77,14 @@ export default async function CustomRecordDetailPage({
           <dt className="text-xs uppercase tracking-wide text-[#8a8376]">Owner</dt>
           <dd className="mt-1 font-mono text-xs text-[#5c564c]">{row.ownerId}</dd>
         </div>
+        {reads.map((item) => (
+          <div key={item.field.id}>
+            <dt className="text-xs uppercase tracking-wide text-[#8a8376]">
+              {item.field.label}
+            </dt>
+            <dd className="mt-1 text-sm">{item.display}</dd>
+          </div>
+        ))}
         <div className="sm:col-span-2">
           <dt className="text-xs uppercase tracking-wide text-[#8a8376]">
             Description

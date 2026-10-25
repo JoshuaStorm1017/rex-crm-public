@@ -3,6 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
+  customObjectFieldValuesFromForm,
+  listCustomObjectFields,
+  setCustomObjectFieldValues,
+} from "@/lib/crm/customObjectFields";
+import {
   createCustomRecord,
   deleteCustomRecord,
   updateCustomRecord,
@@ -21,9 +26,20 @@ export async function createCustomRecordAction(
   let row;
   try {
     const actor = await requireActor();
-    row = createCustomRecord(getDb(), actor, apiName, {
-      name: String(formData.get("name") ?? ""),
-      description: blank(formData.get("description")),
+    const db = getDb();
+    const posted = customObjectFieldValuesFromForm(formData);
+    const mustWriteFields =
+      Object.keys(posted).length > 0 ||
+      listCustomObjectFields(db, actor, apiName).some((field) => field.required);
+    row = db.transaction((tx) => {
+      const created = createCustomRecord(tx, actor, apiName, {
+        name: String(formData.get("name") ?? ""),
+        description: blank(formData.get("description")),
+      });
+      if (mustWriteFields) {
+        setCustomObjectFieldValues(tx, actor, apiName, created.id, posted, "create");
+      }
+      return created;
     });
   } catch (error) {
     return actionError(error);
@@ -40,9 +56,16 @@ export async function updateCustomRecordAction(
 ): Promise<ActionState> {
   try {
     const actor = await requireActor();
-    updateCustomRecord(getDb(), actor, apiName, id, {
-      name: String(formData.get("name") ?? ""),
-      description: blank(formData.get("description")),
+    const db = getDb();
+    const posted = customObjectFieldValuesFromForm(formData);
+    db.transaction((tx) => {
+      updateCustomRecord(tx, actor, apiName, id, {
+        name: String(formData.get("name") ?? ""),
+        description: blank(formData.get("description")),
+      });
+      if (Object.keys(posted).length > 0) {
+        setCustomObjectFieldValues(tx, actor, apiName, id, posted, "update");
+      }
     });
   } catch (error) {
     return actionError(error);
