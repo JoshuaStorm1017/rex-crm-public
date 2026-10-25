@@ -19,17 +19,32 @@ Reads and writes cover those five objects. `Product` and custom objects are not 
 
 ## Authentication
 
-The caller is the session cookie `rex_session`, the same actor as the
-UI. v0 has no anonymous read and no bearer token.
+The caller is either the session cookie `rex_session` or
+`Authorization: Bearer <secret>`. Both are the same actor the UI uses:
+one user in one organization, with the same permission, field, and
+sharing checks.
 
-A missing, blank, or unknown session is 401:
+A signed-in caller mints a bearer with `POST /api/v1/tokens`, and that
+route accepts only the session cookie. `Authorization`, even a valid
+bearer, is 403 `FORBIDDEN`, message `A bearer cannot create a token`,
+and the cookie is not consulted. The body is empty or `{ "name": "ci" }`.
+The response includes `secret` once. The database stores only the
+SHA-256 hash. `DELETE /api/v1/tokens/{id}` revokes that caller's own
+token and accepts the session cookie or a bearer. A token lasts 30
+days. There is no scope narrower than the user, and the mint body
+cannot name another user or organization.
+
+A missing, blank, or unknown session, and a missing, malformed,
+unknown, expired, or revoked bearer, are 401:
 
 ```json
 { "error": { "code": "UNAUTHENTICATED", "message": "Sign in required" } }
 ```
 
-Those three cases return that same body. The API does not redirect to
-`/login`.
+Those cases return that same body. The API does not redirect to
+`/login`. When `Authorization` is present it is the only credential:
+a bad bearer does not fall back to the cookie. A session id is not a
+bearer.
 
 ## Records
 
@@ -81,11 +96,13 @@ ISO-8601 UTC (`2026-10-16T18:00:00.000Z`). Calendar dates (`closeDate`,
 
 | Status | Code | When |
 | --- | --- | --- |
-| 401 | `UNAUTHENTICATED` | No usable session |
+| 401 | `UNAUTHENTICATED` | No usable session or bearer |
 | 400 | `INVALID_INPUT` | `limit`, `cursor`, body, or `Idempotency-Key` is not valid |
-| 403 | `FORBIDDEN` | The actor's organization or user is not active, or the actor can see the record but may not change it |
+| 403 | `FORBIDDEN` | The actor can see the record but may not change it, or `POST /api/v1/tokens` was called with `Authorization` |
 | 404 | `NOT_FOUND` | Unknown object, or a record the actor cannot read |
-| 409 | `CONFLICT` | `If-Match` is stale, or the idempotency key was already used |
+| 409 | `CONFLICT` | The idempotency key was already used with a different request |
+| 412 | `PRECONDITION_FAILED` | `If-Match` is present and does not match the record ETag |
+| 428 | `PRECONDITION_REQUIRED` | `PATCH` is missing `If-Match` |
 
 Unknown `apiName`: message `Object not found`. A missing id, another
 organization's id, a private record, a soft-deleted record, and a
@@ -120,17 +137,24 @@ Writes call the same domain functions as the UI. POST returns 201
 response can name a row that a later read hides.
 
 Every write sends `Idempotency-Key`: 8 to 128 characters from
-`A-Za-z0-9_-`. The key belongs to the session's organization and user.
-The same key and the same request return the stored response and do
-not write again. Object key order does not matter. The same key with a
-different method, id, or body is 409 `CONFLICT`, message
-`Idempotency key was already used`. A rejected request does not store
-the key. Another organization's copy of the key is a different key.
+`A-Za-z0-9_-`. The key belongs to the caller's organization and user.
+A cookie and a bearer for that same user share keys. The same key and
+the same request return the stored response, including the same status
+and record id, and do not write again. Object key order does not
+matter. The same key with a different method, id, or body is 409
+`CONFLICT`, message `Idempotency key was already used`. A rejected
+request does not store the key. Another organization's copy of the key
+is a different key.
 
-PATCH requires `If-Match` set to the record's `updatedAt` from a read
-(optionally quoted). A mismatch is 409 `CONFLICT`, message
-`Record has changed`. A missing `If-Match` is 400. DELETE does not use
-`If-Match`.
+GET, POST, and PATCH of one record send `ETag` set to the quoted
+`updatedAt` (`"2026-10-16T18:00:00.000Z"`). That value is also
+`fields.updatedAt`. PATCH requires `If-Match` set to that ETag
+(quotes optional, one `W/` prefix allowed). A missing `If-Match` is
+428 `PRECONDITION_REQUIRED`, message `If-Match is required`. A value
+that does not match, including `*`, is 412 `PRECONDITION_FAILED`,
+message `Record has changed`. A match updates the record and returns
+the new ETag. DELETE does not use `If-Match`. Nothing is written on
+428 or 412, including no idempotency row.
 
 The body is `{ "fields": { } }`. Names match reads. Money is the read
 shape, and `null` on update clears a field. An absent field is left
@@ -145,6 +169,6 @@ is written on those failures, including no idempotency row.
 
 ## Later versions, decided now
 
-Rate-limit headers, bearer tokens, bulk jobs, and an OpenAPI document
+Rate-limit headers, bearer scopes, bulk jobs, and an OpenAPI document
 generated from the registry are not in v0. When they arrive they keep
 this error shape and these field names.

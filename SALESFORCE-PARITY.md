@@ -511,7 +511,7 @@ Source: product map (MuleSoft, Heroku); Winter '27 API version 68.0; API Catalog
 
 | ID | Expected | Status |
 |---|---|---|
-| INT-REST-001 | Versioned REST CRUD for an sObject, with the actor's session or a bearer token | PARTIAL. Session-cookie create, update, and delete for Account, Contact, Lead, Opportunity, and Task, with Idempotency-Key and If-Match. No bearer token. |
+| INT-REST-001 | Versioned REST CRUD for an sObject, with the actor's session or a bearer token | PARTIAL. Session cookie or bearer create, update, and delete for Account, Contact, Lead, Opportunity, and Task, with Idempotency-Key and If-Match (428/412). No bearer scopes. Product is not writable. |
 | INT-SOAP-001 | A minimal SOAP retrieve/update against the same domain functions | NOT STARTED |
 | INT-BULK-001 | Bulk insert job, batches, result file, partial success | NOT STARTED |
 | INT-COMP-001 | Composite request, all-or-none, stops on first error when asked | NOT STARTED |

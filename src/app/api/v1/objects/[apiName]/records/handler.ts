@@ -1,8 +1,9 @@
-import { apiErrorStatus, apiJson, UNAUTHENTICATED_BODY } from "@/lib/crm/apiError";
+import { apiDomainResponse, apiJson, UNAUTHENTICATED_BODY } from "@/lib/crm/apiError";
 import { getApiRecord, listApiRecords } from "@/lib/crm/apiRecords";
+import { actorForRequest } from "@/lib/crm/apiAuth";
 import { createApiRecord, deleteApiRecord, updateApiRecord, type ApiWriteResult } from "@/lib/crm/apiWrites";
-import { getCurrentActor, type CurrentActor } from "@/lib/crm/currentUser";
-import { DomainError, isDomainError } from "@/lib/crm/errors";
+import type { CurrentActor } from "@/lib/crm/currentUser";
+import { DomainError } from "@/lib/crm/errors";
 import { getDb, type Db } from "@/lib/db/client";
 
 const MAX_BODY = 64_000;
@@ -17,7 +18,7 @@ export async function readRecords(
   apiName: string,
   id?: string,
 ): Promise<Response> {
-  const actor = await getCurrentActor();
+  const actor = await actorForRequest(request);
   if (!actor) return apiJson(UNAUTHENTICATED_BODY, 401);
   try {
     const db = getDb();
@@ -26,16 +27,14 @@ export async function readRecords(
     }
     return apiJson(listApiRecords(db, actor, apiName, new URL(request.url).searchParams), 200);
   } catch (error) {
-    if (!isDomainError(error)) throw error;
-    return apiJson(
-      { error: { code: error.code, message: error.message } },
-      apiErrorStatus(error.code),
-    );
+    const response = apiDomainResponse(error);
+    if (response) return response;
+    throw error;
   }
 }
 
 export async function postRecords(request: Request, apiName: string): Promise<Response> {
-  return write(async (db, actor) =>
+  return write(request, async (db, actor) =>
     createApiRecord(
       db,
       actor,
@@ -51,7 +50,7 @@ export async function patchRecord(
   apiName: string,
   id: string,
 ): Promise<Response> {
-  return write(async (db, actor) =>
+  return write(request, async (db, actor) =>
     updateApiRecord(
       db,
       actor,
@@ -69,7 +68,7 @@ export async function deleteRecord(
   apiName: string,
   id: string,
 ): Promise<Response> {
-  return write((db, actor) =>
+  return write(request, (db, actor) =>
     Promise.resolve(
       deleteApiRecord(db, actor, apiName, id, request.headers.get("idempotency-key")),
     ),
@@ -77,9 +76,10 @@ export async function deleteRecord(
 }
 
 async function write(
+  request: Request,
   run: (db: Db, actor: CurrentActor) => Promise<ApiWriteResult>,
 ): Promise<Response> {
-  const actor = await getCurrentActor();
+  const actor = await actorForRequest(request);
   if (!actor) return apiJson(UNAUTHENTICATED_BODY, 401);
   try {
     const result = await run(getDb(), actor);
@@ -88,11 +88,9 @@ async function write(
     }
     return apiJson(result.body, result.status);
   } catch (error) {
-    if (!isDomainError(error)) throw error;
-    return apiJson(
-      { error: { code: error.code, message: error.message } },
-      apiErrorStatus(error.code),
-    );
+    const response = apiDomainResponse(error);
+    if (response) return response;
+    throw error;
   }
 }
 

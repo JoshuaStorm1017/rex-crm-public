@@ -226,15 +226,24 @@ describe("write API", () => {
     const stale = await patch("Account", id, "retry-key-0002", "2020-01-01T00:00:00.000Z", {
       fields: { phone: "555-0199" },
     });
-    expect(stale.status).toBe(409);
-    expect((await jsonOf(stale)).error).toEqual({ code: "CONFLICT", message: "Record has changed" });
+    expect(stale.status).toBe(412);
+    expect((await jsonOf(stale)).error).toEqual({
+      code: "PRECONDITION_FAILED",
+      message: "Record has changed",
+    });
     expect(db.select().from(accounts).all()[0]?.phone).toBe("555-0101");
 
     const missing = await patch("Account", id, "retry-key-0003", undefined, { fields: { phone: "555-0199" } });
-    expect(missing.status).toBe(400);
+    expect(missing.status).toBe(428);
+    expect((await jsonOf(missing)).error).toEqual({
+      code: "PRECONDITION_REQUIRED",
+      message: "If-Match is required",
+    });
     expect(db.select().from(accounts).all()[0]?.phone).toBe("555-0101");
 
-    const cleared = await jsonOf(await patch("Account", id, "retry-key-0004", `"${stamp}"`, { fields: { phone: null } }));
+    const clearedResponse = await patch("Account", id, "retry-key-0004", `"${stamp}"`, { fields: { phone: null } });
+    const cleared = await jsonOf(clearedResponse);
+    expect(clearedResponse.headers.get("etag")).toBe(`"${cleared.record?.fields.updatedAt}"`);
     expect(cleared.record?.fields.phone).toBeNull();
     const kept = await jsonOf(
       await patch("Account", id, "retry-key-0005", cleared.record!.fields.updatedAt as string, {
@@ -670,7 +679,10 @@ describe("write API", () => {
       expect(text).not.toContain("001ATTACK");
     }
     const blankMatch = await patch("Account", id, "retry-key-0012", "   ", { fields: { name: "Anvil Co" } });
-    expect(blankMatch.status).toBe(400);
+    expect(blankMatch.status).toBe(428);
+    expect(await blankMatch.json()).toEqual({
+      error: { code: "PRECONDITION_REQUIRED", message: "If-Match is required" },
+    });
     const lead = await post("Lead", "retry-key-0013", {
       fields: { lastName: "North", company: "North Example", status: "Converted" },
     });

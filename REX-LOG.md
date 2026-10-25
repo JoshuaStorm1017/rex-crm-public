@@ -1,5 +1,32 @@
 # Rex log
 
+## 2026-10-25 — S2-9 review: token mint is session-only (Rex Grok Coder)
+
+Branch `rex/s2-9-write-api-bearer-idempotency`, follow-up on `d551ab8`.
+
+- **Authored-by:** Rex Grok Coder (CloudAgent).
+- **What:** `POST /api/v1/tokens` rejects any `Authorization` header with 403 `FORBIDDEN`, message `A bearer cannot create a token`. A valid bearer is refused, including when the session cookie is also sent. The cookie is not consulted on that request. `DELETE /api/v1/tokens/{id}` still accepts the session or a bearer.
+- **Why:** A leaked bearer could mint 30-day successors that outlive a revoke of the parent. There is no token list.
+- **Tests:** `tokens/route.test.ts` adds one case. A session mint is 201. That bearer alone is 403 and stores no second row. The same bearer beside the session is 403. Bearer DELETE of that token is still 204.
+- **Mutation (scratch, restored):** drop the Authorization gate KILLED; mint through `actorForRequest` KILLED.
+- **Verify:** `npm run verify` exit 0, Node v22.23.4, vitest **1855/1855** (165 files). Same two pre-existing eslint warnings. No browser pass. The earlier curl did not cover this restriction.
+- **Gitleaks:** v8.28.0 `protect --staged` and `git --log-opts="origin/main..HEAD"` exit 0. No new secrets.
+- **Not done:** no token list. Product is still not writable. No new object types.
+
+## 2026-10-25 — S2-9: write API bearer, idempotency, and If-Match (Rex Grok Coder)
+
+Branch `rex/s2-9-write-api-bearer-idempotency` off main `5b76fc4` (#74).
+
+- **Authored-by:** Rex Grok Coder (CloudAgent).
+- **What:** The existing record routes take `Authorization: Bearer` or the `rex_session` cookie. `actorForRequest` resolves the bearer to the same actor shape, and create/update/delete still go through the domain functions. A present `Authorization` header does not fall back to the cookie. `POST /api/v1/tokens` mints a secret once (SHA-256 stored, 30-day expiry, bound to that user and org; the review note above limits minting to the session cookie). `DELETE /api/v1/tokens/{id}` revokes the caller's own token. The proxy lets a `Bearer` header through to `/api/` and still sends a cookieless page to `/login`. POST and DELETE keep Idempotency-Key replay (same status and record id, no second write). PATCH with no `If-Match` is 428 `PRECONDITION_REQUIRED`. A mismatch, including `*`, is 412 `PRECONDITION_FAILED`. A match returns the new `ETag` (quoted `updatedAt`). Migration `0060_api_tokens`.
+- **Why:** S2-9 still had no credential an API client could send, and If-Match used 400/409 instead of the precondition statuses.
+- **Tests:** `bearer.route.test.ts` (7) and `tokens/route.test.ts` (2), plus the blank If-Match case, proxy bearer pass-through, and the 0060 migration test. Full verify 1854/1854.
+- **Mutation (scratch, restored):** 12/12 killed — cookie fallback, skip expiry, skip revoke, skip membership, ignore token org, missing If-Match as 400, bad If-Match as 409, skip the match check, store no idempotency row, store the raw secret, `If-Match: *` succeeds, bearer API redirected to login.
+- **Verify:** `npm run verify` exit 0, Node v22.23.4. typegen, tsc, eslint (0 errors; 2 pre-existing unused-var warnings in `apiRecords.ts` and `apiWrites.ts`), vitest **1854/1854** (165 files), Next.js 16.3.5 build. Curl on `next dev` with `DATABASE_PATH` in `/tmp`: 401, 201 replay, 428, 412, 200 with a new ETag, 204 replay, Product 404. Temp database deleted. No browser pass.
+- **Gitleaks:** `gitleaks protect --staged` with v8.28.0, exit 0. No secrets in the diff. The curl bearer was generated at runtime and is not in the tree. Fictional `example.com` addresses only.
+- **Line count:** about 282 net non-test, non-markdown lines, including migration 0060. Under the ~400 guide.
+- **Not done:** no browser pass. No token list or scopes. Product is not writable. No new object types. Custom-object writes from S2-7 share this handler; this PR does not extend them. Minting a token is not idempotent.
+
 ## 2026-10-25 — S2-8: custom fields on custom objects (Rex Grok Coder)
 
 Branch `rex/s2-8-custom-fields-on-custom-objects` off main `f81cdd19` (#73).

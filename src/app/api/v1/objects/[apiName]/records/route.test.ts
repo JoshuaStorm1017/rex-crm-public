@@ -346,6 +346,8 @@ describe("GET /api/v1/objects/{apiName}/records", () => {
     expect(apiErrorStatus("NOT_FOUND")).toBe(404);
     expect(apiErrorStatus("INVALID_INPUT")).toBe(400);
     expect(apiErrorStatus("CONFLICT")).toBe(409);
+    expect(apiErrorStatus("PRECONDITION_REQUIRED")).toBe(428);
+    expect(apiErrorStatus("PRECONDITION_FAILED")).toBe(412);
     expect(apiErrorStatus("NO_ORG")).toBe(400);
     expect(collectionHandlers.GET).toEqual(expect.any(Function));
     expect(collectionHandlers.POST).toEqual(expect.any(Function));

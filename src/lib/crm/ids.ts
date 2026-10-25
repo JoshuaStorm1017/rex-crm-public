@@ -43,6 +43,7 @@ export const ID_PREFIX = {
   campaignMember: "00v",
   auditEvent: "0ae",
   idempotency: "0ik",
+  apiToken: "0at",
   customObject: "01I",
   customObjectRecord: "a00",
 } as const;

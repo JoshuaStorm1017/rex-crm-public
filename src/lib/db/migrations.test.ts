@@ -187,7 +187,7 @@ describe("drizzle journal", () => {
       const applied = () => (sqlite.prepare("SELECT count(*) AS n FROM __drizzle_migrations").get() as { n: number }).n;
       expect(applied()).toBe(prior.length);
       migrate(drizzle(sqlite), { migrationsFolder });
-      // The newest (0059) creates custom object tables; prior newest was a data backfill, so count applied migrations, not tables.
+      // The newest (0060) creates api_tokens. Count applied migrations, not tables.
       expect(applied()).toBe(journal.entries.length);
       const account = sqlite.prepare("SELECT org_id FROM accounts WHERE id = ?").get("001MIGRATE") as { org_id: string };
       expect(account.org_id).toBe("00D000000000LOCALORG0001");
@@ -461,6 +461,58 @@ describe("drizzle journal", () => {
       expect(indexes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ name: "api_idempotency_org_actor_key_uidx", unique: 1 }),
+        ]),
+      );
+      const account = sqlite
+        .prepare("SELECT name FROM accounts WHERE id = ?")
+        .get("001MIGRATE") as { name: string };
+      expect(account.name).toBe("Existing Account");
+    } finally {
+      sqlite.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("adds api_tokens to a database that stopped at 0059 and keeps its account", () => {
+    const journal = readJournal();
+    const stop = journal.entries.findIndex((entry) => entry.tag === "0059_custom_objects");
+    expect(stop).toBeGreaterThan(0);
+    const prior = journal.entries.slice(0, stop + 1);
+    expect(prior.at(-1)?.tag).toBe("0059_custom_objects");
+    expect(journal.entries.some((entry) => entry.tag === "0060_api_tokens")).toBe(true);
+    const dir = mkdtempSync(path.join(tmpdir(), "rex-migrate-0059-"));
+    const sqlite = new Database(path.join(dir, "rex.sqlite"));
+    try {
+      sqlite.pragma("foreign_keys = ON");
+      applyEntries(sqlite, prior);
+      sqlite
+        .prepare("INSERT INTO users (id, name, email, username) VALUES (?, ?, ?, ?)")
+        .run("usr_mig", "Migration User", "mig@example.com", "mig");
+      sqlite
+        .prepare(
+          `INSERT INTO accounts (
+            id, name, owner_id, created_at, updated_at, created_by, updated_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run("001MIGRATE", "Existing Account", "usr_mig", 1, 1, "usr_mig", "usr_mig");
+      const tableExists = () =>
+        sqlite
+          .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'api_tokens'")
+          .get();
+      expect(tableExists()).toBeUndefined();
+      migrate(drizzle(sqlite), { migrationsFolder });
+      expect(tableExists()).toBeDefined();
+      const columns = sqlite.prepare("PRAGMA table_info(api_tokens)").all() as { name: string }[];
+      expect(columns.map((column) => column.name)).toEqual(
+        expect.arrayContaining(["org_id", "user_id", "token_hash", "expires_at", "revoked_at"]),
+      );
+      const indexes = sqlite.prepare("PRAGMA index_list(api_tokens)").all() as {
+        name: string;
+        unique: number;
+      }[];
+      expect(indexes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "api_tokens_hash_uidx", unique: 1 }),
         ]),
       );
       const account = sqlite

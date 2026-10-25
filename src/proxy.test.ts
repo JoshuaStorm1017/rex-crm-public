@@ -17,6 +17,25 @@ describe("proxy", () => {
     expect(response.headers.get("location")).toContain("/login");
   });
 
+  it("lets a bearer through to the API and still sends a page to login", () => {
+    const api = proxy(
+      new NextRequest("http://localhost/api/v1/objects/Account/records", {
+        method: "POST",
+        headers: { authorization: "Bearer rex_not-checked-here" },
+      }),
+    );
+    expect(api.status).not.toBe(401);
+    expect(api.headers.get("location")).toBeNull();
+
+    const page = proxy(
+      new NextRequest("http://localhost/accounts", {
+        headers: { authorization: "Bearer rex_not-checked-here" },
+      }),
+    );
+    expect(page.status).toBe(307);
+    expect(page.headers.get("location")).toContain("/login");
+  });
+
   it("leaves login and a cookied API request alone", () => {
     const login = proxy(new NextRequest("http://localhost/login"));
     expect(login.headers.get("location")).toBeNull();
