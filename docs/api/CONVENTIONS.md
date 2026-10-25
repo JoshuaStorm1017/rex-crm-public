@@ -24,12 +24,15 @@ The caller is either the session cookie `rex_session` or
 one user in one organization, with the same permission, field, and
 sharing checks.
 
-A signed-in caller mints a bearer with `POST /api/v1/tokens`. The body
-is empty or `{ "name": "ci" }`. The response includes `secret` once.
-The database stores only the SHA-256 hash. `DELETE /api/v1/tokens/{id}`
-revokes that caller's own token. A token lasts 30 days. There is no
-scope narrower than the user, and the mint body cannot name another
-user or organization.
+A signed-in caller mints a bearer with `POST /api/v1/tokens`, and that
+route accepts only the session cookie. `Authorization`, even a valid
+bearer, is 403 `FORBIDDEN`, message `A bearer cannot create a token`,
+and the cookie is not consulted. The body is empty or `{ "name": "ci" }`.
+The response includes `secret` once. The database stores only the
+SHA-256 hash. `DELETE /api/v1/tokens/{id}` revokes that caller's own
+token and accepts the session cookie or a bearer. A token lasts 30
+days. There is no scope narrower than the user, and the mint body
+cannot name another user or organization.
 
 A missing, blank, or unknown session, and a missing, malformed,
 unknown, expired, or revoked bearer, are 401:
@@ -95,7 +98,7 @@ ISO-8601 UTC (`2026-10-16T18:00:00.000Z`). Calendar dates (`closeDate`,
 | --- | --- | --- |
 | 401 | `UNAUTHENTICATED` | No usable session or bearer |
 | 400 | `INVALID_INPUT` | `limit`, `cursor`, body, or `Idempotency-Key` is not valid |
-| 403 | `FORBIDDEN` | The actor can see the record but may not change it |
+| 403 | `FORBIDDEN` | The actor can see the record but may not change it, or `POST /api/v1/tokens` was called with `Authorization` |
 | 404 | `NOT_FOUND` | Unknown object, or a record the actor cannot read |
 | 409 | `CONFLICT` | The idempotency key was already used with a different request |
 | 412 | `PRECONDITION_FAILED` | `If-Match` is present and does not match the record ETag |

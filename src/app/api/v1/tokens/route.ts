@@ -1,11 +1,21 @@
 import { apiDomainResponse, apiJson, UNAUTHENTICATED_BODY } from "@/lib/crm/apiError";
-import { actorForRequest } from "@/lib/crm/apiAuth";
-import { createApiToken, parseTokenCreateBody } from "@/lib/crm/apiTokens";
+import { createApiToken, parseAuthorization, parseTokenCreateBody } from "@/lib/crm/apiTokens";
+import { getCurrentActor } from "@/lib/crm/currentUser";
 import { getDb } from "@/lib/db/client";
 
-/** Session or bearer mints a new secret for that same user and org. */
+const BEARER_MINT_BODY = {
+  error: { code: "FORBIDDEN", message: "A bearer cannot create a token" },
+};
+
+/**
+ * Session cookie only. A bearer, valid or not, cannot mint another
+ * bearer, and a cookie sent beside Authorization is not used.
+ */
 export async function POST(request: Request): Promise<Response> {
-  const actor = await actorForRequest(request);
+  if (parseAuthorization(request.headers.get("authorization")).kind !== "absent") {
+    return apiJson(BEARER_MINT_BODY, 403);
+  }
+  const actor = await getCurrentActor();
   if (!actor) return apiJson(UNAUTHENTICATED_BODY, 401);
   try {
     const { name } = parseTokenCreateBody(await request.text());

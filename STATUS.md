@@ -1,6 +1,6 @@
 # Rex CRM — Status
 
-- **S2-9 (this branch):** bearer auth on the existing `/api/v1` record routes, Idempotency-Key replay on POST and DELETE, and If-Match on PATCH (428 missing, 412 mismatch, new ETag on success). Verify exit 0 on 2026-10-25, Node v22.23.4, 1854/1854 tests. Curl against `next dev` covered the same write path. No browser pass.
+- **S2-9 (this branch):** bearer auth on the existing `/api/v1` record routes, Idempotency-Key replay on POST and DELETE, and If-Match on PATCH (428 missing, 412 mismatch, new ETag on success). `POST /api/v1/tokens` is session-cookie only (a bearer is 403). Verify exit 0 on 2026-10-25, Node v22.23.4, 1855/1855 tests. Curl against `next dev` covered the write path before the mint restriction. No browser pass.
 
 - **S2-8:** merged on main as `5b76fc4` (#74). Text, number, date, and picklist values on custom objects.
 
@@ -52,11 +52,11 @@ sharing rules.
 
 ### Write API bearer, idempotency, and If-Match (2026-10-25, S2-9)
 
-`POST`, `PATCH`, and `DELETE /api/v1/objects/{apiName}/records` accept `Authorization: Bearer` or the session cookie. The bearer is one user in one organization. The route runs the same permission checks as the UI. A bad, expired, revoked, or missing bearer is 401 with the same body as a missing session. When `Authorization` is present, the cookie is not used. `POST /api/v1/tokens` (session or bearer) returns a secret once; the row stores SHA-256. `DELETE /api/v1/tokens/{id}` revokes that caller's token.
+`POST`, `PATCH`, and `DELETE /api/v1/objects/{apiName}/records` accept `Authorization: Bearer` or the session cookie. The bearer is one user in one organization. The route runs the same permission checks as the UI. A bad, expired, revoked, or missing bearer is 401 with the same body as a missing session. When `Authorization` is present, the cookie is not used. `POST /api/v1/tokens` accepts only the session cookie and returns a secret once; the row stores SHA-256. Any `Authorization` header on that POST, including a valid bearer next to the cookie, is 403 and stores nothing. `DELETE /api/v1/tokens/{id}` still revokes that caller's token with the session cookie or a bearer.
 
 The same Idempotency-Key and the same POST or DELETE body return the same status and record id and do not write again. PATCH without `If-Match` is 428. A present `If-Match` that does not match the record ETag, including `*`, is 412. A match updates the record and the response `ETag` is the new quoted `updatedAt`.
 
-`npm run verify` exit 0, Node v22.23.4, 1854/1854 tests (165 files). typegen, tsc, eslint (0 errors; the same 2 unused-var warnings in `apiRecords.ts` and `apiWrites.ts`), vitest, Next.js 16.3.5 build. Curl against `next dev` on a temp database: no credential 401, bad bearer 401, bearer create 201, replay same id, missing If-Match 428, bad If-Match 412, matching ETag 200 with a new ETag, delete replay 204, Product 404. No browser pass. No token screen.
+`npm run verify` exit 0, Node v22.23.4, 1855/1855 tests (165 files). typegen, tsc, eslint (0 errors; the same 2 unused-var warnings in `apiRecords.ts` and `apiWrites.ts`), vitest, Next.js 16.3.5 build. Curl against `next dev` on a temp database, before the mint restriction: no credential 401, bad bearer 401, bearer create 201, replay same id, missing If-Match 428, bad If-Match 412, matching ETag 200 with a new ETag, delete replay 204, Product 404. The mint restriction is covered by Vitest, not that curl. No browser pass. No token screen.
 
 Not in this slice: Product writes, new object types, bearer scopes, a token list, rate limits. Custom-object writes already exist from S2-7 and share this handler; this PR does not add custom-object coverage. Token mint is not idempotent.
 

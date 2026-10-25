@@ -132,6 +132,40 @@ describe("POST /api/v1/tokens", () => {
     expect(db.select().from(accounts).all()).toHaveLength(1);
   });
 
+  it("lets a session mint and refuses a bearer, even beside that session", async () => {
+    signIn(db, LOCAL_USER_ID);
+    const sessionMint = await mint({ name: "from session" });
+    expect(sessionMint.status).toBe(201);
+    const parent = (await sessionMint.json()) as { token: { id: string; secret: string } };
+    expect(db.select().from(apiTokens).all()).toHaveLength(1);
+
+    clearCookie();
+    const fromBearer = await mint({ name: "successor" }, `Bearer ${parent.token.secret}`);
+    expect(fromBearer.status).toBe(403);
+    const bearerText = await fromBearer.text();
+    expect(JSON.parse(bearerText)).toEqual({
+      error: { code: "FORBIDDEN", message: "A bearer cannot create a token" },
+    });
+    expect(bearerText).not.toContain(parent.token.secret);
+    expect(db.select().from(apiTokens).all()).toHaveLength(1);
+
+    signIn(db, LOCAL_USER_ID);
+    const besideCookie = await mint({ name: "beside cookie" }, `Bearer ${parent.token.secret}`);
+    expect(besideCookie.status).toBe(403);
+    expect(db.select().from(apiTokens).all()).toHaveLength(1);
+
+    clearCookie();
+    const revoked = await DELETE(
+      new Request(`http://localhost/api/v1/tokens/${parent.token.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${parent.token.secret}` },
+      }),
+      { params: Promise.resolve({ id: parent.token.id }) },
+    );
+    expect(revoked.status).toBe(204);
+    expect(db.select().from(apiTokens).all()[0]?.revokedAt).not.toBeNull();
+  });
+
   it("refuses a body that names another user", async () => {
     signIn(db, LOCAL_USER_ID);
     const response = await mint({ name: "ci", userId: RILEY_USER_ID, orgId: "00D000000000OTHER" });
